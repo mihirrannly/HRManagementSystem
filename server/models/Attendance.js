@@ -1,0 +1,136 @@
+const mongoose = require('mongoose');
+
+const attendanceSchema = new mongoose.Schema({
+  employee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    required: true
+  },
+  date: {
+    type: Date,
+    required: true
+  },
+  checkIn: {
+    time: Date,
+    location: {
+      latitude: Number,
+      longitude: Number,
+      address: String
+    },
+    method: {
+      type: String,
+      enum: ['manual', 'biometric', 'mobile', 'web'],
+      default: 'manual'
+    },
+    deviceInfo: String
+  },
+  checkOut: {
+    time: Date,
+    location: {
+      latitude: Number,
+      longitude: Number,
+      address: String
+    },
+    method: {
+      type: String,
+      enum: ['manual', 'biometric', 'mobile', 'web'],
+      default: 'manual'
+    },
+    deviceInfo: String
+  },
+  breaks: [{
+    breakOut: Date,
+    breakIn: Date,
+    reason: String,
+    duration: Number // in minutes
+  }],
+  totalHours: {
+    type: Number,
+    default: 0
+  },
+  regularHours: {
+    type: Number,
+    default: 0
+  },
+  overtimeHours: {
+    type: Number,
+    default: 0
+  },
+  status: {
+    type: String,
+    enum: ['present', 'absent', 'late', 'half-day', 'holiday', 'weekend'],
+    default: 'present'
+  },
+  isLate: {
+    type: Boolean,
+    default: false
+  },
+  lateMinutes: {
+    type: Number,
+    default: 0
+  },
+  earlyDeparture: {
+    type: Boolean,
+    default: false
+  },
+  earlyDepartureMinutes: {
+    type: Number,
+    default: 0
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee'
+  },
+  approvedAt: Date,
+  notes: String,
+  isManualEntry: {
+    type: Boolean,
+    default: false
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Calculate total hours and status before saving
+attendanceSchema.pre('save', function(next) {
+  // Calculate total hours if both check-in and check-out exist
+  if (this.checkIn?.time && this.checkOut?.time) {
+    const totalMs = this.checkOut.time - this.checkIn.time;
+    
+    // Subtract break time
+    const breakTime = this.breaks.reduce((total, brk) => {
+      if (brk.breakOut && brk.breakIn) {
+        return total + (brk.breakIn - brk.breakOut);
+      }
+      return total;
+    }, 0);
+    
+    this.totalHours = Math.max(0, (totalMs - breakTime) / (1000 * 60 * 60)); // Convert to hours
+    
+    // Calculate regular and overtime hours (assuming 8 hours is regular)
+    this.regularHours = Math.min(this.totalHours, 8);
+    this.overtimeHours = Math.max(0, this.totalHours - 8);
+  }
+
+  // Update timestamp
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Indexes for better query performance
+attendanceSchema.index({ employee: 1, date: 1 }, { unique: true });
+attendanceSchema.index({ date: 1 });
+attendanceSchema.index({ status: 1 });
+
+module.exports = mongoose.model('Attendance', attendanceSchema);
+
