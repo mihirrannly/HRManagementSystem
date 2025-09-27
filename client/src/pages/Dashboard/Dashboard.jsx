@@ -310,7 +310,7 @@ const Dashboard = () => {
             color="info"
           />
         </Grid>
-        {user?.role === 'admin' && (
+        {(user?.role === 'admin' || user?.role === 'hr') && (
           <Grid item xs={12} sm={6} md={2.4}>
             <StatCard
               title="Organization"

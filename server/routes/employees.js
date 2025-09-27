@@ -161,7 +161,7 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { user: userData, ...employeeData } = req.body;
+    const { user: userData, employeeId, ...employeeData } = req.body;
 
     // Check if user email already exists
     const existingUser = await User.findOne({ email: userData.email });
@@ -183,7 +183,7 @@ router.post('/', [
     });
     await newUser.save();
 
-    // Create employee
+    // Create employee (don't include employeeId - let model generate it)
     const employee = new Employee({
       ...employeeData,
       user: newUser._id
@@ -287,7 +287,7 @@ router.put('/:id', [authenticate], async (req, res) => {
 // @access  Private (Admin only)
 router.delete('/all', [
   authenticate,
-  authorize(['admin'])
+  authorize(['admin', 'hr'])
 ], async (req, res) => {
   try {
     console.log('Delete all employees request started');

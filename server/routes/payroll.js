@@ -34,7 +34,7 @@ router.get('/components', [
 // @access  Private (Admin)
 router.post('/components', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   body('name').notEmpty().trim(),
   body('code').notEmpty().trim(),
   body('type').isIn(['earning', 'deduction']),

@@ -9,7 +9,7 @@ const { sendPortalCredentials } = require('../services/emailService');
 const Employee = require('../models/Employee');
 const Department = require('../models/Department');
 const User = require('../models/User');
-const { authenticate: auth } = require('../middleware/auth');
+const { authenticate: auth, authorize } = require('../middleware/auth');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -45,8 +45,8 @@ const upload = multer({
 });
 
 // Helper function to generate random password
-function generateRandomPassword(length = 8) {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+function generateRandomPassword(length = 12) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*';
   let password = '';
   for (let i = 0; i < length; i++) {
     password += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -57,9 +57,13 @@ function generateRandomPassword(length = 8) {
 // Helper function to create Employee record from onboarding data
 async function createEmployeeFromOnboarding(onboarding) {
   try {
+    // Generate temporary password for the user
+    const temporaryPassword = generateRandomPassword(12);
+    
     // Create User account first
     const user = new User({
       email: onboarding.email,
+      password: temporaryPassword,
       role: 'employee',
       isActive: true,
       profile: {
@@ -80,35 +84,30 @@ async function createEmployeeFromOnboarding(onboarding) {
       await department.save();
     }
 
-    // Parse name
-    const nameParts = onboarding.employeeName.split(' ');
-    const firstName = nameParts[0];
-    const lastName = nameParts[nameParts.length - 1];
-    const middleName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '';
+    // Parse name - prioritize candidatePortal data
+    const candidatePersonalInfo = onboarding.candidatePortal?.personalInfo || {};
+    const firstName = candidatePersonalInfo.firstName || onboarding.employeeName.split(' ')[0];
+    const lastName = candidatePersonalInfo.lastName || onboarding.employeeName.split(' ').slice(-1)[0];
+    const middleName = candidatePersonalInfo.middleName || 
+      (onboarding.employeeName.split(' ').length > 2 ? onboarding.employeeName.split(' ').slice(1, -1).join(' ') : '');
 
-    // Create Employee record
+    // Create comprehensive Employee record with all available data
     const employee = new Employee({
       user: user._id,
       personalInfo: {
         firstName: firstName,
         lastName: lastName,
         middleName: middleName,
-        dateOfBirth: onboarding.dateOfBirth,
-        gender: onboarding.gender,
-        maritalStatus: onboarding.maritalStatus,
-        nationality: onboarding.nationality
-      },
-      contactInfo: {
-        personalEmail: onboarding.email,
-        phone: onboarding.phone,
-        alternatePhone: onboarding.alternatePhone,
-        address: {
-          street: onboarding.currentAddress?.street,
-          city: onboarding.currentAddress?.city,
-          state: onboarding.currentAddress?.state,
-          postalCode: onboarding.currentAddress?.pincode,
-          country: onboarding.currentAddress?.country || 'India'
-        },
+        email: candidatePersonalInfo.email || candidatePersonalInfo.officialEmailId || onboarding.email,
+        phone: candidatePersonalInfo.phone || onboarding.phone,
+        alternatePhone: candidatePersonalInfo.alternatePhone || onboarding.alternatePhone,
+        dateOfBirth: candidatePersonalInfo.dateOfBirth || onboarding.dateOfBirth,
+        gender: candidatePersonalInfo.gender || onboarding.gender,
+        maritalStatus: candidatePersonalInfo.maritalStatus || onboarding.maritalStatus,
+        nationality: candidatePersonalInfo.nationality || onboarding.nationality || 'Indian',
+        bloodGroup: candidatePersonalInfo.bloodGroup,
+        currentAddress: onboarding.currentAddress || {},
+        permanentAddress: onboarding.permanentAddress || {},
         emergencyContact: onboarding.emergencyContacts?.[0] ? {
           name: onboarding.emergencyContacts[0].name,
           relationship: onboarding.emergencyContacts[0].relationship,
@@ -122,7 +121,7 @@ async function createEmployeeFromOnboarding(onboarding) {
         employeeType: onboarding.employmentType === 'full_time' ? 'full-time' : 
                      onboarding.employmentType === 'part_time' ? 'part-time' : 
                      onboarding.employmentType || 'full-time',
-        dateOfJoining: onboarding.startDate,
+        dateOfJoining: candidatePersonalInfo.dateOfJoining || onboarding.startDate,
         probationEndDate: onboarding.probationPeriod ? 
           new Date(onboarding.startDate.getTime() + (onboarding.probationPeriod * 30 * 24 * 60 * 60 * 1000)) : 
           undefined,
@@ -131,43 +130,124 @@ async function createEmployeeFromOnboarding(onboarding) {
       },
       salaryInfo: {
         currentSalary: {
-          grossSalary: onboarding.salary,
-          ctc: onboarding.salary
+          basic: onboarding.salary ? Math.round(onboarding.salary * 0.4) : 0,
+          hra: onboarding.salary ? Math.round(onboarding.salary * 0.2) : 0,
+          allowances: onboarding.salary ? Math.round(onboarding.salary * 0.1) : 0,
+          grossSalary: onboarding.salary || 0,
+          ctc: onboarding.salary || 0
         },
         bankDetails: onboarding.bankDetails ? {
           accountNumber: onboarding.bankDetails.accountNumber,
           bankName: onboarding.bankDetails.bankName,
           ifscCode: onboarding.bankDetails.ifscCode,
-          accountHolderName: onboarding.bankDetails.accountHolderName
+          accountHolderName: onboarding.bankDetails.accountHolderName || onboarding.employeeName
         } : {},
         taxInfo: {
-          panNumber: onboarding.panNumber,
-          aadharNumber: onboarding.aadharNumber
+          panNumber: candidatePersonalInfo.panNumber || onboarding.panNumber,
+          aadharNumber: candidatePersonalInfo.aadharNumber || onboarding.aadharNumber,
+          pfNumber: '', // To be filled later
+          esiNumber: '', // To be filled later
+          uanNumber: '' // To be filled later
         }
       },
-      education: onboarding.education || [],
-      employmentHistory: onboarding.experience || [],
-      documents: onboarding.documents?.map(doc => ({
-        type: doc.type,
-        name: doc.name,
-        filePath: doc.url,
-        uploadedAt: doc.uploadedAt
-      })) || [],
+      // Map education from both sources
+      education: [
+        ...(onboarding.education || []),
+        ...(onboarding.candidatePortal?.educationQualifications?.map(edu => ({
+          degree: edu.degree,
+          institution: edu.institution,
+          yearOfPassing: parseInt(edu.yearOfPassing),
+          percentage: parseFloat(edu.percentage) || parseFloat(edu.percent),
+          specialization: edu.specialization || edu.educationLevel
+        })) || [])
+      ],
+      // Map employment history from both sources
+      employmentHistory: [
+        ...(onboarding.experience || []),
+        ...(onboarding.candidatePortal?.workExperience?.experienceDetails?.map(exp => ({
+          company: exp.companyName,
+          designation: exp.jobTitle,
+          startDate: exp.startDate ? new Date(exp.startDate) : undefined,
+          endDate: exp.endDate ? new Date(exp.endDate) : undefined,
+          salary: parseFloat(exp.salary) || 0,
+          reasonForLeaving: exp.reasonForLeaving
+        })) || [])
+      ],
+      // Map documents from onboarding
+      documents: [
+        ...(onboarding.documents?.map(doc => ({
+          type: doc.type === 'id_proof' ? 'id-proof' : 
+                doc.type === 'address_proof' ? 'address-proof' : 
+                doc.type === 'educational' ? 'educational' : 
+                doc.type,
+          name: doc.name,
+          filePath: doc.url,
+          uploadedAt: doc.uploadedAt
+        })) || []),
+        // Add candidate portal documents
+        ...(onboarding.candidatePortal?.educationDocuments?.map(doc => ({
+          type: 'educational',
+          name: doc.name,
+          filePath: doc.url,
+          uploadedAt: doc.uploadedAt
+        })) || []),
+        ...(onboarding.candidatePortal?.workExperienceDocuments?.map(doc => ({
+          type: 'experience',
+          name: doc.name,
+          filePath: doc.url,
+          uploadedAt: doc.uploadedAt
+        })) || [])
+      ],
       additionalInfo: {
         onboardingId: onboarding._id,
-        employeeId: onboarding.employeeId
+        originalEmployeeId: onboarding.employeeId,
+        onboardingCompletedAt: new Date(),
+        temporaryPassword: temporaryPassword,
+        
+        // Personal details from candidate portal
+        fatherName: candidatePersonalInfo.fatherName,
+        personalEmailId: candidatePersonalInfo.personalEmailId,
+        employeeCode: candidatePersonalInfo.employeeCode,
+        employmentStatus: candidatePersonalInfo.employmentStatus,
+        dobAsPerAadhaar: candidatePersonalInfo.dobAsPerAadhaar,
+        
+        // Store comprehensive onboarding data
+        candidatePortalData: onboarding.candidatePortal || {},
+        itSetupData: onboarding.itSetup || {},
+        hrSetupData: onboarding.hrSetup || {},
+        allEmergencyContacts: onboarding.emergencyContacts || [],
+        passportNumber: onboarding.passportNumber,
+        offerLetterData: onboarding.offerLetter || {},
+        orientationData: onboarding.orientation || {},
+        onboardingTasks: onboarding.tasks || [],
+        stepProgress: onboarding.stepProgress || {},
+        documentsStatus: onboarding.documentsStatus,
+        documentsSubmittedAt: onboarding.documentsSubmittedAt,
+        
+        // Store detailed candidate portal data
+        educationQualifications: onboarding.candidatePortal?.educationQualifications || [],
+        workExperience: onboarding.candidatePortal?.workExperience || {},
+        governmentDocuments: onboarding.candidatePortal?.governmentDocuments || {},
+        bankDocuments: onboarding.candidatePortal?.bankDocuments || {},
+        educationDocuments: onboarding.candidatePortal?.educationDocuments || [],
+        workExperienceDocuments: onboarding.candidatePortal?.workExperienceDocuments || []
       }
     });
 
-    // Use the existing employeeId from onboarding if available
-    if (onboarding.employeeId) {
-      employee.employeeId = onboarding.employeeId;
-    }
+    // Don't set employeeId - let Employee model generate it automatically
+    // This ensures proper sequential numbering starting from CODR0122
 
     await employee.save();
-    console.log('Created employee record:', employee.employeeId, 'for', onboarding.employeeName);
+    console.log('✅ Created employee record:', employee.employeeId, 'for', onboarding.employeeName);
 
-    return { user, employee, department };
+    return { 
+      user, 
+      employee, 
+      department, 
+      temporaryPassword,
+      success: true,
+      message: `Employee created successfully with ID: ${employee.employeeId}`
+    };
   } catch (error) {
     console.error('Error creating employee from onboarding:', error);
     throw error;
@@ -267,6 +347,33 @@ router.get('/', auth, async (req, res) => {
   } catch (error) {
     console.error('Get onboardings error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get all completed onboarding records that haven't been converted to employees
+router.get('/ready-for-employee-creation', auth, authorize(['admin', 'hr']), async (req, res) => {
+  try {
+    const readyOnboardings = await Onboarding.find({
+      status: 'completed',
+      employeeCreated: { $ne: true }
+    })
+    .populate('createdBy', 'email profile')
+    .populate('reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
+    .sort({ updatedAt: -1 });
+
+    res.json({
+      success: true,
+      count: readyOnboardings.length,
+      onboardings: readyOnboardings
+    });
+
+  } catch (error) {
+    console.error('Get ready onboardings error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get ready onboarding records',
+      error: error.message 
+    });
   }
 });
 
@@ -870,9 +977,38 @@ router.post('/offer-letter', auth, async (req, res) => {
       return res.status(400).json({ message: 'Onboarding ID is required' });
     }
 
+    // Validate required fields for offer letter
+    if (!offerData.reportingManager) {
+      return res.status(400).json({ 
+        message: 'Reporting Manager is required for offer letter creation',
+        field: 'reportingManager'
+      });
+    }
+
+    // Validate other essential fields
+    const requiredFields = ['position', 'department', 'salary'];
+    for (const field of requiredFields) {
+      if (!offerData[field]) {
+        return res.status(400).json({ 
+          message: `${field.charAt(0).toUpperCase() + field.slice(1)} is required`,
+          field: field
+        });
+      }
+    }
+
     const onboarding = await Onboarding.findById(onboardingId);
     if (!onboarding) {
       return res.status(404).json({ message: 'Onboarding not found' });
+    }
+
+    // Verify that the reporting manager exists in the Employee collection
+    const Employee = require('../models/Employee');
+    const reportingManager = await Employee.findById(offerData.reportingManager);
+    if (!reportingManager) {
+      return res.status(400).json({ 
+        message: 'Selected reporting manager not found',
+        field: 'reportingManager'
+      });
     }
 
     // Update or create offer letter
@@ -1313,6 +1449,320 @@ router.get('/analytics/dashboard', auth, async (req, res) => {
   } catch (error) {
     console.error('Get analytics error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Manual endpoint to create employee from completed onboarding
+router.post('/:id/create-employee', auth, authorize(['admin', 'hr']), async (req, res) => {
+  try {
+    const onboarding = await Onboarding.findById(req.params.id);
+    if (!onboarding) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Onboarding record not found' 
+      });
+    }
+
+    // Check if onboarding is completed
+    if (onboarding.status !== 'completed') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Onboarding must be completed before creating employee record' 
+      });
+    }
+
+    // Check if employee already exists
+    const existingEmployee = await Employee.findOne({
+      'additionalInfo.onboardingId': onboarding._id
+    });
+
+    if (existingEmployee) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Employee already exists with ID: ${existingEmployee.employeeId}`,
+        employee: existingEmployee,
+        suggestion: 'Use sync-to-employee endpoint to update existing employee record'
+      });
+    }
+
+    // Create employee record
+    const result = await createEmployeeFromOnboarding(onboarding);
+    
+    // Update onboarding record
+    onboarding.employeeCreated = true;
+    onboarding.employeeId = result.employee.employeeId;
+    onboarding.notes = onboarding.notes || [];
+    onboarding.notes.push({
+      content: `Employee record created manually by ${req.user.profile?.firstName || req.user.email}. Employee ID: ${result.employee.employeeId}. Temporary password: ${result.temporaryPassword}`,
+      createdBy: req.user._id,
+      createdAt: new Date()
+    });
+    
+    await onboarding.save();
+
+    // Send email with login credentials (optional - implement email service)
+    // await sendEmployeeCredentialsEmail(result.employee, result.temporaryPassword);
+
+    res.json({
+      success: true,
+      message: `Employee created successfully with ID: ${result.employee.employeeId}`,
+      data: {
+        employee: result.employee,
+        user: {
+          email: result.user.email,
+          role: result.user.role,
+          temporaryPassword: result.temporaryPassword
+        },
+        department: result.department
+      }
+    });
+
+  } catch (error) {
+    console.error('Manual employee creation error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create employee record',
+      error: error.message 
+    });
+  }
+});
+
+// Helper function to sync onboarding data to existing employee record
+async function syncOnboardingToEmployee(onboarding, employee, user) {
+  try {
+    const candidatePersonalInfo = onboarding.candidatePortal?.personalInfo || {};
+    const changes = [];
+
+    // Track changes for audit log
+    const trackChange = (field, oldValue, newValue) => {
+      if (oldValue !== newValue && newValue !== undefined && newValue !== null) {
+        changes.push({ field, oldValue, newValue });
+      }
+    };
+
+    // Update personal information
+    const firstName = candidatePersonalInfo.firstName || onboarding.employeeName.split(' ')[0];
+    const lastName = candidatePersonalInfo.lastName || onboarding.employeeName.split(' ').slice(-1)[0];
+    
+    trackChange('personalInfo.firstName', employee.personalInfo.firstName, firstName);
+    trackChange('personalInfo.lastName', employee.personalInfo.lastName, lastName);
+    
+    employee.personalInfo.firstName = firstName;
+    employee.personalInfo.lastName = lastName;
+    
+    if (candidatePersonalInfo.phone || onboarding.phone) {
+      const newPhone = candidatePersonalInfo.phone || onboarding.phone;
+      trackChange('personalInfo.phone', employee.personalInfo.phone, newPhone);
+      employee.personalInfo.phone = newPhone;
+    }
+
+    if (candidatePersonalInfo.email || onboarding.email) {
+      const newEmail = candidatePersonalInfo.email || onboarding.email;
+      trackChange('personalInfo.email', employee.personalInfo.email, newEmail);
+      employee.personalInfo.email = newEmail;
+    }
+
+    if (candidatePersonalInfo.dateOfBirth || onboarding.dateOfBirth) {
+      const newDOB = candidatePersonalInfo.dateOfBirth || onboarding.dateOfBirth;
+      trackChange('personalInfo.dateOfBirth', employee.personalInfo.dateOfBirth, newDOB);
+      employee.personalInfo.dateOfBirth = newDOB;
+    }
+
+    // Update other personal fields
+    const personalFields = ['gender', 'maritalStatus', 'nationality', 'bloodGroup', 'aadharNumber', 'panNumber'];
+    personalFields.forEach(field => {
+      if (candidatePersonalInfo[field]) {
+        trackChange(`personalInfo.${field}`, employee.personalInfo[field], candidatePersonalInfo[field]);
+        employee.personalInfo[field] = candidatePersonalInfo[field];
+      }
+    });
+
+    // Update employment information
+    if (onboarding.position) {
+      trackChange('employmentInfo.designation', employee.employmentInfo.designation, onboarding.position);
+      employee.employmentInfo.designation = onboarding.position;
+    }
+
+    if (candidatePersonalInfo.dateOfJoining || onboarding.startDate) {
+      const newJoiningDate = candidatePersonalInfo.dateOfJoining || onboarding.startDate;
+      trackChange('employmentInfo.dateOfJoining', employee.employmentInfo.dateOfJoining, newJoiningDate);
+      employee.employmentInfo.dateOfJoining = newJoiningDate;
+    }
+    
+    // Update reporting manager if available
+    if (onboarding.reportingManager || onboarding.offerLetter?.reportingManager) {
+      const newManager = onboarding.reportingManager || onboarding.offerLetter?.reportingManager;
+      trackChange('employmentInfo.reportingManager', employee.employmentInfo.reportingManager, newManager);
+      employee.employmentInfo.reportingManager = newManager;
+    }
+
+    // Update contact information
+    if (candidatePersonalInfo.personalEmailId) {
+      trackChange('contactInfo.personalEmail', employee.contactInfo.personalEmail, candidatePersonalInfo.personalEmailId);
+      employee.contactInfo.personalEmail = candidatePersonalInfo.personalEmailId;
+    }
+
+    if (candidatePersonalInfo.alternatePhone) {
+      trackChange('contactInfo.alternatePhone', employee.contactInfo.alternatePhone, candidatePersonalInfo.alternatePhone);
+      employee.contactInfo.alternatePhone = candidatePersonalInfo.alternatePhone;
+    }
+
+    // Update address information
+    if (onboarding.candidatePortal?.addressInfo) {
+      const addressInfo = onboarding.candidatePortal.addressInfo;
+      if (addressInfo.currentAddress) {
+        employee.contactInfo.address = employee.contactInfo.address || {};
+        employee.contactInfo.address.current = addressInfo.currentAddress;
+        changes.push({ field: 'contactInfo.address.current', oldValue: 'previous', newValue: 'updated' });
+      }
+      if (addressInfo.permanentAddress) {
+        employee.contactInfo.address = employee.contactInfo.address || {};
+        employee.contactInfo.address.permanent = addressInfo.permanentAddress;
+        changes.push({ field: 'contactInfo.address.permanent', oldValue: 'previous', newValue: 'updated' });
+      }
+    }
+
+    // Update emergency contacts
+    if (onboarding.candidatePortal?.emergencyContacts?.length > 0) {
+      employee.contactInfo.emergencyContact = onboarding.candidatePortal.emergencyContacts.map(contact => ({
+        name: contact.name,
+        relationship: contact.relationship,
+        phone: contact.phone,
+        email: contact.email,
+        address: contact.address
+      }));
+      changes.push({ field: 'contactInfo.emergencyContact', oldValue: 'previous', newValue: `${onboarding.candidatePortal.emergencyContacts.length} contacts` });
+    }
+
+    // Update education and experience
+    if (onboarding.candidatePortal?.educationQualifications?.length > 0) {
+      employee.education = onboarding.candidatePortal.educationQualifications.map(edu => ({
+        degree: edu.degree,
+        institution: edu.institution,
+        yearOfPassing: edu.yearOfPassing,
+        percentage: edu.percentage,
+        specialization: edu.specialization
+      }));
+      changes.push({ field: 'education', oldValue: 'previous', newValue: `${onboarding.candidatePortal.educationQualifications.length} qualifications` });
+    }
+
+    if (onboarding.candidatePortal?.workExperience?.experienceDetails?.length > 0) {
+      employee.experience = onboarding.candidatePortal.workExperience.experienceDetails.map(exp => ({
+        company: exp.company,
+        position: exp.position,
+        startDate: exp.startDate,
+        endDate: exp.endDate,
+        salary: exp.salary,
+        reasonForLeaving: exp.reasonForLeaving
+      }));
+      changes.push({ field: 'experience', oldValue: 'previous', newValue: `${onboarding.candidatePortal.workExperience.experienceDetails.length} experiences` });
+    }
+
+    // Update additional info with latest onboarding data
+    employee.additionalInfo = {
+      ...employee.additionalInfo,
+      lastSyncedAt: new Date(),
+      syncedBy: user._id,
+      candidatePortalData: onboarding.candidatePortal || {},
+      itSetupData: onboarding.itSetup || {},
+      hrSetupData: onboarding.hrSetup || {},
+      offerLetterData: onboarding.offerLetter || {},
+      stepProgress: onboarding.stepProgress || {},
+      educationQualifications: onboarding.candidatePortal?.educationQualifications || [],
+      workExperience: onboarding.candidatePortal?.workExperience || {},
+      governmentDocuments: onboarding.candidatePortal?.governmentDocuments || {},
+      bankDocuments: onboarding.candidatePortal?.bankDocuments || {},
+      educationDocuments: onboarding.candidatePortal?.educationDocuments || [],
+      workExperienceDocuments: onboarding.candidatePortal?.workExperienceDocuments || []
+    };
+
+    // Add audit log entry
+    employee.auditLog = employee.auditLog || [];
+    employee.auditLog.push({
+      action: 'sync_from_onboarding',
+      field: 'employee_data',
+      changes: changes,
+      modifiedBy: user._id,
+      modifiedAt: new Date(),
+      source: 'onboarding_sync'
+    });
+
+    await employee.save();
+
+    return {
+      success: true,
+      changesCount: changes.length,
+      changes: changes,
+      message: `Employee record synced successfully. ${changes.length} fields updated.`
+    };
+
+  } catch (error) {
+    console.error('Error syncing onboarding to employee:', error);
+    throw error;
+  }
+}
+
+// New endpoint to sync onboarding changes to existing employee record
+router.post('/:id/sync-to-employee', auth, authorize(['admin', 'hr']), async (req, res) => {
+  try {
+    const onboarding = await Onboarding.findById(req.params.id);
+    if (!onboarding) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Onboarding record not found' 
+      });
+    }
+
+    // Find existing employee
+    const existingEmployee = await Employee.findOne({
+      'additionalInfo.onboardingId': onboarding._id
+    });
+
+    if (!existingEmployee) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No employee record found for this onboarding. Use create-employee endpoint first.',
+        suggestion: 'Use POST /:id/create-employee to create the employee record'
+      });
+    }
+
+    // Perform sync
+    const syncResult = await syncOnboardingToEmployee(onboarding, existingEmployee, req.user);
+
+    // Update onboarding record with sync info
+    onboarding.notes = onboarding.notes || [];
+    onboarding.notes.push({
+      content: `Employee record synced by ${req.user.profile?.firstName || req.user.email}. ${syncResult.changesCount} fields updated.`,
+      createdBy: req.user._id,
+      createdAt: new Date()
+    });
+    
+    await onboarding.save();
+
+    // Get updated employee with populated fields
+    const updatedEmployee = await Employee.findById(existingEmployee._id)
+      .populate('employmentInfo.department', 'name code')
+      .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
+      .populate('user', 'email role isActive');
+
+    res.json({
+      success: true,
+      message: syncResult.message,
+      data: {
+        employee: updatedEmployee,
+        changes: syncResult.changes,
+        changesCount: syncResult.changesCount,
+        syncedAt: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error syncing onboarding to employee:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 });
 

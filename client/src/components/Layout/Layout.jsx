@@ -47,7 +47,7 @@ const menuItems = [
     text: 'Organization',
     icon: <BusinessIcon />,
     path: '/organization',
-    roles: ['admin']
+    roles: ['admin', 'hr']
   },
   {
     text: 'Attendance',

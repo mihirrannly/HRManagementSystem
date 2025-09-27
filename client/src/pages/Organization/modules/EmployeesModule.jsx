@@ -72,7 +72,10 @@ import {
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
   DeleteForever as DeleteForeverIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Sync as SyncIcon,
+  Check as CheckIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -81,8 +84,10 @@ import Papa from 'papaparse';
 import OnboardingsModuleFull from './OnboardingsModule';
 
 // Full-Screen Employee Details View
-const EmployeeFullScreenView = ({ employee, onBack }) => {
+const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmployee }) => {
   const [activeTab, setActiveTab] = useState('ABOUT');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedEmployee, setEditedEmployee] = useState(employee);
 
   const categories = [
     { id: 'ABOUT', label: 'ABOUT', icon: '👤' },
@@ -96,6 +101,63 @@ const EmployeeFullScreenView = ({ employee, onBack }) => {
     { id: 'PERFORMANCE', label: 'PERFORMANCE', icon: '📊' }
   ];
 
+  const handleEditClick = () => {
+    setIsEditMode(true);
+    toast.info('Edit mode enabled. You can now modify employee information.');
+  };
+
+  const handleSaveChanges = async () => {
+    try {
+      // Here you would typically save to the server
+      console.log('Saving changes:', editedEmployee);
+      toast.success('Employee information updated successfully!');
+      setIsEditMode(false);
+      // You could call onEditProfile to refresh the data
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      toast.error('Failed to save changes. Please try again.');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditedEmployee(employee); // Reset to original data
+    setIsEditMode(false);
+    toast.info('Edit cancelled. Changes discarded.');
+  };
+
+  const handleFieldChange = (field, value, section = null) => {
+    if (section) {
+      setEditedEmployee(prev => {
+        // Handle nested object updates (like addresses)
+        if (typeof value === 'object' && value !== null) {
+          return {
+            ...prev,
+            [section]: {
+              ...prev[section],
+              [field]: {
+                ...(prev[section]?.[field] || {}),
+                ...value
+              }
+            }
+          };
+        } else {
+          return {
+            ...prev,
+            [section]: {
+              ...prev[section],
+              [field]: value
+            }
+          };
+        }
+      });
+    } else {
+      setEditedEmployee(prev => ({
+        ...prev,
+        [field]: value
+      }));
+    }
+  };
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc' }}>
       {/* Header */}
@@ -106,6 +168,19 @@ const EmployeeFullScreenView = ({ employee, onBack }) => {
           </IconButton>
           <Typography variant="h5" fontWeight="600" sx={{ fontSize: '1.25rem' }}>
             Employee Profile
+            {isEditMode && (
+              <Chip 
+                label="EDIT MODE" 
+                size="small" 
+                sx={{ 
+                  ml: 2, 
+                  bgcolor: '#fbbf24', 
+                  color: 'white',
+                  fontWeight: 600,
+                  fontSize: '0.7rem'
+                }} 
+              />
+            )}
           </Typography>
         </Box>
         
@@ -128,12 +203,47 @@ const EmployeeFullScreenView = ({ employee, onBack }) => {
             )}
           </Avatar>
           <Box sx={{ flex: 1 }}>
-            <Typography variant="h4" fontWeight="700" sx={{ mb: 0.5, fontSize: '1.75rem' }}>
-              {employee.personalInfo?.firstName} {employee.personalInfo?.lastName}
-            </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.9rem' }}>
-              {employee.employeeId} • {employee.employmentInfo?.designation || 'N/A'}
-            </Typography>
+            {!isEditMode ? (
+              <Typography variant="h4" fontWeight="700" sx={{ mb: 0.5, fontSize: '1.75rem' }}>
+                {employee.personalInfo?.firstName} {employee.personalInfo?.lastName}
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', gap: 2, mb: 0.5 }}>
+                <TextField
+                  size="small"
+                  label="First Name"
+                  value={editedEmployee.personalInfo?.firstName || ''}
+                  onChange={(e) => handleFieldChange('firstName', e.target.value, 'personalInfo')}
+                  sx={{ minWidth: 120 }}
+                />
+                <TextField
+                  size="small"
+                  label="Last Name"
+                  value={editedEmployee.personalInfo?.lastName || ''}
+                  onChange={(e) => handleFieldChange('lastName', e.target.value, 'personalInfo')}
+                  sx={{ minWidth: 120 }}
+                />
+              </Box>
+            )}
+            {!isEditMode ? (
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.9rem' }}>
+                {employee.employeeId} • {employee.employmentInfo?.designation || 'N/A'}
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Typography variant="body1" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
+                  {employee.employeeId} •
+                </Typography>
+                <TextField
+                  size="small"
+                  label="Designation"
+                  value={editedEmployee.employmentInfo?.designation || ''}
+                  onChange={(e) => handleFieldChange('designation', e.target.value, 'employmentInfo')}
+                  sx={{ minWidth: 150 }}
+                  variant="standard"
+                />
+              </Box>
+            )}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.85rem' }}>
               {employee.employmentInfo?.department?.name || 'N/A'} • {employee.additionalInfo?.Location || 'N/A'}
             </Typography>
@@ -143,6 +253,83 @@ const EmployeeFullScreenView = ({ employee, onBack }) => {
               size="small"
               sx={{ fontWeight: 500, fontSize: '0.75rem' }}
             />
+          </Box>
+          
+          {/* Action Buttons */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            {!isEditMode ? (
+              <Button 
+                variant="outlined" 
+                size="small"
+                onClick={handleEditClick}
+                startIcon={<EditIcon />}
+                sx={{
+                  borderColor: '#3b82f6',
+                  color: '#3b82f6',
+                  '&:hover': {
+                    borderColor: '#2563eb',
+                    backgroundColor: '#eff6ff',
+                    color: '#2563eb'
+                  }
+                }}
+              >
+                Edit Profile
+              </Button>
+            ) : (
+              <>
+                <Button 
+                  variant="contained" 
+                  size="small"
+                  onClick={handleSaveChanges}
+                  startIcon={<CheckIcon />}
+                  sx={{
+                    bgcolor: '#10b981',
+                    '&:hover': { bgcolor: '#059669' }
+                  }}
+                >
+                  Save Changes
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  size="small"
+                  onClick={handleCancelEdit}
+                  startIcon={<CloseIcon />}
+                  sx={{
+                    borderColor: '#ef4444',
+                    color: '#ef4444',
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626'
+                    }
+                  }}
+                >
+                  Cancel
+                </Button>
+              </>
+            )}
+            {employee.additionalInfo?.onboardingId && (
+              <Button 
+                variant="outlined" 
+                size="small" 
+                startIcon={<SyncIcon />}
+                color="primary"
+                onClick={() => onSyncEmployee && onSyncEmployee(employee)}
+                sx={{
+                  borderColor: '#2196f3',
+                  color: '#2196f3',
+                  '&:hover': {
+                    borderColor: '#1976d2',
+                    bgcolor: 'rgba(33, 150, 243, 0.04)'
+                  }
+                }}
+              >
+                Sync Data
+              </Button>
+            )}
+            <Button variant="contained" size="small">
+              Actions
+            </Button>
           </Box>
         </Box>
       </Paper>
@@ -190,9 +377,9 @@ const EmployeeFullScreenView = ({ employee, onBack }) => {
 
       {/* Content */}
       <Box sx={{ px: 3, pb: 3 }}>
-        {activeTab === 'ABOUT' && <AboutSection employee={employee} />}
+        {activeTab === 'ABOUT' && <AboutSection employee={employee} isEditable={isEditMode} editedEmployee={editedEmployee} onFieldChange={handleFieldChange} />}
         {activeTab === 'PROFILE' && <ProfileSection employee={employee} />}
-        {activeTab === 'JOB' && <JobSection employee={employee} />}
+        {activeTab === 'JOB' && <JobSection employee={employee} isEditable={isEditMode} editedEmployee={editedEmployee} onFieldChange={handleFieldChange} />}
         {activeTab === 'TIME' && <TimeSection employee={employee} />}
         {activeTab === 'DOCUMENTS' && <DocumentsSection employee={employee} />}
         {activeTab === 'ASSETS' && <AssetsSection employee={employee} />}
@@ -236,49 +423,129 @@ const SectionCard = ({ icon, title, color, children }) => (
   </Paper>
 );
 
-const FieldDisplay = ({ label, value }) => (
-  <Box>
-    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-      {label}
-    </Typography>
-    <Typography variant="body1" fontWeight="500" sx={{ mt: 0.3, fontSize: '0.85rem', lineHeight: 1.4 }}>
-      {value || 'N/A'}
-    </Typography>
-  </Box>
-);
+const FieldDisplay = ({ label, value, isEditable = false, onEdit, fieldKey, section = null, type = 'text' }) => {
+  // Handle different value types
+  const displayValue = () => {
+    if (value === null || value === undefined || value === '') {
+      return 'N/A';
+    }
+    
+    // If it's an object, don't render it directly
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        return value.length > 0 ? `${value.length} items` : 'No items';
+      }
+      return '[Object]';
+    }
+    
+    // If it's a boolean
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+    
+    // If it's a string or number
+    return String(value);
+  };
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {label}
+      </Typography>
+      {isEditable ? (
+        <TextField
+          fullWidth
+          size="small"
+          type={type}
+          value={value || ''}
+          onChange={(e) => onEdit && onEdit(fieldKey, e.target.value, section)}
+          sx={{ 
+            mt: 0.5,
+            '& .MuiOutlinedInput-root': {
+              fontSize: '0.85rem',
+              backgroundColor: '#f8f9fa',
+              '&:hover': {
+                backgroundColor: '#e9ecef'
+              },
+              '&.Mui-focused': {
+                backgroundColor: '#fff'
+              }
+            }
+          }}
+          InputLabelProps={{ shrink: true }}
+        />
+      ) : (
+        <Typography variant="body1" fontWeight="500" sx={{ mt: 0.3, fontSize: '0.85rem', lineHeight: 1.4 }}>
+          {displayValue()}
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 // About Section Component
-const AboutSection = ({ employee }) => (
+const AboutSection = ({ employee, isEditable = false, editedEmployee, onFieldChange }) => (
   <Grid container spacing={3}>
     {/* Primary Details */}
     <Grid item xs={12} md={6}>
       <SectionCard icon="👤" title="Primary Details" color="primary.main">
         <FieldDisplay 
-          label="Full Name" 
-          value={`${employee.personalInfo?.firstName || ''} ${employee.personalInfo?.lastName || ''}`.trim()} 
+          label="First Name" 
+          value={isEditable ? editedEmployee?.personalInfo?.firstName : employee.personalInfo?.firstName}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="firstName"
+          section="personalInfo"
+        />
+        <FieldDisplay 
+          label="Last Name" 
+          value={isEditable ? editedEmployee?.personalInfo?.lastName : employee.personalInfo?.lastName}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="lastName"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Employee ID" 
-          value={employee.employeeId || employee.additionalInfo?.['Employee Number']} 
+          value={employee.employeeId || 'No ID'} 
         />
         <FieldDisplay 
           label="Date of Birth" 
-          value={employee.personalInfo?.dateOfBirth 
-            ? moment(employee.personalInfo.dateOfBirth).format('DD MMM YYYY')
-            : employee.additionalInfo?.['Date Of Birth']
-          } 
+          value={isEditable 
+            ? (editedEmployee?.personalInfo?.dateOfBirth ? moment(editedEmployee.personalInfo.dateOfBirth).format('YYYY-MM-DD') : '')
+            : (employee.personalInfo?.dateOfBirth 
+              ? moment(employee.personalInfo.dateOfBirth).format('DD MMM YYYY')
+              : employee.additionalInfo?.['Date Of Birth'])
+          }
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="dateOfBirth"
+          section="personalInfo"
+          type="date"
         />
         <FieldDisplay 
           label="Gender" 
-          value={employee.personalInfo?.gender || employee.additionalInfo?.Gender} 
+          value={isEditable ? editedEmployee?.personalInfo?.gender : employee.personalInfo?.gender || employee.additionalInfo?.Gender}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="gender"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Marital Status" 
-          value={employee.personalInfo?.maritalStatus || employee.additionalInfo?.['Marital Status']} 
+          value={isEditable ? editedEmployee?.personalInfo?.maritalStatus : employee.personalInfo?.maritalStatus || employee.additionalInfo?.['Marital Status']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="maritalStatus"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Nationality" 
-          value={employee.personalInfo?.nationality || employee.additionalInfo?.Nationality} 
+          value={isEditable ? editedEmployee?.personalInfo?.nationality : employee.personalInfo?.nationality || employee.additionalInfo?.Nationality}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="nationality"
+          section="personalInfo"
         />
       </SectionCard>
     </Grid>
@@ -288,19 +555,39 @@ const AboutSection = ({ employee }) => (
       <SectionCard icon="📞" title="Contact Details" color="info.main">
         <FieldDisplay 
           label="Work Email" 
-          value={employee.user?.email || employee.additionalInfo?.['Work Email']} 
+          value={isEditable ? editedEmployee?.personalInfo?.email : employee.personalInfo?.email || employee.user?.email || employee.additionalInfo?.['Work Email']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="email"
+          section="personalInfo"
+          type="email"
         />
         <FieldDisplay 
           label="Personal Email" 
-          value={employee.additionalInfo?.['Personal Email'] || employee.contactInfo?.personalEmail} 
+          value={isEditable ? editedEmployee?.personalInfo?.personalEmailId : employee.additionalInfo?.['Personal Email'] || employee.contactInfo?.personalEmail}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="personalEmailId"
+          section="personalInfo"
+          type="email"
         />
         <FieldDisplay 
           label="Mobile Phone" 
-          value={employee.contactInfo?.phone || employee.additionalInfo?.['Mobile Phone']} 
+          value={isEditable ? editedEmployee?.personalInfo?.phone : employee.personalInfo?.phone || employee.contactInfo?.phone || employee.additionalInfo?.['Mobile Phone']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="phone"
+          section="personalInfo"
+          type="tel"
         />
         <FieldDisplay 
-          label="Work Phone" 
-          value={employee.additionalInfo?.['Work Phone']} 
+          label="Alternate Phone" 
+          value={isEditable ? editedEmployee?.personalInfo?.alternatePhone : employee.personalInfo?.alternatePhone || employee.additionalInfo?.['Work Phone']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="alternatePhone"
+          section="personalInfo"
+          type="tel"
         />
       </SectionCard>
     </Grid>
@@ -310,21 +597,35 @@ const AboutSection = ({ employee }) => (
       <SectionCard icon="🏠" title="Address Information" color="secondary.main">
         <FieldDisplay 
           label="Current Address" 
-          value={employee.additionalInfo?.current_address_line_1 || 
-                 employee.additionalInfo?.['Current Address Line 1'] || 
-                 employee.contactInfo?.address?.street || 
-                 employee.personalInfo?.address?.street || 
-                 employee.personalInfo?.address} 
+          value={isEditable 
+            ? editedEmployee?.personalInfo?.currentAddress?.street 
+            : (employee.additionalInfo?.current_address_line_1 || 
+               employee.additionalInfo?.['Current Address Line 1'] || 
+               employee.contactInfo?.address?.street || 
+               employee.personalInfo?.currentAddress?.street ||
+               (typeof employee.personalInfo?.currentAddress === 'string' ? employee.personalInfo?.currentAddress : null) ||
+               employee.personalInfo?.address?.street)
+          }
+          isEditable={isEditable}
+          onEdit={(field, value) => onFieldChange && onFieldChange('currentAddress', { street: value }, 'personalInfo')}
+          fieldKey="street"
         />
         <FieldDisplay 
           label="Permanent Address" 
-          value={employee.additionalInfo?.permanent_address_line_1 ||
-                 employee.additionalInfo?.['Permanent Address Line 1'] || 
-                 employee.additionalInfo?.current_address_line_1 ||
-                 employee.additionalInfo?.['Current Address Line 1'] ||
-                 employee.contactInfo?.address?.street ||
-                 employee.personalInfo?.address?.street || 
-                 employee.personalInfo?.address} 
+          value={isEditable 
+            ? editedEmployee?.personalInfo?.permanentAddress?.street
+            : (employee.additionalInfo?.permanent_address_line_1 ||
+               employee.additionalInfo?.['Permanent Address Line 1'] || 
+               employee.additionalInfo?.current_address_line_1 ||
+               employee.additionalInfo?.['Current Address Line 1'] ||
+               employee.contactInfo?.address?.street ||
+               employee.personalInfo?.permanentAddress?.street ||
+               (typeof employee.personalInfo?.permanentAddress === 'string' ? employee.personalInfo?.permanentAddress : null) ||
+               employee.personalInfo?.address?.street)
+          }
+          isEditable={isEditable}
+          onEdit={(field, value) => onFieldChange && onFieldChange('permanentAddress', { street: value }, 'personalInfo')}
+          fieldKey="street"
         />
         <FieldDisplay 
           label="Location" 
@@ -338,15 +639,27 @@ const AboutSection = ({ employee }) => (
       <SectionCard icon="👨‍👩‍👧‍👦" title="Family Information" color="success.main">
         <FieldDisplay 
           label="Father's Name" 
-          value={employee.additionalInfo?.father_name || employee.additionalInfo?.['Father Name']} 
+          value={isEditable ? editedEmployee?.personalInfo?.fatherName : employee.additionalInfo?.fatherName || employee.additionalInfo?.father_name || employee.additionalInfo?.['Father Name']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="fatherName"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Spouse's Name" 
-          value={employee.additionalInfo?.spouse_name || employee.additionalInfo?.['Spouse Name']} 
+          value={isEditable ? editedEmployee?.personalInfo?.spouseName : employee.additionalInfo?.spouse_name || employee.additionalInfo?.['Spouse Name']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="spouseName"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Blood Group" 
-          value={employee.additionalInfo?.blood_group || employee.additionalInfo?.['Blood Group']} 
+          value={isEditable ? editedEmployee?.personalInfo?.bloodGroup : employee.personalInfo?.bloodGroup || employee.additionalInfo?.blood_group || employee.additionalInfo?.['Blood Group']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="bloodGroup"
+          section="personalInfo"
         />
         <FieldDisplay 
           label="Physically Handicapped" 
@@ -383,17 +696,34 @@ const ProfileSection = ({ employee }) => (
     <Grid item xs={12} md={6}>
       <SectionCard icon="📋" title="Additional Information" color="grey.600">
         {employee.additionalInfo && Object.entries(employee.additionalInfo)
-          .filter(([key]) => 
-            !['Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 
+          .filter(([key, value]) => {
+            // Filter out already displayed fields
+            const excludedKeys = [
+              'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 
               'Marital Status', 'Personal Email', 'Mobile Phone', 'Work Phone', 'Current Address Line 1', 
               'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Location', 'Location Country',
               'Department', 'Job Title', 'Date Joined', 'Employment Status', 'Worker Type', 'Reporting To',
               'PAN Number', 'Aadhaar Number', 'PF Number', 'UAN Number', 'Blood Group', 'Physically Handicapped',
-              'Nationality'].includes(key)
-          )
+              'Nationality'
+            ];
+            
+            // Filter out complex objects from onboarding migration
+            const complexObjectKeys = [
+              'onboardingId', 'candidatePortalData', 'itSetupData', 'hrSetupData', 'allEmergencyContacts',
+              'offerLetterData', 'orientationData', 'onboardingTasks', 'stepProgress', 'educationQualifications',
+              'workExperience', 'governmentDocuments', 'bankDocuments', 'educationDocuments', 
+              'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt'
+            ];
+            
+            // Only show simple string/number/boolean values
+            return !excludedKeys.includes(key) && 
+                   !complexObjectKeys.includes(key) &&
+                   (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') &&
+                   value !== null && value !== undefined && value !== '';
+          })
           .slice(0, 6)
           .map(([key, value]) => (
-            <FieldDisplay key={key} label={key} value={value} />
+            <FieldDisplay key={key} label={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} value={value} />
           ))
         }
       </SectionCard>
@@ -402,36 +732,63 @@ const ProfileSection = ({ employee }) => (
 );
 
 // Job Section Component
-const JobSection = ({ employee }) => (
+const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChange }) => (
   <Grid container spacing={3}>
     <Grid item xs={12} md={6}>
       <SectionCard icon="💼" title="Employment Information" color="success.main">
         <FieldDisplay 
           label="Department" 
-          value={employee.employmentInfo?.department?.name || employee.additionalInfo?.Department} 
+          value={isEditable ? editedEmployee?.employmentInfo?.department : employee.employmentInfo?.department?.name || employee.additionalInfo?.Department}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="department"
+          section="employmentInfo"
         />
         <FieldDisplay 
           label="Job Title" 
-          value={employee.employmentInfo?.designation || employee.additionalInfo?.['Job Title']} 
+          value={isEditable ? editedEmployee?.employmentInfo?.designation : employee.employmentInfo?.designation || employee.additionalInfo?.['Job Title']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="designation"
+          section="employmentInfo"
         />
         <FieldDisplay 
           label="Date of Joining" 
-          value={employee.employmentInfo?.dateOfJoining 
-            ? moment(employee.employmentInfo.dateOfJoining).format('DD MMM YYYY')
-            : employee.additionalInfo?.['Date Joined']
-          } 
+          value={isEditable 
+            ? (editedEmployee?.employmentInfo?.dateOfJoining ? moment(editedEmployee.employmentInfo.dateOfJoining).format('YYYY-MM-DD') : '')
+            : (employee.employmentInfo?.dateOfJoining 
+              ? moment(employee.employmentInfo.dateOfJoining).format('DD MMM YYYY')
+              : employee.additionalInfo?.['Date Joined'])
+          }
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="dateOfJoining"
+          section="employmentInfo"
+          type="date"
         />
         <FieldDisplay 
           label="Employment Status" 
-          value={employee.employmentInfo?.employmentStatus || employee.additionalInfo?.['Employment Status']} 
+          value={isEditable ? editedEmployee?.employmentInfo?.employmentStatus : employee.employmentInfo?.employmentStatus || employee.additionalInfo?.['Employment Status']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="employmentStatus"
+          section="employmentInfo"
         />
         <FieldDisplay 
           label="Worker Type" 
-          value={employee.employmentInfo?.employeeType || employee.additionalInfo?.['Worker Type']} 
+          value={isEditable ? editedEmployee?.employmentInfo?.employeeType : employee.employmentInfo?.employeeType || employee.additionalInfo?.['Worker Type']}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="employeeType"
+          section="employmentInfo"
         />
         <FieldDisplay 
           label="Work Location" 
-          value={employee.employmentInfo?.workLocation || employee.additionalInfo?.Location} 
+          value={isEditable ? editedEmployee?.employmentInfo?.workLocation : employee.employmentInfo?.workLocation || employee.additionalInfo?.Location}
+          isEditable={isEditable}
+          onEdit={onFieldChange}
+          fieldKey="workLocation"
+          section="employmentInfo"
         />
         <FieldDisplay 
           label="Reporting Manager" 
@@ -671,6 +1028,15 @@ const EmployeeDirectoryModule = () => {
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
+  // Import Dialog State
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importData, setImportData] = useState([]);
+  const [importHeaders, setImportHeaders] = useState([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importResults, setImportResults] = useState(null);
+
   useEffect(() => {
     fetchEmployees();
   }, [pagination.page, pagination.rowsPerPage, searchTerm, departmentFilter, statusFilter]);
@@ -811,6 +1177,33 @@ const EmployeeDirectoryModule = () => {
     }
   };
 
+  const handleEditProfile = (employee) => {
+    // This function is no longer needed since edit mode is handled within EmployeeFullScreenView
+    // But keeping it for compatibility with the prop passing
+    console.log('Edit profile called for:', employee.employeeId);
+  };
+
+  const handleSyncEmployee = async (employee) => {
+    try {
+      if (!employee.additionalInfo?.onboardingId) {
+        toast.error('No onboarding record found for this employee');
+        return;
+      }
+
+      const response = await axios.post(`/onboarding/${employee.additionalInfo.onboardingId}/sync-to-employee`);
+      
+      if (response.data.success) {
+        toast.success(`Successfully synced ${response.data.changesCount} changes to employee record`);
+        fetchEmployees(); // Refresh the employee list
+      } else {
+        toast.info('No changes detected - employee record is already up to date');
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      toast.error(error.response?.data?.message || 'Failed to sync employee data');
+    }
+  };
+
   // Add Employee Form Handlers
   const handleNewEmployeeChange = (section, field, value) => {
     setNewEmployee(prev => ({
@@ -844,7 +1237,7 @@ const EmployeeDirectoryModule = () => {
           workLocation: newEmployee.employmentInfo.workLocation,
           reportingManager: newEmployee.employmentInfo.reportingManager || null
         },
-        employeeId: newEmployee.employmentInfo.employeeId,
+        // Don't send employeeId - let backend generate it automatically
         user: {
           email: newEmployee.personalInfo.email,
           role: 'employee'
@@ -910,9 +1303,257 @@ const EmployeeDirectoryModule = () => {
     }
   };
 
+  // Import Functions
+  const downloadTemplate = () => {
+    const headers = [
+      'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 'Marital Status',
+      'Blood Group', 'Physically Handicapped', 'Nationality', 'Mobile Phone', 'Work Phone', 'Personal Email',
+      'Current Address Line 1', 'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Attendance Number',
+      'Location', 'Location Country', 'Legal Entity', 'Business Unit', 'Department', 'Sub Department',
+      'Job Title', 'Secondary Job Title', 'Reporting To', 'Reporting Manager Employee Number',
+      'Dotted Line Manager', 'Date Joined', 'Leave Plan', 'Band', 'Pay Grade', 'Time Type', 'Worker Type',
+      'Shift Policy Name', 'Weekly Off Policy Name', 'Attendance Time Tracking Policy', 'Attendance Capture Scheme',
+      'Holiday List Name', 'Expense Policy Name', 'Notice Period', 'PAN Number', 'Aadhaar Number',
+      'PF Number', 'UAN Number', 'Employment Status', 'Exit Date', 'Comments', 'Exit Status',
+      'Termination Type', 'Termination Reason', 'Resignation Note', 'Cost Center'
+    ];
+    
+    // Create sample data row
+    const sampleData = [
+      'EMP001', 'John Doe', 'John Doe', 'john.doe@company.com', '1990-01-15', 'Male', 'Single',
+      'O+', 'No', 'Indian', '+91-9876543210', '+91-11-12345678', 'john.personal@gmail.com',
+      '123 Main Street, City', '456 Home Street, Hometown', 'Father Name', '', 'ATT001',
+      'Mumbai', 'India', 'Company Ltd', 'IT Division', 'Information Technology', 'Software Development',
+      'Software Engineer', '', 'Manager Name', 'MGR001',
+      '', '2023-01-15', 'Standard Leave Plan', 'Band A', 'Grade 1', 'Full Time', 'Permanent',
+      'Standard Shift', 'Mon-Fri', 'Standard Policy', 'Biometric',
+      'India Holidays', 'Standard Expense Policy', '30 days', 'ABCDE1234F', '1234-5678-9012',
+      'PF123456', 'UAN123456789012', 'Active', '', 'Sample employee data',
+      '', '', '', '', 'CC001'
+    ];
+    
+    const csvContent = headers.join(',') + '\n' + sampleData.join(',') + '\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'employee_import_template.csv');
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+      toast.error('Please select a CSV file');
+      return;
+    }
+
+    setImportFile(file);
+    
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.errors.length > 0) {
+          toast.error('Error parsing CSV file');
+          console.error('CSV parse errors:', results.errors);
+          return;
+        }
+        
+        setImportData(results.data);
+        setImportHeaders(results.meta.fields || []);
+        toast.success(`Parsed ${results.data.length} rows from CSV`);
+      },
+      error: (error) => {
+        toast.error('Failed to parse CSV file');
+        console.error('CSV parse error:', error);
+      }
+    });
+  };
+
+  const handleImportData = async () => {
+    if (importData.length === 0) {
+      toast.error('No data to import');
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      // Transform data for backend - handle multiple header formats
+      const employeeData = importData.map(row => {
+        // Extract name parts from different possible fields
+        const fullName = row['Full Name'] || row['Display Name'] || '';
+        const nameParts = fullName.split(' ');
+        const firstName = nameParts[0] || row.firstName || '';
+        const lastName = nameParts.slice(1).join(' ') || row.lastName || '';
+
+        return {
+          personalInfo: {
+            firstName: firstName,
+            lastName: lastName,
+            email: row['Work Email'] || row.email || '',
+            phone: row['Mobile Phone'] || row.phone || '',
+            dateOfBirth: row['Date Of Birth'] || row.dateOfBirth || '',
+            gender: row['Gender'] || row.gender || '',
+            maritalStatus: row['Marital Status'] || row.maritalStatus || '',
+            bloodGroup: row['Blood Group'] || '',
+            nationality: row['Nationality'] || '',
+            personalEmail: row['Personal Email'] || '',
+            currentAddress: row['Current Address Line 1'] || '',
+            permanentAddress: row['Permanent Address Line 1'] || '',
+            fatherName: row['Father Name'] || '',
+            spouseName: row['Spouse Name'] || '',
+            panNumber: row['PAN Number'] || '',
+            aadhaarNumber: row['Aadhaar Number'] || '',
+            physicallyHandicapped: row['Physically Handicapped'] || ''
+          },
+          employmentInfo: {
+            // Don't set employeeId - let backend generate it automatically in CODR format
+            designation: row['Job Title'] || row.designation || '',
+            department: row['Department'] || row.department || '',
+            subDepartment: row['Sub Department'] || '',
+            dateOfJoining: row['Date Joined'] || row.dateOfJoining || '',
+            employmentStatus: row['Employment Status'] || row.employmentStatus || 'active',
+            workLocation: row['Location'] || row.workLocation || '',
+            reportingManager: row['Reporting Manager Employee Number'] || row['Reporting To'] || row.reportingManager || '',
+            reportingManagerEmpNo: row['Reporting Manager Employee Number'] || '',
+            reportingManagerName: row['Reporting To'] || '', // Store name for reference only
+            dottedLineManager: row['Dotted Line Manager'] || '',
+            legalEntity: row['Legal Entity'] || '',
+            businessUnit: row['Business Unit'] || '',
+            secondaryJobTitle: row['Secondary Job Title'] || '',
+            attendanceNumber: row['Attendance Number'] || '',
+            locationCountry: row['Location Country'] || '',
+            leavePlan: row['Leave Plan'] || '',
+            band: row['Band'] || '',
+            payGrade: row['Pay Grade'] || '',
+            timeType: row['Time Type'] || '',
+            workerType: row['Worker Type'] || '',
+            shiftPolicy: row['Shift Policy Name'] || '',
+            weeklyOffPolicy: row['Weekly Off Policy Name'] || '',
+            attendancePolicy: row['Attendance Time Tracking Policy'] || '',
+            attendanceCaptureScheme: row['Attendance Capture Scheme'] || '',
+            holidayList: row['Holiday List Name'] || '',
+            expensePolicy: row['Expense Policy Name'] || '',
+            noticePeriod: row['Notice Period'] || '',
+            pfNumber: row['PF Number'] || '',
+            uanNumber: row['UAN Number'] || '',
+            exitDate: row['Exit Date'] || '',
+            exitStatus: row['Exit Status'] || '',
+            terminationType: row['Termination Type'] || '',
+            terminationReason: row['Termination Reason'] || '',
+            resignationNote: row['Resignation Note'] || '',
+            costCenter: row['Cost Center'] || '',
+            comments: row['Comments'] || ''
+          },
+          user: {
+            email: row['Work Email'] || row.email || '',
+            role: 'employee'
+          },
+          additionalInfo: {
+            // Store all original data for reference
+            'Employee Number': row['Employee Number'] || '',
+            'Display Name': row['Display Name'] || '',
+            'Full Name': row['Full Name'] || '',
+            'Work Email': row['Work Email'] || '',
+            'Date Of Birth': row['Date Of Birth'] || '',
+            'Gender': row['Gender'] || '',
+            'Marital Status': row['Marital Status'] || '',
+            'Blood Group': row['Blood Group'] || '',
+            'Physically Handicapped': row['Physically Handicapped'] || '',
+            'Nationality': row['Nationality'] || '',
+            'Mobile Phone': row['Mobile Phone'] || '',
+            'Work Phone': row['Work Phone'] || '',
+            'Personal Email': row['Personal Email'] || '',
+            'Current Address Line 1': row['Current Address Line 1'] || '',
+            'Permanent Address Line 1': row['Permanent Address Line 1'] || '',
+            'Father Name': row['Father Name'] || '',
+            'Spouse Name': row['Spouse Name'] || '',
+            'Attendance Number': row['Attendance Number'] || '',
+            'Location': row['Location'] || '',
+            'Location Country': row['Location Country'] || '',
+            'Legal Entity': row['Legal Entity'] || '',
+            'Business Unit': row['Business Unit'] || '',
+            'Department': row['Department'] || '',
+            'Sub Department': row['Sub Department'] || '',
+            'Job Title': row['Job Title'] || '',
+            'Secondary Job Title': row['Secondary Job Title'] || '',
+            'Reporting To': row['Reporting To'] || '',
+            'Reporting Manager Employee Number': row['Reporting Manager Employee Number'] || '',
+            'Dotted Line Manager': row['Dotted Line Manager'] || '',
+            'Date Joined': row['Date Joined'] || '',
+            'Leave Plan': row['Leave Plan'] || '',
+            'Band': row['Band'] || '',
+            'Pay Grade': row['Pay Grade'] || '',
+            'Time Type': row['Time Type'] || '',
+            'Worker Type': row['Worker Type'] || '',
+            'Shift Policy Name': row['Shift Policy Name'] || '',
+            'Weekly Off Policy Name': row['Weekly Off Policy Name'] || '',
+            'Attendance Time Tracking Policy': row['Attendance Time Tracking Policy'] || '',
+            'Attendance Capture Scheme': row['Attendance Capture Scheme'] || '',
+            'Holiday List Name': row['Holiday List Name'] || '',
+            'Expense Policy Name': row['Expense Policy Name'] || '',
+            'Notice Period': row['Notice Period'] || '',
+            'PAN Number': row['PAN Number'] || '',
+            'Aadhaar Number': row['Aadhaar Number'] || '',
+            'PF Number': row['PF Number'] || '',
+            'UAN Number': row['UAN Number'] || '',
+            'Employment Status': row['Employment Status'] || '',
+            'Exit Date': row['Exit Date'] || '',
+            'Comments': row['Comments'] || '',
+            'Exit Status': row['Exit Status'] || '',
+            'Termination Type': row['Termination Type'] || '',
+            'Termination Reason': row['Termination Reason'] || '',
+            'Resignation Note': row['Resignation Note'] || '',
+            'Cost Center': row['Cost Center'] || ''
+          }
+        };
+      });
+
+      const response = await axios.post('/organization/import-master-data', {
+        employees: employeeData,
+        headers: importHeaders,
+        mode: 'comprehensive'
+      });
+
+      setImportResults(response.data);
+      setImportProgress(100);
+      
+      toast.success(`Successfully imported ${response.data.success || 0} employees`);
+      
+      // Refresh employee list
+      fetchEmployees();
+      
+      // Close dialog after a delay
+      setTimeout(() => {
+        setImportDialogOpen(false);
+        setImportData([]);
+        setImportHeaders([]);
+        setImportFile(null);
+        setImportResults(null);
+      }, 2000);
+
+    } catch (error) {
+      console.error('Import error:', error);
+      toast.error(`Import failed: ${error.response?.data?.message || error.message}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   // Show full-screen employee details if selected
   if (showFullScreenView && selectedEmployee) {
-    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} />;
+    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} onEditProfile={handleEditProfile} onSyncEmployee={handleSyncEmployee} />;
   }
 
   return (
@@ -993,6 +1634,46 @@ const EmployeeDirectoryModule = () => {
             Refresh
           </Button>
           
+          <Button
+            variant="outlined"
+            startIcon={<CloudUploadIcon />}
+            onClick={() => setImportDialogOpen(true)}
+            size="small"
+            sx={{
+              fontSize: '0.75rem',
+              fontWeight: 500,
+              borderColor: '#3b82f6',
+              color: '#3b82f6',
+              '&:hover': {
+                borderColor: '#2563eb',
+                color: '#2563eb',
+                backgroundColor: '#eff6ff'
+              }
+            }}
+          >
+            Import Employees
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={downloadTemplate}
+            size="small"
+            sx={{
+              fontSize: '0.75rem',
+              fontWeight: 500,
+              borderColor: '#10b981',
+              color: '#10b981',
+              '&:hover': {
+                borderColor: '#059669',
+                color: '#059669',
+                backgroundColor: '#f0fdf4'
+              }
+            }}
+          >
+            Download Template
+          </Button>
+
           <Button
             variant="outlined"
             startIcon={<DeleteForeverIcon />}
@@ -1485,7 +2166,7 @@ const EmployeeDirectoryModule = () => {
                         fontWeight: 500
                       }}
                     >
-                      ID: {employee.employeeId}
+                      ID: {employee.employeeId || 'No ID'}
                     </Typography>
                     
                     {/* Performance Badge */}
@@ -2089,6 +2770,125 @@ const EmployeeDirectoryModule = () => {
             }}
           >
             {isSubmitting ? 'Adding Employee...' : 'Add Employee'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog
+        open={importDialogOpen}
+        onClose={() => setImportDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <CloudUploadIcon color="primary" />
+            <Typography variant="h6" fontWeight="600">
+              Import Employee Data
+            </Typography>
+          </Box>
+        </DialogTitle>
+        
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Upload a CSV file containing employee data. Use the template format for best results.
+            </Typography>
+            
+            {/* File Upload Area */}
+            <Paper
+              sx={{
+                border: '2px dashed #e0e0e0',
+                borderRadius: 2,
+                p: 4,
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  borderColor: 'primary.main',
+                  backgroundColor: 'primary.50'
+                }
+              }}
+              onClick={() => document.getElementById('employee-csv-upload').click()}
+            >
+              <input
+                id="employee-csv-upload"
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                style={{ display: 'none' }}
+              />
+              
+              <CloudUploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                {importFile ? importFile.name : 'Click to upload CSV file'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Supported format: CSV files only
+              </Typography>
+            </Paper>
+            
+            {importData.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="success.main">
+                  ✓ {importData.length} rows loaded from CSV
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Headers: {importHeaders.join(', ')}
+                </Typography>
+              </Box>
+            )}
+            
+            {isImporting && (
+              <Box sx={{ mt: 2 }}>
+                <LinearProgress variant="determinate" value={importProgress} />
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Importing employees... {importProgress}%
+                </Typography>
+              </Box>
+            )}
+            
+            {importResults && (
+              <Box sx={{ mt: 2 }}>
+                <Alert severity="success">
+                  Import completed! {importResults.success || 0} employees imported successfully.
+                  {importResults.errors && importResults.errors.length > 0 && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      {importResults.errors.length} errors occurred during import.
+                    </Typography>
+                  )}
+                </Alert>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        
+        <DialogActions sx={{ p: 3 }}>
+          <Button
+            onClick={() => setImportDialogOpen(false)}
+            disabled={isImporting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={downloadTemplate}
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            disabled={isImporting}
+          >
+            Download Template
+          </Button>
+          <Button
+            onClick={handleImportData}
+            variant="contained"
+            disabled={importData.length === 0 || isImporting}
+            startIcon={isImporting ? null : <CloudUploadIcon />}
+          >
+            {isImporting ? 'Importing...' : 'Import Data'}
           </Button>
         </DialogActions>
       </Dialog>

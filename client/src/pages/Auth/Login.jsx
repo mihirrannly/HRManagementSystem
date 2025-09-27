@@ -221,6 +221,11 @@ const Login = () => {
               >
                 Demo Credentials
               </Typography>
+              <Typography variant="body2" color="primary" sx={{ mb: 1 }}>
+                <a href="/test-login" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  🔧 Having login issues? Try the debug page
+                </a>
+              </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 <strong>Admin:</strong> admin@rannkly.com / admin123456
               </Typography>

@@ -19,6 +19,7 @@ const helpdeskRoutes = require('./routes/helpdesk');
 const organizationRoutes = require('./routes/organization');
 const onboardingRoutes = require('./routes/onboarding');
 const candidatePortalRoutes = require('./routes/candidatePortal');
+const eSignatureRoutes = require('./routes/eSignature');
 
 const app = express();
 
@@ -41,7 +42,10 @@ app.use(limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    process.env.CLIENT_URL || 'http://localhost:5173',
+    'http://localhost:5174'
+  ],
   credentials: true
 }));
 
@@ -87,6 +91,7 @@ app.use('/api/helpdesk', helpdeskRoutes);
 app.use('/api/organization', organizationRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/candidate-portal', candidatePortalRoutes);
+app.use('/api/esignature', eSignatureRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

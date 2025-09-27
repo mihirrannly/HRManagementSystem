@@ -88,6 +88,24 @@ const CandidatePortal = () => {
   prevHooks.current = currentHooks;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  
+  // Document rejection tracking
+  const [rejectedDocuments, setRejectedDocuments] = useState([]);
+  const [showRejectionAlert, setShowRejectionAlert] = useState(false);
+
+  // Check for rejected documents
+  const checkRejectedDocuments = async () => {
+    try {
+      const response = await candidateApi.get(`candidate-portal/${candidateId}/document-rejections`);
+      if (response.data.success && response.data.rejectedDocuments.length > 0) {
+        setRejectedDocuments(response.data.rejectedDocuments);
+        setShowRejectionAlert(true);
+        console.log('📋 Found rejected documents:', response.data.rejectedDocuments);
+      }
+    } catch (error) {
+      console.error('❌ Error checking rejected documents:', error);
+    }
+  };
   const [authenticated, setAuthenticated] = useState(() => {
     // Check if user was previously authenticated
     const savedAuth = localStorage.getItem(`candidate_auth_${candidateId}`);
@@ -270,6 +288,11 @@ const CandidatePortal = () => {
     };
 
     loadSavedData();
+    
+    // Check for rejected documents after loading data
+    if (authenticated) {
+      checkRejectedDocuments();
+    }
   }, [authenticated, candidateId]);
   
   // Authentication state - initialize once with candidateId
@@ -577,7 +600,8 @@ const CandidatePortal = () => {
         yearOfPassing: '',
         percentage: '',
         specialization: '',
-        documents: []
+        // Load existing uploaded documents from API
+        documents: candidateData.educationDocuments || []
       });
     }
     setEducationDialog({ open: true, data, index });
@@ -659,14 +683,27 @@ const CandidatePortal = () => {
   };
 
   const openWorkDialog = (data = null, index = -1) => {
+    // Group work experience documents by type from API data
+    const groupWorkDocumentsByType = (workDocs = []) => {
+      const grouped = {
+        experienceLetters: [],
+        relievingCertificate: [],
+        salarySlips: []
+      };
+      
+      workDocs.forEach(doc => {
+        if (doc.type && grouped[doc.type]) {
+          grouped[doc.type].push(doc);
+        }
+      });
+      
+      return grouped;
+    };
+
     if (data) {
       setWorkForm({
         ...data,
-        documents: data.documents || {
-          experienceLetters: [],
-          relievingCertificate: [],
-          salarySlips: []
-        }
+        documents: data.documents || groupWorkDocumentsByType(candidateData.workExperienceDocuments)
       });
     } else {
       setWorkForm({
@@ -676,11 +713,8 @@ const CandidatePortal = () => {
         endDate: null,
         salary: '',
         reasonForLeaving: '',
-        documents: {
-          experienceLetters: [],
-          relievingCertificate: [],
-          salarySlips: []
-        }
+        // Load existing uploaded documents from API grouped by type
+        documents: groupWorkDocumentsByType(candidateData.workExperienceDocuments)
       });
     }
     setWorkDialog({ open: true, data, index });
@@ -695,38 +729,140 @@ const CandidatePortal = () => {
   };
 
   // Document upload handlers
-  const handleEducationDocumentUpload = (file) => {
-    const newDocument = {
-      id: Date.now(),
-      name: file.name,
-      size: file.size,
-      uploadedAt: new Date(),
-      status: 'uploaded'
-    };
-    setEducationForm(prev => ({
-      ...prev,
-      documents: [...(prev.documents || []), newDocument]
-    }));
-    toast.success(`${file.name} uploaded successfully!`);
+  const handleEducationDocumentUpload = async (file) => {
+    try {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('File size should be less than 5MB');
+        return;
+      }
+
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('imageType', 'education_document');
+      formData.append('section', 'education');
+
+      // Show loading toast
+      const loadingToastId = toast.loading(`Uploading ${file.name}...`);
+
+      // Upload to server
+      const response = await candidateApi.post(`candidate-portal/${candidateId}/upload-image`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.success) {
+        const documentData = {
+          id: response.data.imageData.id,
+          name: response.data.imageData.name,
+          size: response.data.imageData.size,
+          uploadedAt: new Date(response.data.imageData.uploadedAt),
+          status: 'uploaded',
+          url: response.data.imageData.url
+        };
+        
+        setEducationForm(prev => ({
+          ...prev,
+          documents: [...(prev.documents || []), documentData]
+        }));
+
+        toast.dismiss(loadingToastId);
+        toast.success(`${file.name} uploaded successfully!`);
+      } else {
+        toast.dismiss(loadingToastId);
+        toast.error(response.data.message || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Education document upload error:', error);
+      toast.error('Failed to upload document. Please try again.');
+    }
   };
 
-  const handleWorkDocumentUpload = (file, documentType) => {
-    const newDocument = {
-      id: Date.now(),
-      name: file.name,
-      size: file.size,
-      uploadedAt: new Date(),
-      status: 'uploaded',
-      type: documentType
-    };
-    setWorkForm(prev => ({
-      ...prev,
-      documents: {
-        ...prev.documents,
-        [documentType]: [...(prev.documents?.[documentType] || []), newDocument]
+  const handleWorkDocumentUpload = async (file, documentType) => {
+    let loadingToastId = null;
+    try {
+      console.log('🚀 Starting work document upload:', file.name, 'Type:', documentType);
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('File size should be less than 5MB');
+        return;
       }
-    }));
-    toast.success(`${file.name} uploaded successfully!`);
+
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('imageType', documentType);
+      formData.append('section', 'work_experience');
+
+      // Show loading toast
+      loadingToastId = toast.loading(`Uploading ${file.name}...`);
+      console.log('📤 Uploading to server...');
+
+      // Upload to server
+      const response = await candidateApi.post(`candidate-portal/${candidateId}/upload-image`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      console.log('📥 Server response:', response.data);
+
+      if (response.data.success) {
+        console.log('✅ Upload successful, updating state...');
+        
+        const documentData = {
+          id: response.data.imageData.id,
+          name: response.data.imageData.name,
+          size: response.data.imageData.size,
+          uploadedAt: new Date(response.data.imageData.uploadedAt),
+          status: 'uploaded',
+          type: documentType,
+          url: response.data.imageData.url
+        };
+        
+        console.log('📄 Document data to add:', documentData);
+        
+        setWorkForm(prev => {
+          console.log('📋 Previous form state:', prev);
+          console.log('📋 Previous documents:', prev.documents);
+          
+          const newDocuments = {
+            experienceLetters: [],
+            relievingCertificate: [],
+            salarySlips: [],
+            ...prev.documents,
+            [documentType]: [...(prev.documents?.[documentType] || []), documentData]
+          };
+          
+          console.log('📋 New documents:', newDocuments);
+          
+          return {
+            ...prev,
+            documents: newDocuments
+          };
+        });
+
+        console.log('🎉 State updated successfully');
+        toast.dismiss(loadingToastId);
+        toast.success(`${file.name} uploaded successfully!`);
+      } else {
+        toast.dismiss(loadingToastId);
+        toast.error(response.data.message || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Work document upload error:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      
+      // Dismiss loading toast if it exists
+      if (loadingToastId) {
+        toast.dismiss(loadingToastId);
+      }
+      
+      toast.error(`Failed to upload document: ${error.response?.data?.message || error.message}`);
+    }
   };
 
   const removeEducationDocument = (docId) => {
@@ -1379,6 +1515,19 @@ const CandidatePortal = () => {
             <MenuItem value="intern">Intern</MenuItem>
           </Select>
         </FormControl>
+      </Grid>
+
+      <Grid item xs={12} sm={6}>
+        <AutoFillIndicator isFilled={isAutoFilled('personalInfo.reportingManager')}>
+          <TextField
+            fullWidth
+            label="Reporting Manager"
+            value={candidateData.personalInfo.reportingManager || ''}
+            onChange={handlePersonalInfoChange('reportingManager')}
+            disabled={true}
+            helperText="This field is auto-filled from your offer letter"
+          />
+        </AutoFillIndicator>
       </Grid>
 
       {/* Passport Photo Upload Section */}
@@ -2671,6 +2820,10 @@ const CandidatePortal = () => {
               <Typography variant="body1" fontWeight="medium">{candidateData.personalInfo.employmentStatus || 'Not provided'}</Typography>
             </Grid>
             <Grid item xs={12} sm={6}>
+              <Typography variant="body2" color="text.secondary">Reporting Manager</Typography>
+              <Typography variant="body1" fontWeight="medium">{candidateData.personalInfo.reportingManager || 'Not provided'}</Typography>
+            </Grid>
+            <Grid item xs={12} sm={6}>
               <Typography variant="body2" color="text.secondary">PAN Number</Typography>
               <Typography variant="body1" fontWeight="medium">{candidateData.personalInfo.panNumber || 'Not provided'}</Typography>
             </Grid>
@@ -3050,6 +3203,70 @@ const CandidatePortal = () => {
               Please fill in all the required information to complete your onboarding process.
             </Typography>
 
+            {/* Document Approval Alert */}
+            {candidateData.documentsApproved && (
+              <Alert 
+                severity="success" 
+                sx={{ mb: 3 }}
+              >
+                <Typography variant="h6" gutterBottom>
+                  🎉 All Documents Approved!
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  {candidateData.documentsApprovalMessage || 'All your documents have been reviewed and approved by HR. You will be contacted regarding next steps.'}
+                </Typography>
+                {candidateData.documentsApprovedAt && (
+                  <Typography variant="caption" color="text.secondary">
+                    Approved on: {new Date(candidateData.documentsApprovedAt).toLocaleDateString()}
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            {/* Document Rejection Alert */}
+            {showRejectionAlert && rejectedDocuments.length > 0 && (
+              <Alert 
+                severity="error" 
+                sx={{ mb: 3 }}
+                action={
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => setShowRejectionAlert(false)}
+                  >
+                    Dismiss
+                  </Button>
+                }
+              >
+                <Typography variant="h6" gutterBottom>
+                  ⚠️ Document Review Required
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  Some of your documents have been rejected by HR and need to be corrected. Please review the feedback and re-upload corrected documents:
+                </Typography>
+                <Box sx={{ pl: 2 }}>
+                  {rejectedDocuments.map((doc, index) => (
+                    <Box key={index} sx={{ mb: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" color="error">
+                        📄 {doc.name} ({doc.type})
+                      </Typography>
+                      <Typography variant="body2" sx={{ ml: 2, fontStyle: 'italic' }}>
+                        💬 HR Feedback: {doc.comments}
+                      </Typography>
+                      {doc.reviewedAt && (
+                        <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>
+                          Reviewed: {new Date(doc.reviewedAt).toLocaleDateString()}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+                <Typography variant="body2" sx={{ mt: 2, fontWeight: 'bold' }}>
+                  💡 You can re-upload corrected documents in the appropriate sections below.
+                </Typography>
+              </Alert>
+            )}
+
             <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
               {steps.map((step, index) => (
                 <Step key={index}>
@@ -3220,33 +3437,66 @@ const CandidatePortal = () => {
                 </label>
               </Box>
               
-              {/* Uploaded Documents List */}
+              {/* Uploaded Documents with Image Previews */}
               {educationForm.documents && educationForm.documents.length > 0 && (
                 <Box>
                   <Typography variant="subtitle2" gutterBottom>
                     Uploaded Documents:
                   </Typography>
                   {educationForm.documents.map((doc) => (
-                    <Card key={doc.id} variant="outlined" sx={{ mb: 1, p: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <DocumentIcon color="primary" />
+                    <Card key={doc.id} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {/* Image Preview */}
+                        {doc.url && (doc.name.toLowerCase().includes('.jpg') || doc.name.toLowerCase().includes('.jpeg') || doc.name.toLowerCase().includes('.png')) ? (
+                          <img 
+                            src={doc.url.startsWith('http') ? doc.url : `http://localhost:5001${doc.url}`}
+                            alt={doc.name}
+                            style={{ 
+                              maxWidth: '100%', 
+                              height: 'auto', 
+                              maxHeight: 200,
+                              border: '1px solid #ddd',
+                              borderRadius: 4
+                            }}
+                          />
+                        ) : (
+                          <Box sx={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            height: 100, 
+                            bgcolor: 'grey.100', 
+                            borderRadius: 1 
+                          }}>
+                            <DocumentIcon sx={{ fontSize: 40, color: 'grey.500' }} />
+                          </Box>
+                        )}
+                        
+                        {/* Document Info */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <Box>
                             <Typography variant="body2" fontWeight="medium">
                               {doc.name}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              {(doc.size / 1024 / 1024).toFixed(2)} MB
+                              Size: {(doc.size / 1024).toFixed(1)} KB
                             </Typography>
+                            <br />
+                            <Chip 
+                              label="UPLOADED" 
+                              color="success" 
+                              size="small" 
+                              sx={{ mt: 1 }}
+                            />
                           </Box>
+                          <IconButton
+                            size="small"
+                            onClick={() => removeEducationDocument(doc.id)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
                         </Box>
-                        <IconButton
-                          size="small"
-                          onClick={() => removeEducationDocument(doc.id)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
                       </Box>
                     </Card>
                   ))}
@@ -3370,26 +3620,59 @@ const CandidatePortal = () => {
                 {workForm.documents?.experienceLetters && workForm.documents.experienceLetters.length > 0 && (
                   <Box>
                     {workForm.documents.experienceLetters.map((doc) => (
-                      <Card key={doc.id} variant="outlined" sx={{ mb: 1, p: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <DocumentIcon color="primary" />
+                      <Card key={doc.id} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {/* Image Preview */}
+                          {doc.url && (doc.name.toLowerCase().includes('.jpg') || doc.name.toLowerCase().includes('.jpeg') || doc.name.toLowerCase().includes('.png')) ? (
+                            <img 
+                              src={doc.url.startsWith('http') ? doc.url : `http://localhost:5001${doc.url}`}
+                              alt={doc.name}
+                              style={{ 
+                                maxWidth: '100%', 
+                                height: 'auto', 
+                                maxHeight: 200,
+                                border: '1px solid #ddd',
+                                borderRadius: 4
+                              }}
+                            />
+                          ) : (
+                            <Box sx={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              height: 100, 
+                              bgcolor: 'grey.100', 
+                              borderRadius: 1 
+                            }}>
+                              <DocumentIcon sx={{ fontSize: 40, color: 'grey.500' }} />
+                            </Box>
+                          )}
+                          
+                          {/* Document Info */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box>
                               <Typography variant="body2" fontWeight="medium">
                                 {doc.name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {(doc.size / 1024 / 1024).toFixed(2)} MB
+                                Size: {(doc.size / 1024).toFixed(1)} KB
                               </Typography>
+                              <br />
+                              <Chip 
+                                label="UPLOADED" 
+                                color="success" 
+                                size="small" 
+                                sx={{ mt: 1 }}
+                              />
                             </Box>
+                            <IconButton
+                              size="small"
+                              onClick={() => removeWorkDocument(doc.id, 'experienceLetters')}
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
                           </Box>
-                          <IconButton
-                            size="small"
-                            onClick={() => removeWorkDocument(doc.id, 'experienceLetters')}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
                         </Box>
                       </Card>
                     ))}
@@ -3433,26 +3716,59 @@ const CandidatePortal = () => {
                 {workForm.documents?.relievingCertificate && workForm.documents.relievingCertificate.length > 0 && (
                   <Box>
                     {workForm.documents.relievingCertificate.map((doc) => (
-                      <Card key={doc.id} variant="outlined" sx={{ mb: 1, p: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <DocumentIcon color="primary" />
+                      <Card key={doc.id} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {/* Image Preview */}
+                          {doc.url && (doc.name.toLowerCase().includes('.jpg') || doc.name.toLowerCase().includes('.jpeg') || doc.name.toLowerCase().includes('.png')) ? (
+                            <img 
+                              src={doc.url.startsWith('http') ? doc.url : `http://localhost:5001${doc.url}`}
+                              alt={doc.name}
+                              style={{ 
+                                maxWidth: '100%', 
+                                height: 'auto', 
+                                maxHeight: 200,
+                                border: '1px solid #ddd',
+                                borderRadius: 4
+                              }}
+                            />
+                          ) : (
+                            <Box sx={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              height: 100, 
+                              bgcolor: 'grey.100', 
+                              borderRadius: 1 
+                            }}>
+                              <DocumentIcon sx={{ fontSize: 40, color: 'grey.500' }} />
+                            </Box>
+                          )}
+                          
+                          {/* Document Info */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box>
                               <Typography variant="body2" fontWeight="medium">
                                 {doc.name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {(doc.size / 1024 / 1024).toFixed(2)} MB
+                                Size: {(doc.size / 1024).toFixed(1)} KB
                               </Typography>
+                              <br />
+                              <Chip 
+                                label="UPLOADED" 
+                                color="success" 
+                                size="small" 
+                                sx={{ mt: 1 }}
+                              />
                             </Box>
+                            <IconButton
+                              size="small"
+                              onClick={() => removeWorkDocument(doc.id, 'relievingCertificate')}
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
                           </Box>
-                          <IconButton
-                            size="small"
-                            onClick={() => removeWorkDocument(doc.id, 'relievingCertificate')}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
                         </Box>
                       </Card>
                     ))}
@@ -3496,30 +3812,63 @@ const CandidatePortal = () => {
                 
                 {workForm.documents?.salarySlips && workForm.documents.salarySlips.length > 0 && (
                   <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                       {workForm.documents.salarySlips.length} salary slip(s) uploaded
                     </Typography>
                     {workForm.documents.salarySlips.map((doc) => (
-                      <Card key={doc.id} variant="outlined" sx={{ mb: 1, p: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <DocumentIcon color="primary" />
+                      <Card key={doc.id} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {/* Image Preview */}
+                          {doc.url && (doc.name.toLowerCase().includes('.jpg') || doc.name.toLowerCase().includes('.jpeg') || doc.name.toLowerCase().includes('.png')) ? (
+                            <img 
+                              src={doc.url.startsWith('http') ? doc.url : `http://localhost:5001${doc.url}`}
+                              alt={doc.name}
+                              style={{ 
+                                maxWidth: '100%', 
+                                height: 'auto', 
+                                maxHeight: 200,
+                                border: '1px solid #ddd',
+                                borderRadius: 4
+                              }}
+                            />
+                          ) : (
+                            <Box sx={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              height: 100, 
+                              bgcolor: 'grey.100', 
+                              borderRadius: 1 
+                            }}>
+                              <DocumentIcon sx={{ fontSize: 40, color: 'grey.500' }} />
+                            </Box>
+                          )}
+                          
+                          {/* Document Info */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box>
                               <Typography variant="body2" fontWeight="medium">
                                 {doc.name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {(doc.size / 1024 / 1024).toFixed(2)} MB
+                                Size: {(doc.size / 1024).toFixed(1)} KB
                               </Typography>
+                              <br />
+                              <Chip 
+                                label="UPLOADED" 
+                                color="success" 
+                                size="small" 
+                                sx={{ mt: 1 }}
+                              />
                             </Box>
+                            <IconButton
+                              size="small"
+                              onClick={() => removeWorkDocument(doc.id, 'salarySlips')}
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
                           </Box>
-                          <IconButton
-                            size="small"
-                            onClick={() => removeWorkDocument(doc.id, 'salarySlips')}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
                         </Box>
                       </Card>
                     ))}

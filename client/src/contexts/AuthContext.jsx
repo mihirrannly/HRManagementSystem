@@ -165,7 +165,7 @@ export const AuthProvider = ({ children }) => {
     register,
     updateProfile,
     changePassword,
-    isAdmin: user?.role === 'admin',
+    isAdmin: user?.role === 'admin' || user?.role === 'hr', // HR now has admin privileges
     isHR: user?.role === 'hr' || user?.role === 'admin',
     isManager: user?.role === 'manager' || user?.role === 'hr' || user?.role === 'admin',
     isEmployee: user?.role === 'employee'

@@ -59,11 +59,13 @@ import {
   School as SchoolIcon,
   AutoAwesome as AutoAwesomeIcon,
   Computer as ComputerIcon,
+  Storage as StorageIcon,
   EmojiEvents as CompletionIcon,
   MoreVert as MoreVertIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
+  PersonAdd as PersonAddIcon,
   Description as DescriptionIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -91,6 +93,7 @@ import {
   Key as KeyIcon,
   Link as LinkIcon,
   Check as CheckIcon,
+  Sync as SyncIcon,
 } from '@mui/icons-material';
 import { keyframes, styled } from '@mui/material/styles';
 import axios from 'axios';
@@ -136,6 +139,23 @@ const NewOnboardingsModule = () => {
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [newlyCreatedOnboarding, setNewlyCreatedOnboarding] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  
+  // Delete Dialog State
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [onboardingToDelete, setOnboardingToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Employee creation states
+  const [readyForEmployeeCreation, setReadyForEmployeeCreation] = useState([]);
+  const [createEmployeeDialogOpen, setCreateEmployeeDialogOpen] = useState(false);
+  const [selectedForEmployeeCreation, setSelectedForEmployeeCreation] = useState(null);
+  const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
+  
+  // Sync states
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [selectedForSync, setSelectedForSync] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   const [statistics, setStatistics] = useState({
     totalOnboardings: 0,
     activeOnboardings: 0,
@@ -176,8 +196,21 @@ const NewOnboardingsModule = () => {
     if (user) {
       fetchOnboardings();
       loadStatistics();
+      fetchReadyForEmployeeCreation();
     }
   }, [user]);
+
+  const fetchReadyForEmployeeCreation = async () => {
+    try {
+      console.log('🔍 Fetching ready-for-employee-creation...');
+      const response = await axios.get('/onboarding/ready-for-employee-creation');
+      console.log('✅ Ready onboardings response:', response.data);
+      setReadyForEmployeeCreation(response.data.onboardings || []);
+    } catch (error) {
+      console.error('❌ Error fetching ready onboardings:', error);
+      console.error('❌ Error details:', error.response?.data);
+    }
+  };
 
   // Cleanup menu when view changes
   useEffect(() => {
@@ -265,6 +298,127 @@ const NewOnboardingsModule = () => {
       // Navigate to the dedicated candidate review page
       navigate(`/candidate-review/${selected.employeeId}`);
     }
+  };
+
+  const handleDeleteOnboarding = (onboardingId) => {
+    const selected = onboardings.find(o => o._id === onboardingId);
+    if (selected) {
+      setOnboardingToDelete(selected);
+      setDeleteDialogOpen(true);
+    }
+  };
+
+  const confirmDeleteOnboarding = async () => {
+    if (!onboardingToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      await axios.delete(`/onboarding/${onboardingToDelete._id}`);
+      toast.success('Onboarding record deleted successfully');
+      setDeleteDialogOpen(false);
+      setOnboardingToDelete(null);
+      fetchOnboardings(); // Refresh the list
+    } catch (error) {
+      console.error('Error deleting onboarding:', error);
+      toast.error(error.response?.data?.message || 'Failed to delete onboarding record');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCreateEmployee = async (onboarding) => {
+    setSelectedForEmployeeCreation(onboarding);
+    setCreateEmployeeDialogOpen(true);
+  };
+
+  const confirmCreateEmployee = async () => {
+    if (!selectedForEmployeeCreation) return;
+
+    try {
+      setIsCreatingEmployee(true);
+      const response = await axios.post(`/onboarding/${selectedForEmployeeCreation._id}/create-employee`);
+      
+      if (response.data.success) {
+        toast.success(
+          `Employee created successfully! 
+          Employee ID: ${response.data.data.employee.employeeId}
+          Email: ${response.data.data.user.email}
+          Temporary Password: ${response.data.data.user.temporaryPassword}`,
+          { autoClose: 10000 }
+        );
+        
+        setCreateEmployeeDialogOpen(false);
+        setSelectedForEmployeeCreation(null);
+        
+        // Refresh data
+        fetchOnboardings();
+        fetchReadyForEmployeeCreation();
+        loadStatistics();
+      } else {
+        // If employee already exists, offer sync option
+        if (response.data.suggestion && response.data.suggestion.includes('sync')) {
+          toast.warning(`${response.data.message}. You can sync the data instead.`);
+          setSelectedForSync(selectedForEmployeeCreation);
+          setSyncDialogOpen(true);
+          setCreateEmployeeDialogOpen(false);
+        } else {
+          toast.error(response.data.message || 'Failed to create employee');
+        }
+      }
+    } catch (error) {
+      console.error('Error creating employee:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to create employee record';
+      
+      // If employee already exists, offer sync option
+      if (error.response?.data?.suggestion && error.response.data.suggestion.includes('sync')) {
+        toast.warning(`${errorMessage}. You can sync the data instead.`);
+        setSelectedForSync(selectedForEmployeeCreation);
+        setSyncDialogOpen(true);
+        setCreateEmployeeDialogOpen(false);
+      } else {
+        toast.error(errorMessage);
+      }
+    } finally {
+      setIsCreatingEmployee(false);
+    }
+  };
+
+  const handleSyncToEmployee = async (onboarding) => {
+    setSelectedForSync(onboarding);
+    setSyncDialogOpen(true);
+    setSyncResult(null);
+  };
+
+  const confirmSyncToEmployee = async () => {
+    if (!selectedForSync) return;
+
+    try {
+      setIsSyncing(true);
+      const response = await axios.post(`/onboarding/${selectedForSync._id}/sync-to-employee`);
+      
+      if (response.data.success) {
+        setSyncResult(response.data);
+        toast.success(`${response.data.message} (${response.data.data.changesCount} changes applied)`);
+        
+        // Refresh data
+        fetchOnboardings();
+        fetchReadyForEmployeeCreation();
+        loadStatistics();
+      } else {
+        toast.error(response.data.message || 'Failed to sync employee record');
+      }
+    } catch (error) {
+      console.error('Error syncing employee:', error);
+      toast.error(error.response?.data?.message || 'Failed to sync employee record');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const closeSyncDialog = () => {
+    setSyncDialogOpen(false);
+    setSelectedForSync(null);
+    setSyncResult(null);
   };
 
   const handleViewPortalCredentials = async (onboardingId) => {
@@ -608,7 +762,11 @@ const NewOnboardingsModule = () => {
                 Export
               </Button>
               <IconButton
-                onClick={fetchOnboardings}
+                onClick={() => {
+                  fetchOnboardings();
+                  fetchReadyForEmployeeCreation();
+                  loadStatistics();
+                }}
                 size="small"
                 color="primary"
               >
@@ -809,14 +967,135 @@ const NewOnboardingsModule = () => {
     );
   };
 
+  // Ready for Employee Creation Section
+  const ReadyForEmployeeCreationSection = () => {
+    console.log('🎯 Rendering ReadyForEmployeeCreationSection with', readyForEmployeeCreation.length, 'candidates');
+    return (
+      <CleanCard sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <PersonAddIcon sx={{ color: '#4caf50', mr: 1 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
+              Ready for Employee Creation
+            </Typography>
+            <Chip 
+              label={readyForEmployeeCreation.length} 
+              color="success" 
+              size="small" 
+              sx={{ ml: 2 }}
+            />
+          </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          These candidates have completed their onboarding and can be moved to the employee section.
+        </Typography>
+        
+        <Grid container spacing={2}>
+          {readyForEmployeeCreation.length === 0 ? (
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                No completed onboardings ready for employee creation.
+                <br />
+                Complete an onboarding workflow to see candidates here.
+              </Typography>
+            </Grid>
+          ) : (
+            readyForEmployeeCreation.map((onboarding) => (
+              <Grid item xs={12} md={6} lg={4} key={onboarding._id}>
+              <Card sx={{ 
+                border: '1px solid #e0e0e0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                  transform: 'translateY(-2px)'
+                }
+              }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Avatar sx={{ bgcolor: '#4caf50', mr: 2 }}>
+                      {onboarding.employeeName.charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+                        {onboarding.employeeName}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {onboarding.position} • {onboarding.department}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Email: {onboarding.email}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Start Date: {new Date(onboarding.startDate).toLocaleDateString()}
+                    </Typography>
+                    <Chip 
+                      label="Onboarding Completed" 
+                      color="success" 
+                      size="small"
+                      sx={{ mt: 1 }}
+                    />
+                  </Box>
+                  
+                  <Stack spacing={1}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="success"
+                      startIcon={<PersonAddIcon />}
+                      onClick={() => handleCreateEmployee(onboarding)}
+                      sx={{
+                        bgcolor: '#4caf50',
+                        '&:hover': { bgcolor: '#45a049' }
+                      }}
+                    >
+                      Create Employee Record
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<SyncIcon />}
+                      onClick={() => handleSyncToEmployee(onboarding)}
+                      sx={{
+                        borderColor: '#2196f3',
+                        color: '#2196f3',
+                        '&:hover': { 
+                          borderColor: '#1976d2',
+                          bgcolor: 'rgba(33, 150, 243, 0.04)'
+                        }
+                      }}
+                    >
+                      Sync to Employee
+                    </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            ))
+          )}
+        </Grid>
+      </CardContent>
+    </CleanCard>
+    );
+  };
+
   // Clean Dashboard View
-  const DashboardView = () => (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <StatisticsCards />
-      <SearchFilterBar />
-      <OnboardingTable />
-    </Container>
-  );
+  const DashboardView = () => {
+    console.log('🎯 Dashboard rendering with readyForEmployeeCreation:', readyForEmployeeCreation);
+    return (
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        <StatisticsCards />
+        {/* Temporarily always show for debugging */}
+        <ReadyForEmployeeCreationSection />
+        <SearchFilterBar />
+        <OnboardingTable />
+      </Container>
+    );
+  };
 
   // Route handling
   if (currentView === 'workflow' && selectedOnboarding) {
@@ -1050,6 +1329,32 @@ const NewOnboardingsModule = () => {
                     primaryTypographyProps={{ fontSize: '0.8rem' }}
                   />
                 </ListItem>
+
+                {/* Sync to Employee Option - only show for completed onboardings */}
+                {(() => {
+                  const selectedOnboarding = onboardings.find(o => o._id === selectedRowId);
+                  return selectedOnboarding?.status === 'completed' && (
+                    <ListItem 
+                      button 
+                      onClick={() => {
+                        const selected = onboardings.find(o => o._id === selectedRowId);
+                        if (selected) {
+                          handleSyncToEmployee(selected);
+                        }
+                        setMenuOpen(false);
+                        setSelectedRowId(null);
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 28 }}>
+                        <SyncIcon fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Sync to Employee" 
+                        primaryTypographyProps={{ fontSize: '0.8rem' }}
+                      />
+                    </ListItem>
+                  );
+                })()}
               
               <ListItem 
                 button 
@@ -1071,7 +1376,7 @@ const NewOnboardingsModule = () => {
               <ListItem 
                 button 
                 onClick={() => {
-                  // Add delete functionality here
+                  handleDeleteOnboarding(selectedRowId);
                   setMenuOpen(false);
                   setSelectedRowId(null);
                 }}
@@ -1821,6 +2126,256 @@ const NewOnboardingsModule = () => {
                 })()}
               </Box>
 
+              {/* IT Setup Information */}
+              {selectedDocumentData.itSetup && (
+                <Box>
+                  <Typography variant="h6" gutterBottom>
+                    IT Setup Status
+                  </Typography>
+                  
+                  <Card sx={{ mb: 2 }}>
+                    <CardHeader 
+                      title="IT Equipment & Access" 
+                      avatar={<ComputerIcon color="primary" />}
+                    />
+                    <CardContent>
+                      <Grid container spacing={3}>
+                        {/* Hardware Equipment */}
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <ComputerIcon fontSize="small" />
+                            Hardware Equipment
+                          </Typography>
+                          <Stack spacing={1}>
+                            {selectedDocumentData.itSetup.hardware && Object.entries(selectedDocumentData.itSetup.hardware).map(([key, item]) => (
+                              <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.assigned ? (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                ) : (
+                                  <CancelIcon color="disabled" fontSize="small" />
+                                )}
+                                <Typography variant="body2">
+                                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                                  {item.model && ` (${item.model})`}
+                                  {item.assignedDate && ` - ${item.assignedDate}`}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Grid>
+
+                        {/* Software & Accounts */}
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <StorageIcon fontSize="small" />
+                            Software & Accounts
+                          </Typography>
+                          <Stack spacing={1}>
+                            {selectedDocumentData.itSetup.software && Object.entries(selectedDocumentData.itSetup.software).map(([key, item]) => (
+                              <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.setup ? (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                ) : (
+                                  <CancelIcon color="disabled" fontSize="small" />
+                                )}
+                                <Typography variant="body2">
+                                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                                  {item.account && ` (${item.account})`}
+                                  {item.setupDate && ` - ${item.setupDate}`}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Grid>
+
+                        {/* Access & Security */}
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <SecurityIcon fontSize="small" />
+                            Access & Security
+                          </Typography>
+                          <Stack spacing={1}>
+                            {selectedDocumentData.itSetup.access && Object.entries(selectedDocumentData.itSetup.access).map(([key, item]) => (
+                              <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.granted ? (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                ) : (
+                                  <CancelIcon color="disabled" fontSize="small" />
+                                )}
+                                <Typography variant="body2">
+                                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                                  {(item.cardNumber || item.spotNumber || item.credentials) && 
+                                    ` (${item.cardNumber || item.spotNumber || item.credentials})`}
+                                  {item.grantedDate && ` - ${item.grantedDate}`}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Grid>
+                      </Grid>
+
+                      {/* IT Setup Notes */}
+                      {selectedDocumentData.itSetup.notes && (
+                        <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Typography variant="subtitle2" gutterBottom>Notes:</Typography>
+                          <Typography variant="body2">{selectedDocumentData.itSetup.notes}</Typography>
+                        </Box>
+                      )}
+
+                      {/* IT Setup Completion Status */}
+                      <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {(() => {
+                          const hardwareItems = selectedDocumentData.itSetup.hardware ? Object.values(selectedDocumentData.itSetup.hardware) : [];
+                          const softwareItems = selectedDocumentData.itSetup.software ? Object.values(selectedDocumentData.itSetup.software) : [];
+                          const accessItems = selectedDocumentData.itSetup.access ? Object.values(selectedDocumentData.itSetup.access) : [];
+                          
+                          const hardwareCompleted = hardwareItems.filter(item => item.assigned).length;
+                          const softwareCompleted = softwareItems.filter(item => item.setup).length;
+                          const accessCompleted = accessItems.filter(item => item.granted).length;
+                          
+                          const totalItems = hardwareItems.length + softwareItems.length + accessItems.length;
+                          const completedItems = hardwareCompleted + softwareCompleted + accessCompleted;
+                          const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+                          
+                          return (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                IT Setup Progress:
+                              </Typography>
+                              <Chip 
+                                label={`${progress}% Complete (${completedItems}/${totalItems})`}
+                                color={progress === 100 ? "success" : progress > 50 ? "warning" : "default"}
+                                size="small"
+                              />
+                              {selectedDocumentData.itSetup.completedDate && (
+                                <Typography variant="caption" color="text.secondary">
+                                  Completed: {selectedDocumentData.itSetup.completedDate}
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Box>
+              )}
+
+              {/* HR Setup Information */}
+              {selectedDocumentData.hrSetup && (
+                <Box>
+                  <Typography variant="h6" gutterBottom>
+                    HR Setup Status
+                  </Typography>
+                  
+                  <Card sx={{ mb: 2 }}>
+                    <CardHeader 
+                      title="HR Processes & Documentation" 
+                      avatar={<GroupIcon color="primary" />}
+                    />
+                    <CardContent>
+                      <Grid container spacing={3}>
+                        {/* HR Processes */}
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <GroupIcon fontSize="small" />
+                            HR Processes
+                          </Typography>
+                          <Stack spacing={1}>
+                            {selectedDocumentData.hrSetup.processes && Object.entries(selectedDocumentData.hrSetup.processes).map(([key, item]) => (
+                              <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.completed ? (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                ) : (
+                                  <CancelIcon color="disabled" fontSize="small" />
+                                )}
+                                <Typography variant="body2">
+                                  {key === 'employeeId' ? 'Employee ID Assignment' :
+                                   key === 'policies' ? 'Company Policies' :
+                                   key === 'handbook' ? 'Employee Handbook' :
+                                   key === 'benefits' ? 'Benefits Explanation' :
+                                   key === 'payroll' ? 'Payroll Setup' :
+                                   key.charAt(0).toUpperCase() + key.slice(1)}
+                                  {item.completedDate && ` - ${item.completedDate}`}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Grid>
+
+                        {/* HR Documents */}
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <DescriptionIcon fontSize="small" />
+                            Documentation
+                          </Typography>
+                          <Stack spacing={1}>
+                            {selectedDocumentData.hrSetup.documents && Object.entries(selectedDocumentData.hrSetup.documents).map(([key, item]) => (
+                              <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.provided ? (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                ) : (
+                                  <CancelIcon color="disabled" fontSize="small" />
+                                )}
+                                <Typography variant="body2">
+                                  {key === 'contract' ? 'Employment Contract' :
+                                   key === 'nda' ? 'NDA Agreement' :
+                                   key === 'handbook' ? 'Employee Handbook' :
+                                   key === 'policies' ? 'Policy Documents' :
+                                   key.charAt(0).toUpperCase() + key.slice(1)}
+                                  {item.providedDate && ` - ${item.providedDate}`}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Grid>
+                      </Grid>
+
+                      {/* HR Setup Notes */}
+                      {selectedDocumentData.hrSetup.notes && (
+                        <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Typography variant="subtitle2" gutterBottom>Notes:</Typography>
+                          <Typography variant="body2">{selectedDocumentData.hrSetup.notes}</Typography>
+                        </Box>
+                      )}
+
+                      {/* HR Setup Completion Status */}
+                      <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {(() => {
+                          const processItems = selectedDocumentData.hrSetup.processes ? Object.values(selectedDocumentData.hrSetup.processes) : [];
+                          const documentItems = selectedDocumentData.hrSetup.documents ? Object.values(selectedDocumentData.hrSetup.documents) : [];
+                          
+                          const processCompleted = processItems.filter(item => item.completed).length;
+                          const documentsProvided = documentItems.filter(item => item.provided).length;
+                          
+                          const totalItems = processItems.length + documentItems.length;
+                          const completedItems = processCompleted + documentsProvided;
+                          const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+                          
+                          return (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                HR Setup Progress:
+                              </Typography>
+                              <Chip 
+                                label={`${progress}% Complete (${completedItems}/${totalItems})`}
+                                color={progress === 100 ? "success" : progress > 50 ? "warning" : "default"}
+                                size="small"
+                              />
+                              {selectedDocumentData.hrSetup.completedDate && (
+                                <Typography variant="caption" color="text.secondary">
+                                  Completed: {selectedDocumentData.hrSetup.completedDate}
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Box>
+              )}
+
               {/* Quick Actions */}
               <Box>
                 <Typography variant="h6" gutterBottom>
@@ -2108,6 +2663,263 @@ HR Team`;
           <Button onClick={() => setPortalCredentialsDialogOpen(false)}>
             Close
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Employee Confirmation Dialog */}
+      <Dialog
+        open={createEmployeeDialogOpen}
+        onClose={() => setCreateEmployeeDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <PersonAddIcon sx={{ color: '#4caf50', mr: 1 }} />
+            Create Employee Record
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Are you sure you want to create an employee record for:
+          </Typography>
+          <Box sx={{ 
+            p: 2, 
+            bgcolor: '#f5f5f5', 
+            borderRadius: 1, 
+            mt: 2, 
+            mb: 2 
+          }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {selectedForEmployeeCreation?.employeeName}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {selectedForEmployeeCreation?.position} • {selectedForEmployeeCreation?.department}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Email: {selectedForEmployeeCreation?.email}
+            </Typography>
+          </Box>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            This will:
+            <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li>Create a user account with temporary password</li>
+              <li>Generate a new employee ID (CODR format)</li>
+              <li>Transfer all onboarding data to employee record</li>
+              <li>Move the candidate to the employee section</li>
+            </ul>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setCreateEmployeeDialogOpen(false)}
+            disabled={isCreatingEmployee}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmCreateEmployee}
+            variant="contained"
+            color="success"
+            disabled={isCreatingEmployee}
+            startIcon={isCreatingEmployee ? <CircularProgress size={20} /> : <PersonAddIcon />}
+          >
+            {isCreatingEmployee ? 'Creating...' : 'Create Employee'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ 
+          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
+          <DeleteIcon />
+          Delete Onboarding Record
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <strong>Warning:</strong> This action cannot be undone!
+          </Alert>
+          {onboardingToDelete && (
+            <Box>
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                Are you sure you want to delete the onboarding record for:
+              </Typography>
+              <Paper sx={{ p: 2, bgcolor: '#f8f9fa', mb: 2 }}>
+                <Typography variant="h6" color="primary">
+                  {onboardingToDelete.employeeName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {onboardingToDelete.position} • {onboardingToDelete.department}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Employee ID: {onboardingToDelete.employeeId}
+                </Typography>
+              </Paper>
+              <Typography variant="body2" color="text.secondary">
+                This will permanently remove:
+              </Typography>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px', color: '#666' }}>
+                <li>All onboarding progress and data</li>
+                <li>Uploaded documents and files</li>
+                <li>Task assignments and notes</li>
+                <li>Workflow history</li>
+              </ul>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 1 }}>
+          <Button
+            onClick={() => setDeleteDialogOpen(false)}
+            variant="outlined"
+            disabled={isDeleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDeleteOnboarding}
+            variant="contained"
+            color="error"
+            disabled={isDeleting}
+            startIcon={isDeleting ? null : <DeleteIcon />}
+            sx={{
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+              }
+            }}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete Onboarding'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Sync to Employee Dialog */}
+      <Dialog
+        open={syncDialogOpen}
+        onClose={closeSyncDialog}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ 
+          background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
+          <SyncIcon />
+          Sync Onboarding Data to Employee Record
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedForSync && (
+            <Box>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                This will update the existing employee record with the latest data from the onboarding process.
+              </Alert>
+              
+              <Paper sx={{ p: 2, bgcolor: '#f8f9fa', mb: 3 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {selectedForSync.employeeName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedForSync.position} • {selectedForSync.department}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Email: {selectedForSync.email}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Employee ID: {selectedForSync.employeeId}
+                </Typography>
+              </Paper>
+
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                The following data will be synchronized:
+              </Typography>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px', color: '#666' }}>
+                <li>Personal information (name, contact details, etc.)</li>
+                <li>Employment details (designation, joining date, reporting manager)</li>
+                <li>Address and emergency contact information</li>
+                <li>Education qualifications and work experience</li>
+                <li>IT setup and HR setup data</li>
+                <li>All uploaded documents and verification status</li>
+              </ul>
+
+              {syncResult && (
+                <Alert severity="success" sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Sync Completed Successfully!
+                  </Typography>
+                  <Typography variant="body2">
+                    {syncResult.data.changesCount} fields were updated.
+                  </Typography>
+                  {syncResult.data.changes.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                        Changes Applied:
+                      </Typography>
+                      <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
+                        {syncResult.data.changes.slice(0, 10).map((change, index) => (
+                          <Typography key={index} variant="body2" sx={{ fontSize: '0.875rem', mb: 0.5 }}>
+                            • {change.field}: {typeof change.newValue === 'string' && change.newValue.length > 50 
+                              ? `${change.newValue.substring(0, 50)}...` 
+                              : String(change.newValue)}
+                          </Typography>
+                        ))}
+                        {syncResult.data.changes.length > 10 && (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                            ... and {syncResult.data.changes.length - 10} more changes
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                </Alert>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 1 }}>
+          <Button
+            onClick={closeSyncDialog}
+            variant="outlined"
+            disabled={isSyncing}
+          >
+            {syncResult ? 'Close' : 'Cancel'}
+          </Button>
+          {!syncResult && (
+            <Button
+              onClick={confirmSyncToEmployee}
+              variant="contained"
+              color="primary"
+              disabled={isSyncing}
+              startIcon={isSyncing ? <CircularProgress size={20} /> : <SyncIcon />}
+              sx={{
+                background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+                }
+              }}
+            >
+              {isSyncing ? 'Syncing...' : 'Sync Employee Data'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </>

@@ -108,6 +108,29 @@ router.post('/:candidateId/upload-image', upload.single('image'), async (req, re
         onboarding.candidatePortal.bankDocuments = {};
       }
       onboarding.candidatePortal.bankDocuments[imageType] = imageData;
+    } else if (section === 'education') {
+      // Handle education document uploads
+      console.log('📚 Processing education document upload for candidate:', candidateId);
+      if (!onboarding.candidatePortal.educationDocuments) {
+        onboarding.candidatePortal.educationDocuments = [];
+        console.log('📚 Initialized educationDocuments array');
+      }
+      // Add to education documents array
+      onboarding.candidatePortal.educationDocuments.push(imageData);
+      console.log('📚 Added document to educationDocuments:', imageData.name);
+      console.log('📚 Total education documents:', onboarding.candidatePortal.educationDocuments.length);
+    } else if (section === 'work_experience') {
+      // Handle work experience document uploads
+      console.log('💼 Processing work experience document upload for candidate:', candidateId);
+      if (!onboarding.candidatePortal.workExperienceDocuments) {
+        onboarding.candidatePortal.workExperienceDocuments = [];
+        console.log('💼 Initialized workExperienceDocuments array');
+      }
+      // Add to work experience documents array with type
+      const workDocumentData = { ...imageData, type: imageType };
+      onboarding.candidatePortal.workExperienceDocuments.push(workDocumentData);
+      console.log('💼 Added document to workExperienceDocuments:', imageData.name, 'Type:', imageType);
+      console.log('💼 Total work experience documents:', onboarding.candidatePortal.workExperienceDocuments.length);
     } else {
       return res.status(400).json({
         success: false,
@@ -116,7 +139,16 @@ router.post('/:candidateId/upload-image', upload.single('image'), async (req, re
     }
 
     // Save the updated onboarding record
+    console.log('💾 Saving onboarding record for candidate:', candidateId);
+    console.log('💾 Section:', section, 'ImageType:', imageType);
+    
+    try {
     await onboarding.save();
+      console.log('✅ Successfully saved onboarding record');
+    } catch (saveError) {
+      console.error('❌ Error saving onboarding record:', saveError);
+      throw saveError;
+    }
 
     res.json({
       success: true,
@@ -149,7 +181,7 @@ router.post('/authenticate', async (req, res) => {
     // Find onboarding record by candidate ID
     const onboarding = await Onboarding.findOne({ 
       employeeId: candidateId,
-      status: { $in: ['offer_sent', 'offer_accepted', 'documents_pending', 'in_progress'] }
+      status: { $in: ['offer_sent', 'offer_accepted', 'documents_pending', 'in_progress', 'completed'] }
     });
 
     if (!onboarding) {
@@ -157,6 +189,22 @@ router.post('/authenticate', async (req, res) => {
         success: false, 
         message: 'Invalid candidate ID or no active onboarding found' 
       });
+    }
+
+    // Fetch reporting manager information if available
+    let reportingManagerName = '';
+    const reportingManagerId = onboarding.reportingManager || onboarding.offerLetter?.reportingManager;
+    if (reportingManagerId) {
+      try {
+        const manager = await Employee.findById(reportingManagerId).populate('user', 'profile');
+        if (manager) {
+          reportingManagerName = `${manager.personalInfo?.firstName || ''} ${manager.personalInfo?.lastName || ''}`.trim() ||
+                                 `${manager.user?.profile?.firstName || ''} ${manager.user?.profile?.lastName || ''}`.trim() ||
+                                 manager.employeeId || 'Unknown Manager';
+        }
+      } catch (error) {
+        console.error('Error fetching reporting manager:', error);
+      }
     }
 
     // Check if candidate portal password is set
@@ -209,12 +257,14 @@ router.post('/authenticate', async (req, res) => {
         maritalStatus: onboarding.maritalStatus || onboarding.candidatePortal.personalInfo?.maritalStatus || '',
         employeeDOB: onboarding.dateOfBirth || onboarding.candidatePortal.personalInfo?.employeeDOB || null,
         dateOfJoining: onboarding.startDate || onboarding.candidatePortal.personalInfo?.dateOfJoining || null,
-        employmentStatus: onboarding.employmentType || onboarding.candidatePortal.personalInfo?.employmentStatus || 'permanent',
+        employmentStatus: onboarding.candidatePortal.personalInfo?.employmentStatus || onboarding.employmentType || 'permanent',
         panNumber: onboarding.panNumber || onboarding.candidatePortal.personalInfo?.panNumber || '',
         aadhaarNumber: onboarding.aadharNumber || onboarding.candidatePortal.personalInfo?.aadhaarNumber || '',
         nationality: onboarding.nationality || onboarding.candidatePortal.personalInfo?.nationality || 'Indian',
         designation: onboarding.position || onboarding.candidatePortal.personalInfo?.designation || '',
         department: onboarding.department || onboarding.candidatePortal.personalInfo?.department || '',
+        reportingManager: reportingManagerName || onboarding.candidatePortal.personalInfo?.reportingManager || '',
+        reportingManagerId: reportingManagerId || '',
         // Additional fields that might be missing
         fatherName: onboarding.fatherName || onboarding.candidatePortal.personalInfo?.fatherName || '',
         bloodGroup: onboarding.bloodGroup || onboarding.candidatePortal.personalInfo?.bloodGroup || '',
@@ -1035,6 +1085,24 @@ router.get('/:candidateId/status', async (req, res) => {
       });
     }
 
+    // Fetch reporting manager information if available (same logic as authentication endpoint)
+    let reportingManagerName = '';
+    let reportingManagerId = '';
+    const managerId = onboarding.reportingManager || onboarding.offerLetter?.reportingManager;
+    if (managerId) {
+      try {
+        const manager = await Employee.findById(managerId).populate('user', 'profile');
+        if (manager) {
+          reportingManagerName = `${manager.personalInfo?.firstName || ''} ${manager.personalInfo?.lastName || ''}`.trim() ||
+                                 `${manager.user?.profile?.firstName || ''} ${manager.user?.profile?.lastName || ''}`.trim() ||
+                                 manager.employeeId || 'Unknown Manager';
+          reportingManagerId = managerId.toString();
+        }
+      } catch (error) {
+        console.error('Error fetching reporting manager in status endpoint:', error);
+      }
+    }
+
     // Apply the same data merging logic as authentication endpoint
     const candidatePortalData = {
       personalInfo: {
@@ -1050,12 +1118,14 @@ router.get('/:candidateId/status', async (req, res) => {
         maritalStatus: onboarding.maritalStatus || onboarding.candidatePortal?.personalInfo?.maritalStatus || '',
         employeeDOB: onboarding.dateOfBirth || onboarding.candidatePortal?.personalInfo?.employeeDOB || null,
         dateOfJoining: onboarding.startDate || onboarding.candidatePortal?.personalInfo?.dateOfJoining || null,
-        employmentStatus: onboarding.employmentType || onboarding.candidatePortal?.personalInfo?.employmentStatus || 'permanent',
+        employmentStatus: onboarding.candidatePortal?.personalInfo?.employmentStatus || onboarding.employmentType || 'permanent',
         panNumber: onboarding.panNumber || onboarding.candidatePortal?.personalInfo?.panNumber || '',
         aadhaarNumber: onboarding.aadharNumber || onboarding.candidatePortal?.personalInfo?.aadhaarNumber || '',
         nationality: onboarding.nationality || onboarding.candidatePortal?.personalInfo?.nationality || 'Indian',
         designation: onboarding.position || onboarding.candidatePortal?.personalInfo?.designation || '',
         department: onboarding.department || onboarding.candidatePortal?.personalInfo?.department || '',
+        reportingManager: reportingManagerName || onboarding.candidatePortal?.personalInfo?.reportingManager || '',
+        reportingManagerId: reportingManagerId || '',
         // Additional fields that might be missing
         fatherName: onboarding.fatherName || onboarding.candidatePortal?.personalInfo?.fatherName || '',
         bloodGroup: onboarding.bloodGroup || onboarding.candidatePortal?.personalInfo?.bloodGroup || '',
@@ -1088,21 +1158,136 @@ router.get('/:candidateId/status', async (req, res) => {
       additionalInfo: onboarding.candidatePortal?.additionalInfo || {},
       governmentDocuments: onboarding.candidatePortal?.governmentDocuments || {},
       bankDocuments: onboarding.candidatePortal?.bankDocuments || {},
+      educationDocuments: onboarding.candidatePortal?.educationDocuments || [],
+      workExperienceDocuments: onboarding.candidatePortal?.workExperienceDocuments || [],
       uploadedDocuments: onboarding.candidatePortal?.uploadedDocuments || [],
       isSubmitted: onboarding.candidatePortal?.isSubmitted || false,
       submittedAt: onboarding.candidatePortal?.submittedAt || null
     };
+
+    // Include offer letter information if available
+    let offerLetterData = null;
+    if (onboarding.offerLetter && onboarding.offerLetter.status === 'accepted') {
+      offerLetterData = {
+        position: onboarding.offerLetter.position || onboarding.position,
+        department: onboarding.offerLetter.department || onboarding.department,
+        salary: onboarding.offerLetter.salary || onboarding.salary,
+        startDate: onboarding.offerLetter.startDate || onboarding.startDate,
+        acceptedAt: onboarding.offerLetter.acceptedAt,
+        candidateSignature: onboarding.offerLetter.candidateSignature ? {
+          name: onboarding.offerLetter.candidateSignature.name,
+          method: onboarding.offerLetter.candidateSignature.method,
+          timestamp: onboarding.offerLetter.candidateSignature.timestamp,
+          // Don't include the actual signature data for security reasons in this endpoint
+        } : null,
+        acceptanceComments: onboarding.offerLetter.acceptanceComments
+      };
+    }
 
     res.json({
       success: true,
       status: onboarding.status,
       isSubmitted: onboarding.candidatePortal?.isSubmitted || false,
       submittedAt: onboarding.candidatePortal?.submittedAt || null,
-      candidatePortal: candidatePortalData
+      candidatePortal: {
+        ...candidatePortalData,
+        // Include IT setup data for the review page
+        itSetup: onboarding.itSetup || null
+      },
+      offerLetter: offerLetterData
     });
 
   } catch (error) {
     console.error('Get candidate status error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+});
+
+// Get signed offer letter document
+router.get('/:candidateId/offer-letter', async (req, res) => {
+  try {
+    const { candidateId } = req.params;
+
+    const onboarding = await Onboarding.findOne({ 
+      employeeId: candidateId 
+    });
+
+    if (!onboarding) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Candidate not found' 
+      });
+    }
+
+    if (!onboarding.offerLetter || onboarding.offerLetter.status !== 'accepted') {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No accepted offer letter found' 
+      });
+    }
+
+    if (!onboarding.offerLetter.candidateSignature || !onboarding.offerLetter.candidateSignature.data) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No signature found in offer letter' 
+      });
+    }
+
+    res.json({
+      success: true,
+      offerLetter: {
+        // Basic offer details
+        position: onboarding.offerLetter.position || onboarding.position,
+        department: onboarding.offerLetter.department || onboarding.department,
+        salary: onboarding.offerLetter.salary || onboarding.salary,
+        startDate: onboarding.offerLetter.startDate || onboarding.startDate,
+        employmentType: onboarding.offerLetter.employmentType || onboarding.employmentType,
+        probationPeriod: onboarding.offerLetter.probationPeriod || onboarding.probationPeriod,
+        reportingManager: onboarding.offerLetter.reportingManager,
+        workLocation: onboarding.offerLetter.workLocation,
+        
+        // Company information (Codervalue specific)
+        companyName: onboarding.offerLetter.companyName || 'CODERVALUE SOLUTIONS PRIVATE LIMITED',
+        companyAddress: onboarding.offerLetter.companyAddress || 'Office 303, 3rd Floor, H-47, USIS BIZPARK, Sector 63, Gautam Buddha Nagar, Noida, Uttar Pradesh, 201309',
+        cinNumber: onboarding.offerLetter.cinNumber || 'U72900UP2021PTC141154',
+        
+        // Employment terms (Codervalue specific)
+        noticePeriodProbation: onboarding.offerLetter.noticePeriodProbation || 30,
+        noticePeriodRegular: onboarding.offerLetter.noticePeriodRegular || 60,
+        nonCompetePeriod: onboarding.offerLetter.nonCompetePeriod || 12,
+        nonSolicitationPeriod: onboarding.offerLetter.nonSolicitationPeriod || 24,
+        retirementAge: onboarding.offerLetter.retirementAge || 58,
+        
+        // Benefits and terms
+        benefits: onboarding.offerLetter.benefits || [],
+        terms: onboarding.offerLetter.terms || [],
+        
+        // Offer timeline
+        expiryDate: onboarding.offerLetter.expiryDate,
+        sentAt: onboarding.offerLetter.sentAt,
+        acceptedAt: onboarding.offerLetter.acceptedAt,
+        
+        // Signature data
+        candidateSignature: {
+          name: onboarding.offerLetter.candidateSignature.name,
+          method: onboarding.offerLetter.candidateSignature.method,
+          timestamp: onboarding.offerLetter.candidateSignature.timestamp,
+          data: onboarding.offerLetter.candidateSignature.data // Include signature image for viewing
+        },
+        acceptanceComments: onboarding.offerLetter.acceptanceComments
+      },
+      candidateInfo: {
+        employeeName: onboarding.employeeName,
+        email: onboarding.email,
+        employeeId: onboarding.employeeId
+      }
+    });
+
+  } catch (error) {
+    console.error('Get signed offer letter error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Server error' 
@@ -1349,9 +1534,399 @@ router.get('/:candidateId/document/:documentId/:filename', async (req, res) => {
     // Send the file
     res.sendFile(path.resolve(filePath));
     
-  } catch (error) {
+        } catch (error) {
     console.error('❌ Document download error:', error);
     res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+});
+
+// Document management endpoints for HR
+router.put('/:candidateId/document/:documentId/status', async (req, res) => {
+  try {
+    const { candidateId, documentId } = req.params;
+    const { status, comments } = req.body;
+
+    if (!['pending', 'uploaded', 'verified', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be: pending, uploaded, verified, or rejected'
+      });
+    }
+
+    const onboarding = await Onboarding.findOne({ employeeId: candidateId });
+    if (!onboarding) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    let documentUpdated = false;
+
+    // Update document status in candidatePortal data
+    if (onboarding.candidatePortal) {
+      // Check profile photo
+      if (onboarding.candidatePortal.personalInfo?.profilePhoto?.id === documentId) {
+        onboarding.candidatePortal.personalInfo.profilePhoto.status = status;
+        onboarding.candidatePortal.personalInfo.profilePhoto.comments = comments || '';
+        onboarding.candidatePortal.personalInfo.profilePhoto.reviewedAt = new Date();
+        documentUpdated = true;
+      }
+
+      // Check government documents
+      if (onboarding.candidatePortal.governmentDocuments) {
+        ['aadhaarImage', 'panImage'].forEach(docType => {
+          if (onboarding.candidatePortal.governmentDocuments[docType]?.id === documentId) {
+            onboarding.candidatePortal.governmentDocuments[docType].status = status;
+            onboarding.candidatePortal.governmentDocuments[docType].comments = comments || '';
+            onboarding.candidatePortal.governmentDocuments[docType].reviewedAt = new Date();
+            documentUpdated = true;
+          }
+        });
+      }
+
+      // Check bank documents
+      if (onboarding.candidatePortal.bankDocuments) {
+        ['cancelledCheque', 'passbook', 'bankStatement'].forEach(docType => {
+          if (onboarding.candidatePortal.bankDocuments[docType]?.id === documentId) {
+            onboarding.candidatePortal.bankDocuments[docType].status = status;
+            onboarding.candidatePortal.bankDocuments[docType].comments = comments || '';
+            onboarding.candidatePortal.bankDocuments[docType].reviewedAt = new Date();
+            documentUpdated = true;
+          }
+        });
+      }
+
+      // Check education documents
+      if (onboarding.candidatePortal.educationDocuments) {
+        const educationDoc = onboarding.candidatePortal.educationDocuments.find(doc => doc.id === documentId);
+        if (educationDoc) {
+          educationDoc.status = status;
+          educationDoc.comments = comments || '';
+          educationDoc.reviewedAt = new Date();
+          documentUpdated = true;
+        }
+      }
+
+      // Check work experience documents
+      if (onboarding.candidatePortal.workExperienceDocuments) {
+        const workDoc = onboarding.candidatePortal.workExperienceDocuments.find(doc => doc.id === documentId);
+        if (workDoc) {
+          workDoc.status = status;
+          workDoc.comments = comments || '';
+          workDoc.reviewedAt = new Date();
+          documentUpdated = true;
+        }
+      }
+
+      // Check uploaded documents
+      if (onboarding.candidatePortal.uploadedDocuments) {
+        const uploadedDoc = onboarding.candidatePortal.uploadedDocuments.find(doc => doc.id === documentId);
+        if (uploadedDoc) {
+          uploadedDoc.status = status;
+          uploadedDoc.comments = comments || '';
+          uploadedDoc.reviewedAt = new Date();
+          documentUpdated = true;
+        }
+      }
+    }
+
+    if (!documentUpdated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    // Create the update object with the specific document path
+    let updatePath = null;
+    let updateObject = {};
+    
+    // Find which document was updated and create the specific update path
+    if (onboarding.candidatePortal) {
+      // Check profile photo
+      if (onboarding.candidatePortal.personalInfo?.profilePhoto?.id === documentId) {
+        updatePath = 'candidatePortal.personalInfo.profilePhoto';
+        updateObject[`${updatePath}.status`] = status;
+        updateObject[`${updatePath}.comments`] = comments || '';
+        updateObject[`${updatePath}.reviewedAt`] = new Date();
+      }
+      
+      // Check government documents
+      if (onboarding.candidatePortal.governmentDocuments) {
+        ['aadhaarImage', 'panImage'].forEach(docType => {
+          if (onboarding.candidatePortal.governmentDocuments[docType]?.id === documentId) {
+            updatePath = `candidatePortal.governmentDocuments.${docType}`;
+            updateObject[`${updatePath}.status`] = status;
+            updateObject[`${updatePath}.comments`] = comments || '';
+            updateObject[`${updatePath}.reviewedAt`] = new Date();
+          }
+        });
+      }
+      
+      // Check bank documents
+      if (onboarding.candidatePortal.bankDocuments) {
+        ['cancelledCheque', 'passbook', 'bankStatement'].forEach(docType => {
+          if (onboarding.candidatePortal.bankDocuments[docType]?.id === documentId) {
+            updatePath = `candidatePortal.bankDocuments.${docType}`;
+            updateObject[`${updatePath}.status`] = status;
+            updateObject[`${updatePath}.comments`] = comments || '';
+            updateObject[`${updatePath}.reviewedAt`] = new Date();
+          }
+        });
+      }
+      
+      // Check education documents
+      if (onboarding.candidatePortal.educationDocuments) {
+        const docIndex = onboarding.candidatePortal.educationDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.educationDocuments.${docIndex}`;
+          updateObject[`${updatePath}.status`] = status;
+          updateObject[`${updatePath}.comments`] = comments || '';
+          updateObject[`${updatePath}.reviewedAt`] = new Date();
+        }
+      }
+      
+      // Check work experience documents
+      if (onboarding.candidatePortal.workExperienceDocuments) {
+        const docIndex = onboarding.candidatePortal.workExperienceDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.workExperienceDocuments.${docIndex}`;
+          updateObject[`${updatePath}.status`] = status;
+          updateObject[`${updatePath}.comments`] = comments || '';
+          updateObject[`${updatePath}.reviewedAt`] = new Date();
+        }
+      }
+      
+      // Check uploaded documents
+      if (onboarding.candidatePortal.uploadedDocuments) {
+        const docIndex = onboarding.candidatePortal.uploadedDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.uploadedDocuments.${docIndex}`;
+          updateObject[`${updatePath}.status`] = status;
+          updateObject[`${updatePath}.comments`] = comments || '';
+          updateObject[`${updatePath}.reviewedAt`] = new Date();
+        }
+      }
+    }
+    
+    // Use $set to update the specific fields
+    await Onboarding.findOneAndUpdate(
+      { employeeId: candidateId },
+      { $set: updateObject },
+      { new: true }
+    );
+
+    console.log(`📋 Document ${documentId} status updated to: ${status} for candidate ${candidateId}`);
+
+    res.json({
+      success: true,
+      message: `Document status updated to ${status}`,
+      document: {
+        id: documentId,
+        status,
+        comments,
+        reviewedAt: new Date()
+      }
+    });
+
+          } catch (error) {
+    console.error('❌ Update document status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+// Notify candidate that all documents are approved
+router.post('/:candidateId/documents-approved', async (req, res) => {
+  try {
+    const { candidateId } = req.params;
+
+    const onboarding = await Onboarding.findOne({ employeeId: candidateId });
+    if (!onboarding) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    // Use $set to update the approval notification fields directly
+    const updateObject = {
+      'candidatePortal.documentsApproved': true,
+      'candidatePortal.documentsApprovedAt': new Date(),
+      'candidatePortal.documentsApprovalMessage': 'All your documents have been reviewed and approved by HR. You will be contacted regarding next steps.'
+    };
+
+    await Onboarding.findOneAndUpdate(
+      { employeeId: candidateId },
+      { $set: updateObject },
+      { new: true }
+    );
+
+    console.log(`✅ All documents approved notification sent to candidate ${candidateId}`);
+
+    res.json({
+      success: true,
+      message: 'Candidate notified of document approval',
+      approvedAt: updateObject['candidatePortal.documentsApprovedAt']
+    });
+
+  } catch (error) {
+    console.error('❌ Notify documents approved error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+// Get document rejection details for candidate
+router.get('/:candidateId/document-rejections', async (req, res) => {
+  try {
+    const { candidateId } = req.params;
+
+    const onboarding = await Onboarding.findOne({ employeeId: candidateId });
+    if (!onboarding) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Candidate not found'
+      });
+    }
+
+    const rejectedDocuments = [];
+
+    if (onboarding.candidatePortal) {
+      // Check profile photo
+      if (onboarding.candidatePortal.personalInfo?.profilePhoto?.status === 'rejected') {
+        rejectedDocuments.push({
+          id: onboarding.candidatePortal.personalInfo.profilePhoto.id,
+          name: onboarding.candidatePortal.personalInfo.profilePhoto.name,
+          type: 'Profile Photo',
+          category: 'personal',
+          status: 'rejected',
+          comments: onboarding.candidatePortal.personalInfo.profilePhoto.comments,
+          reviewedAt: onboarding.candidatePortal.personalInfo.profilePhoto.reviewedAt,
+          canReupload: true
+        });
+      }
+
+      // Check government documents
+      if (onboarding.candidatePortal.governmentDocuments) {
+        ['aadhaarImage', 'panImage'].forEach(docType => {
+          const doc = onboarding.candidatePortal.governmentDocuments[docType];
+          if (doc?.status === 'rejected') {
+            rejectedDocuments.push({
+              id: doc.id,
+              name: doc.name,
+              type: docType === 'aadhaarImage' ? 'Aadhaar Card' : 'PAN Card',
+              category: 'government',
+              status: 'rejected',
+              comments: doc.comments,
+              reviewedAt: doc.reviewedAt,
+              canReupload: true
+            });
+          }
+        });
+      }
+
+      // Check bank documents
+      if (onboarding.candidatePortal.bankDocuments) {
+        ['cancelledCheque', 'passbook', 'bankStatement'].forEach(docType => {
+          const doc = onboarding.candidatePortal.bankDocuments[docType];
+          if (doc?.status === 'rejected') {
+            const typeNames = {
+              cancelledCheque: 'Cancelled Cheque',
+              passbook: 'Bank Passbook',
+              bankStatement: 'Bank Statement'
+            };
+            rejectedDocuments.push({
+              id: doc.id,
+              name: doc.name,
+              type: typeNames[docType],
+              category: 'bank',
+              status: 'rejected',
+              comments: doc.comments,
+              reviewedAt: doc.reviewedAt,
+              canReupload: true
+            });
+          }
+        });
+      }
+
+      // Check education documents
+      if (onboarding.candidatePortal.educationDocuments) {
+        onboarding.candidatePortal.educationDocuments.forEach(doc => {
+          if (doc.status === 'rejected') {
+            rejectedDocuments.push({
+              id: doc.id,
+              name: doc.name,
+              type: 'Education Document',
+              category: 'education',
+              status: 'rejected',
+              comments: doc.comments,
+              reviewedAt: doc.reviewedAt,
+              canReupload: true
+            });
+          }
+        });
+      }
+
+      // Check work experience documents
+      if (onboarding.candidatePortal.workExperienceDocuments) {
+        onboarding.candidatePortal.workExperienceDocuments.forEach(doc => {
+          if (doc.status === 'rejected') {
+            const typeNames = {
+              experienceLetters: 'Experience Letter',
+              relievingCertificate: 'Relieving Certificate',
+              salarySlips: 'Salary Slip'
+            };
+            rejectedDocuments.push({
+              id: doc.id,
+              name: doc.name,
+              type: typeNames[doc.type] || 'Work Experience Document',
+              category: 'work_experience',
+              status: 'rejected',
+              comments: doc.comments,
+              reviewedAt: doc.reviewedAt,
+              canReupload: true
+            });
+          }
+        });
+      }
+
+      // Check uploaded documents
+      if (onboarding.candidatePortal.uploadedDocuments) {
+        onboarding.candidatePortal.uploadedDocuments.forEach(doc => {
+          if (doc.status === 'rejected') {
+            rejectedDocuments.push({
+              id: doc.id,
+              name: doc.name,
+              type: 'General Upload',
+              category: 'portal',
+              status: 'rejected',
+              comments: doc.comments,
+              reviewedAt: doc.reviewedAt,
+              canReupload: true
+            });
+          }
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      rejectedDocuments,
+      totalRejected: rejectedDocuments.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Get document rejections error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
   }
 });
 

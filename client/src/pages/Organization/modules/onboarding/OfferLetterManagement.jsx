@@ -181,7 +181,37 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
     }
   };
 
+  const validateCurrentStep = (step) => {
+    switch (step) {
+      case 0:
+        // Candidate Information - basic validation
+        return offerLetterData.candidateName && offerLetterData.candidateEmail;
+      case 1:
+        // Job Details - including mandatory reporting manager
+        return offerLetterData.position && 
+               offerLetterData.department && 
+               offerLetterData.salary && 
+               offerLetterData.reportingManager;
+      case 2:
+        // Template Selection
+        return true;
+      case 3:
+        // Review & Send
+        return true;
+      default:
+        return true;
+    }
+  };
+
   const handleNext = () => {
+    if (!validateCurrentStep(activeStep)) {
+      if (activeStep === 1 && !offerLetterData.reportingManager) {
+        toast.error('Please select a reporting manager before proceeding');
+        return;
+      }
+      toast.error('Please fill in all required fields before proceeding');
+      return;
+    }
     setActiveStep((prevStep) => prevStep + 1);
   };
 
@@ -208,6 +238,17 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
   };
 
   const generateOfferLetter = async () => {
+    // Validate before generating
+    if (!offerLetterData.reportingManager) {
+      toast.error('Reporting Manager is required before generating the offer letter');
+      return;
+    }
+
+    if (!offerLetterData.position || !offerLetterData.department || !offerLetterData.salary) {
+      toast.error('Please fill in all required fields before generating the offer letter');
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await axios.post('/onboarding/generate-offer-letter', {
@@ -219,7 +260,8 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
       return response.data;
     } catch (error) {
       console.error('Error generating offer letter:', error);
-      toast.error('Failed to generate offer letter');
+      const errorMessage = error.response?.data?.message || 'Failed to generate offer letter';
+      toast.error(errorMessage);
       throw error;
     } finally {
       setLoading(false);
@@ -227,6 +269,17 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
   };
 
   const sendOfferLetter = async () => {
+    // Final validation before sending
+    if (!offerLetterData.reportingManager) {
+      toast.error('Reporting Manager is required before sending the offer letter');
+      return;
+    }
+
+    if (!offerLetterData.position || !offerLetterData.department || !offerLetterData.salary) {
+      toast.error('Please fill in all required fields before sending the offer letter');
+      return;
+    }
+
     try {
       setLoading(true);
       await axios.post('/onboarding/send-offer-letter', {
@@ -242,7 +295,8 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error sending offer letter:', error);
-      toast.error('Failed to send offer letter');
+      const errorMessage = error.response?.data?.message || 'Failed to send offer letter';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -336,16 +390,25 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
                 label="Start Date"
                 value={offerLetterData.startDate}
                 onChange={(date) => setOfferLetterData({ ...offerLetterData, startDate: date })}
-                renderInput={(params) => <TextField {...params} fullWidth required />}
+                slots={{
+                  textField: TextField
+                }}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    required: true
+                  }
+                }}
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Reporting Manager</InputLabel>
+              <FormControl fullWidth required error={!offerLetterData.reportingManager}>
+                <InputLabel>Reporting Manager *</InputLabel>
                 <Select
                   value={offerLetterData.reportingManager}
-                  label="Reporting Manager"
+                  label="Reporting Manager *"
                   onChange={(e) => setOfferLetterData({ ...offerLetterData, reportingManager: e.target.value })}
+                  required
                 >
                   {managers.map((manager) => (
                     <MenuItem key={manager._id} value={manager._id}>
@@ -353,6 +416,11 @@ const OfferLetterManagement = ({ onboardingId, onUpdate }) => {
                     </MenuItem>
                   ))}
                 </Select>
+                {!offerLetterData.reportingManager && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
+                    Reporting Manager is required
+                  </Typography>
+                )}
               </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>

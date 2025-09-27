@@ -175,7 +175,7 @@ const drawerWidth = 280;
 const Organization = () => {
   const { user } = useAuth();
   const theme = useTheme();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'hr';
 
   // State management
   const [loading, setLoading] = useState(true);

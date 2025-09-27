@@ -13,7 +13,7 @@ const router = express.Router();
 // @access  Private (Admin only)
 router.get('/analytics', [
   authenticate,
-  authorize(['admin'])
+  authorize(['admin', 'hr'])
 ], async (req, res) => {
   try {
     const currentDate = new Date();
@@ -188,7 +188,7 @@ router.get('/analytics', [
 // @access  Private (Admin only)
 router.get('/employees', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 500 }),
   query('department').optional().custom((value) => {
@@ -371,7 +371,7 @@ router.get('/employees', [
 // @access  Private (Admin only)
 router.get('/departments', [
   authenticate,
-  authorize(['admin'])
+  authorize(['admin', 'hr'])
 ], async (req, res) => {
   try {
     const departments = await Department.aggregate([
@@ -427,7 +427,7 @@ router.get('/departments', [
 // @access  Private (Admin only)
 router.get('/recent-changes', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   query('days').optional().isInt({ min: 1, max: 90 })
 ], async (req, res) => {
   try {
@@ -463,7 +463,7 @@ router.get('/recent-changes', [
 // @access  Private (Admin only)
 router.post('/import', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   body('employees').isArray({ min: 1 }).withMessage('Employees array is required'),
   body('mode').isIn(['create', 'update', 'upsert']).withMessage('Mode must be create, update, or upsert')
 ], async (req, res) => {
@@ -618,7 +618,7 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
 
   // Create employee
   const employee = new Employee({
-    employeeId: empData.employeeNumber || `IMP${Date.now()}`,
+    // Don't set employeeId - let Employee model generate it automatically
     user: user._id,
     personalInfo: {
       firstName,
@@ -701,7 +701,7 @@ async function updateEmployeeFromImport(employee, empData, departmentId) {
 // @access  Private (Admin only)
 router.get('/import-template', [
   authenticate,
-  authorize(['admin'])
+  authorize(['admin', 'hr'])
 ], (req, res) => {
   const template = [
     'employeeNumber,employeeName,email,dateOfJoining,employmentStatus,workerType,jobTitle,department,location,totalCTC,basic,hra,specialAllowance,phone,personalEmail,gender,dateOfBirth'
@@ -717,7 +717,7 @@ router.get('/import-template', [
 // @access  Private (Admin only)
 router.post('/import-master-data', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   body('employees').isArray().withMessage('Employees data must be an array'),
   body('headers').isArray().withMessage('Headers must be an array'),
   body('mode').isIn(['comprehensive', 'update', 'create']).withMessage('Invalid import mode')
@@ -782,13 +782,7 @@ router.post('/import-master-data', [
         const lastName = displayName ? displayName.split(' ').slice(1).join(' ') || 'N/A' : 'N/A';
         
         const email = empData['work_email'];
-        const employeeId = empData['employee_number'] || `EMP${Date.now()}${i}`;
-        
-        // Debug: Log employee ID extraction for first few records
-        if (i < 3) {
-          console.log(`Employee ${i}: Found employeeId = "${employeeId}" from field "employee_number" = "${empData['employee_number']}"`);
-          console.log(`Employee ${i}: All available fields:`, Object.keys(empData));
-        }
+        // Don't extract employeeId from CSV - always let Employee model generate CODR format
 
         if (!email) {
           results.errors.push(`Row ${i + 1}: Email is required`);
@@ -897,7 +891,7 @@ router.post('/import-master-data', [
 
         // Prepare employee data matching the schema
         const employeePayload = {
-          employeeId: employeeId, // Top-level field as required by schema
+          // Don't set employeeId from CSV - always let model generate CODR format
           // user: will be set after user creation
           personalInfo: {
             firstName,
@@ -1094,19 +1088,38 @@ router.post('/import-master-data', [
         const reportingManagerInfo = empData['reporting_to'];
         const reportingManagerId = empData['reporting_manager_employee_number'];
         
+        // Priority: Use Employee Number first, then fall back to name
+        const reportingManagerEmployeeId = getField(empData, 
+          'Reporting Manager Employee Number', 
+          'reporting_manager_employee_number',
+          'reportingManagerEmpNo',
+          'manager_employee_id',
+          'manager_id',
+          'reportingManagerEmployeeId'
+        );
+        const reportingManagerName = getField(empData,
+          'Reporting To',
+          'reporting_to', 
+          'reportingManagerName',
+          'manager_name',
+          'reporting_manager',
+          'reportingManagerName'
+        );
+        
         // Debug: Log the first few records to see what fields are available
         if (i < 3) {
           console.log(`Debug Row ${i + 1}:`, {
             email,
-            availableFields: Object.keys(empData),
-            reportingManagerField: reportingManagerInfo,
+            reportingManagerEmployeeId,
+            reportingManagerName,
+            availableFields: Object.keys(empData).filter(k => k.toLowerCase().includes('report') || k.toLowerCase().includes('manager')),
             reportingToValue: empData['Reporting To'],
-            managerFieldValue: empData.manager || empData.Manager || empData['Manager Name'] || 'NOT FOUND',
+            reportingManagerEmpNoValue: empData['Reporting Manager Employee Number'],
             departmentValue: empData['Department'] || empData.department
           });
         }
         
-        if (!email || !reportingManagerInfo) {
+        if (!email || (!reportingManagerEmployeeId && !reportingManagerName)) {
           continue;
         }
 
@@ -1117,17 +1130,23 @@ router.post('/import-master-data', [
         const currentEmployee = await Employee.findOne({ user: currentUser._id });
         if (!currentEmployee) continue;
 
-        // Find reporting manager by name, email, or employee ID
+        // Find reporting manager - PRIORITY: Employee ID first, then name
         let reportingManager = null;
 
-        // Try to find by employee ID first (most reliable)
-        if (reportingManagerInfo.startsWith('EMP') || /^\d+$/.test(reportingManagerInfo)) {
-          reportingManager = await Employee.findOne({ employeeId: reportingManagerInfo });
+        // 1. Try to find by Employee ID first (MOST RELIABLE)
+        if (reportingManagerEmployeeId && reportingManagerEmployeeId.trim()) {
+          reportingManager = await Employee.findOne({ 
+            employeeId: reportingManagerEmployeeId.trim() 
+          });
+          
+          if (reportingManager) {
+            console.log(`✅ Found manager by Employee ID: ${reportingManagerEmployeeId} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName}`);
+          }
         }
 
-        // If not found, try to find by name
-        if (!reportingManager) {
-          const nameParts = reportingManagerInfo.trim().split(' ');
+        // 2. If not found by Employee ID, try by name (FALLBACK ONLY)
+        if (!reportingManager && reportingManagerName && reportingManagerName.trim()) {
+          const nameParts = reportingManagerName.trim().split(' ');
           if (nameParts.length >= 2) {
             const firstName = nameParts[0];
             const lastName = nameParts.slice(1).join(' ');
@@ -1136,22 +1155,33 @@ router.post('/import-master-data', [
               'personalInfo.firstName': new RegExp(firstName, 'i'),
               'personalInfo.lastName': new RegExp(lastName, 'i')
             });
+            
+            if (reportingManager) {
+              console.log(`⚠️  Found manager by NAME (fallback): ${reportingManagerName} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName} (ID: ${reportingManager.employeeId})`);
+            }
           } else {
             // Try single name match
             reportingManager = await Employee.findOne({
               $or: [
-                { 'personalInfo.firstName': new RegExp(reportingManagerInfo, 'i') },
-                { 'personalInfo.lastName': new RegExp(reportingManagerInfo, 'i') }
+                { 'personalInfo.firstName': new RegExp(reportingManagerName, 'i') },
+                { 'personalInfo.lastName': new RegExp(reportingManagerName, 'i') }
               ]
             });
+            
+            if (reportingManager) {
+              console.log(`⚠️  Found manager by SINGLE NAME (fallback): ${reportingManagerName} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName} (ID: ${reportingManager.employeeId})`);
+            }
           }
         }
 
-        // If still not found, try to find by email
-        if (!reportingManager && reportingManagerInfo.includes('@')) {
-          const managerUser = await User.findOne({ email: reportingManagerInfo });
+        // 3. If still not found, try to find by email (LAST RESORT)
+        if (!reportingManager && reportingManagerName && reportingManagerName.includes('@')) {
+          const managerUser = await User.findOne({ email: reportingManagerName });
           if (managerUser) {
             reportingManager = await Employee.findOne({ user: managerUser._id });
+            if (reportingManager) {
+              console.log(`⚠️  Found manager by EMAIL (last resort): ${reportingManagerName} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName} (ID: ${reportingManager.employeeId})`);
+            }
           }
         }
 
@@ -1161,7 +1191,9 @@ router.post('/import-master-data', [
             'employmentInfo.reportingManager': reportingManager._id
           });
           reportingManagersProcessed++;
-          console.log(`Set reporting manager for ${currentEmployee.personalInfo.firstName} ${currentEmployee.personalInfo.lastName} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName}`);
+          console.log(`✅ Set reporting manager: ${currentEmployee.personalInfo.firstName} ${currentEmployee.personalInfo.lastName} -> ${reportingManager.personalInfo.firstName} ${reportingManager.personalInfo.lastName} (Manager ID: ${reportingManager.employeeId})`);
+        } else if (!reportingManager && (reportingManagerEmployeeId || reportingManagerName)) {
+          console.log(`❌ Could not find manager for ${currentEmployee.personalInfo.firstName} ${currentEmployee.personalInfo.lastName} - Looking for ID: "${reportingManagerEmployeeId}" or Name: "${reportingManagerName}"`);
         }
 
       } catch (error) {
@@ -1193,7 +1225,7 @@ router.post('/import-master-data', [
 // @access  Private (Admin only)
 router.post('/employees', [
   authenticate,
-  authorize(['admin']),
+  authorize(['admin', 'hr']),
   body('personalInfo.firstName').notEmpty().withMessage('First name is required'),
   body('personalInfo.lastName').notEmpty().withMessage('Last name is required'),
   body('user.email').isEmail().withMessage('Valid email is required'),
@@ -1267,7 +1299,7 @@ router.post('/employees', [
 
     // Create employee record
     const newEmployee = new Employee({
-      employeeId,
+      // Don't set employeeId - let Employee model generate it automatically
       personalInfo: {
         firstName: personalInfo.firstName,
         lastName: personalInfo.lastName,

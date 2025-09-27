@@ -46,8 +46,8 @@ const checkPermission = (module, action) => {
       return res.status(401).json({ message: 'Authentication required.' });
     }
 
-    // Admin has all permissions
-    if (req.user.role === 'admin') {
+    // Admin and HR have all permissions
+    if (req.user.role === 'admin' || req.user.role === 'hr') {
       return next();
     }
 

@@ -208,6 +208,31 @@ const onboardingSchema = new mongoose.Schema({
   
   // IT Setup
   itSetup: {
+    hardware: {
+      laptop: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String },
+      monitor: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String },
+      keyboard: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String },
+      mouse: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String },
+      headphones: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String },
+      mobile: { assigned: { type: Boolean, default: false }, model: String, serialNumber: String, assignedDate: String }
+    },
+    software: {
+      email: { setup: { type: Boolean, default: false }, account: String, setupDate: String },
+      slack: { setup: { type: Boolean, default: false }, account: String, setupDate: String },
+      vpn: { setup: { type: Boolean, default: false }, account: String, setupDate: String },
+      development: { setup: { type: Boolean, default: false }, tools: [String], setupDate: String },
+      office: { setup: { type: Boolean, default: false }, license: String, setupDate: String },
+      security: { setup: { type: Boolean, default: false }, tools: [String], setupDate: String }
+    },
+    access: {
+      building: { granted: { type: Boolean, default: false }, cardNumber: String, grantedDate: String },
+      parking: { granted: { type: Boolean, default: false }, spotNumber: String, grantedDate: String },
+      wifi: { granted: { type: Boolean, default: false }, credentials: String, grantedDate: String }
+    },
+    notes: String,
+    completedBy: String,
+    completedDate: String,
+    // Legacy fields for backward compatibility
     laptopAssigned: { type: Boolean, default: false },
     laptopDetails: String,
     emailCreated: { type: Boolean, default: false },
@@ -218,6 +243,23 @@ const onboardingSchema = new mongoose.Schema({
   
   // HR Setup
   hrSetup: {
+    processes: {
+      employeeId: { completed: { type: Boolean, default: false }, notes: String, completedDate: String },
+      policies: { completed: { type: Boolean, default: false }, notes: String, completedDate: String },
+      handbook: { completed: { type: Boolean, default: false }, notes: String, completedDate: String },
+      benefits: { completed: { type: Boolean, default: false }, notes: String, completedDate: String },
+      payroll: { completed: { type: Boolean, default: false }, notes: String, completedDate: String }
+    },
+    documents: {
+      contract: { provided: { type: Boolean, default: false }, notes: String, providedDate: String },
+      nda: { provided: { type: Boolean, default: false }, notes: String, providedDate: String },
+      handbook: { provided: { type: Boolean, default: false }, notes: String, providedDate: String },
+      policies: { provided: { type: Boolean, default: false }, notes: String, providedDate: String }
+    },
+    notes: String,
+    completedBy: String,
+    completedDate: String,
+    // Legacy fields for backward compatibility
     employeeIdAssigned: { type: Boolean, default: false },
     policiesShared: { type: Boolean, default: false },
     handbookProvided: { type: Boolean, default: false },
@@ -457,7 +499,30 @@ const onboardingSchema = new mongoose.Schema({
         status: String,
         url: String
       }
-    }
+    },
+
+    // Education document images
+    educationDocuments: [{
+      id: { type: String },
+      name: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date },
+      status: { type: String },
+      url: { type: String },
+      filename: { type: String }
+    }],
+
+    // Work experience document images
+    workExperienceDocuments: [{
+      id: { type: String },
+      name: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date },
+      status: { type: String },
+      url: { type: String },
+      filename: { type: String },
+      type: { type: String } // experienceLetters, relievingCertificate, salarySlips
+    }]
   },
   
   // Metadata
@@ -466,11 +531,38 @@ const onboardingSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Generate employee ID if not provided
+// Generate employee ID if not provided - Use proper sequential numbering
 onboardingSchema.pre('save', async function(next) {
   if (this.isNew && !this.employeeId) {
-    const count = await this.constructor.countDocuments();
-    this.employeeId = `CODR${String(count + 1).padStart(4, '0')}`;
+    // Get all existing CODR employee IDs from both Onboarding and Employee collections
+    const [onboardingIds, employeeIds] = await Promise.all([
+      this.constructor.find(
+        { employeeId: { $regex: /^CODR\d{3,4}$/ } },
+        { employeeId: 1 }
+      ),
+      require('./Employee').find(
+        { employeeId: { $regex: /^CODR\d{3,4}$/ } },
+        { employeeId: 1 }
+      )
+    ]);
+    
+    let maxNumber = 0;
+    
+    // Extract numeric parts from both collections and find the maximum
+    [...onboardingIds, ...employeeIds].forEach(record => {
+      if (record.employeeId && record.employeeId.startsWith('CODR')) {
+        const numericPart = parseInt(record.employeeId.replace('CODR', ''));
+        if (!isNaN(numericPart) && numericPart > maxNumber) {
+          maxNumber = numericPart;
+        }
+      }
+    });
+    
+    // Ensure we start from at least 121 (after CODR120) and increment properly
+    const nextNumber = Math.max(maxNumber + 1, 121);
+    
+    this.employeeId = `CODR${String(nextNumber).padStart(4, '0')}`;
+    console.log(`🆔 Generated onboarding employee ID: ${this.employeeId} for ${this.employeeName} (highest existing: CODR${String(maxNumber).padStart(4, '0')})`);
   }
   this.updatedAt = Date.now();
   next();

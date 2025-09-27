@@ -35,7 +35,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const OrganizationSimple = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'hr';
   
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState(null);

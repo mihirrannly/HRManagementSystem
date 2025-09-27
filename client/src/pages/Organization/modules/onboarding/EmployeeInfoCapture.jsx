@@ -287,15 +287,17 @@ const EmployeeInfoCapture = ({ onboarding, setOnboarding, onSave, onCancel, load
           label="Date of Birth"
           value={onboarding.dateOfBirth}
           onChange={(date) => handleInputChange('dateOfBirth', date)}
-          renderInput={(params) => (
-            <TextField 
-              {...params} 
-              fullWidth 
-              required
-              error={!!validationErrors.dateOfBirth}
-              helperText={validationErrors.dateOfBirth}
-            />
-          )}
+          slots={{
+            textField: TextField
+          }}
+          slotProps={{
+            textField: {
+              fullWidth: true,
+              required: true,
+              error: !!validationErrors.dateOfBirth,
+              helperText: validationErrors.dateOfBirth
+            }
+          }}
           maxDate={moment().subtract(18, 'years')}
         />
       </Grid>
@@ -595,15 +597,17 @@ const EmployeeInfoCapture = ({ onboarding, setOnboarding, onSave, onCancel, load
           label="Start Date"
           value={onboarding.startDate}
           onChange={(date) => handleInputChange('startDate', date)}
-          renderInput={(params) => (
-            <TextField 
-              {...params} 
-              fullWidth 
-              required
-              error={!!validationErrors.startDate}
-              helperText={validationErrors.startDate}
-            />
-          )}
+          slots={{
+            textField: TextField
+          }}
+          slotProps={{
+            textField: {
+              fullWidth: true,
+              required: true,
+              error: !!validationErrors.startDate,
+              helperText: validationErrors.startDate
+            }
+          }}
           minDate={moment()}
         />
       </Grid>

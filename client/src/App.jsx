@@ -17,6 +17,7 @@ const CandidateDocumentsRedirect = () => {
 // Components
 import Layout from './components/Layout/Layout';
 import Login from './pages/Auth/Login';
+import TestLogin from './pages/TestLogin';
 import Dashboard from './pages/Dashboard/Dashboard';
 import Employees from './pages/Employees/Employees';
 import EmployeeProfile from './pages/Employees/EmployeeProfile';
@@ -31,6 +32,7 @@ import DocumentLinkRecovery from './pages/DocumentLinkRecovery';
 import CandidatePortal from './pages/CandidatePortal/CandidatePortal';
 import SubmissionSuccess from './pages/CandidatePortal/SubmissionSuccess';
 import CandidateReview from './pages/CandidateReview';
+import DocumentSigning from './pages/DocumentSigning';
 
 // Theme configuration
 const theme = createTheme({
@@ -152,6 +154,16 @@ function App() {
                 }
               />
               
+              {/* Test Login Route (Public) */}
+              <Route
+                path="/test-login"
+                element={
+                  <PublicRoute>
+                    <TestLogin />
+                  </PublicRoute>
+                }
+              />
+              
               {/* Offer Acceptance Route (Public) */}
             <Route
               path="/offer-acceptance/:token"
@@ -174,6 +186,12 @@ function App() {
             <Route
               path="/submission-success"
               element={<SubmissionSuccess />}
+            />
+            
+            {/* Document Signing Route (Public) */}
+            <Route
+              path="/sign/:documentId"
+              element={<DocumentSigning />}
             />
 
               {/* Protected Routes */}

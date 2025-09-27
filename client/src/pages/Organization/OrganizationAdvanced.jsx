@@ -180,7 +180,7 @@ const organizationModules = [
 const OrganizationAdvanced = () => {
   const { user } = useAuth();
   const theme = useTheme();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'hr';
   
   const [selectedModule, setSelectedModule] = useState(null);
   const [analytics, setAnalytics] = useState(null);

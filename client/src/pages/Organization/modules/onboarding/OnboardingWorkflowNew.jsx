@@ -126,6 +126,7 @@ import DocumentManagement from './DocumentManagement';
 import OrientationScheduling from './OrientationScheduling';
 import DigitalWelcome from './DigitalWelcome';
 import HardwareSoftwareTracking from './HardwareSoftwareTracking';
+import HRSetupTracking from './HRSetupTracking';
 import ESignatureSupport from './ESignatureSupport';
 
 const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
@@ -173,7 +174,7 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
       label: 'HR Setup',
       icon: <GroupIcon />,
       description: 'Complete HR processes, employee records, and onboarding paperwork',
-      component: null
+      component: HRSetupTracking
     },
     {
       id: 'orientation',
@@ -226,14 +227,28 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
     }
   }, [propOnboarding]);
 
+  // Update active step when onboarding data changes (after step completion)
+  useEffect(() => {
+    if (onboarding) {
+      const currentStepIndex = findActiveStep(onboarding);
+      setActiveStep(currentStepIndex);
+    }
+  }, [onboarding?.stepProgress]);
+
   const findActiveStep = (onboardingData) => {
     if (!onboardingData?.stepProgress) return 0;
     
-    const completedSteps = Object.keys(onboardingData.stepProgress).filter(
-      stepId => onboardingData.stepProgress[stepId]?.completed
-    );
+    // Find the first incomplete step
+    for (let i = 0; i < workflowSteps.length; i++) {
+      const stepId = workflowSteps[i].id;
+      const isCompleted = onboardingData.stepProgress[stepId]?.completed;
+      if (!isCompleted) {
+        return i;
+      }
+    }
     
-    return Math.min(completedSteps.length, workflowSteps.length - 1);
+    // If all steps are completed, return the last step
+    return workflowSteps.length - 1;
   };
 
   const getStepStatus = (stepId) => {
@@ -257,18 +272,17 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
 
     setProcessingStep(stepId);
     try {
-      const response = await axios.put(`/onboarding/${onboarding._id}/steps/${stepId}/complete`, {
+      const response = await axios.put(`onboarding/${onboarding._id}/steps/${stepId}/complete`, {
         completed: true,
         completedAt: new Date()
       });
       
-      setOnboarding(response.data);
+      // Update onboarding data with the response
+      const updatedOnboarding = response.data.onboarding || response.data;
+      setOnboarding(updatedOnboarding);
       toast.success('Step completed successfully!');
       
-      const currentIndex = workflowSteps.findIndex(step => step.id === stepId);
-      if (currentIndex < workflowSteps.length - 1) {
-        setActiveStep(currentIndex + 1);
-      }
+      // The useEffect will automatically update the active step based on the new data
     } catch (error) {
       console.error('Error completing step:', error);
       

@@ -292,6 +292,17 @@ const OfferLetterEditor = ({ onboarding, onUpdate, onComplete, onboardingId, exi
   };
 
   const saveOfferLetter = async () => {
+    // Validate required fields before saving
+    if (!offerData.reportingManager) {
+      toast.error('Reporting Manager is required');
+      return false;
+    }
+
+    if (!offerData.position || !offerData.department || !offerData.salary) {
+      toast.error('Please fill in all required fields (Position, Department, Salary)');
+      return false;
+    }
+
     try {
       setSaving(true);
       const id = onboardingId || onboarding?._id;
@@ -308,7 +319,8 @@ const OfferLetterEditor = ({ onboarding, onUpdate, onComplete, onboardingId, exi
       return true;
     } catch (error) {
       console.error('Error saving offer letter:', error);
-      toast.error('Failed to save offer letter');
+      const errorMessage = error.response?.data?.message || 'Failed to save offer letter';
+      toast.error(errorMessage);
       return false;
     } finally {
       setSaving(false);
@@ -344,7 +356,7 @@ const OfferLetterEditor = ({ onboarding, onUpdate, onComplete, onboardingId, exi
   const validateStep = (step) => {
     switch (step) {
       case 0:
-        return offerData.position && offerData.department && offerData.startDate;
+        return offerData.position && offerData.department && offerData.startDate && offerData.reportingManager;
       case 1:
         return offerData.salary && offerData.salary > 0;
       case 2:
@@ -478,7 +490,13 @@ const OfferLetterEditor = ({ onboarding, onUpdate, onComplete, onboardingId, exi
                 value={managers.find(m => m._id === offerData.reportingManager) || null}
                 onChange={(event, value) => handleInputChange('reportingManager', value?._id || '')}
                 renderInput={(params) => (
-                  <TextField {...params} label="Reporting Manager" />
+                  <TextField 
+                    {...params} 
+                    label="Reporting Manager" 
+                    required
+                    error={!offerData.reportingManager}
+                    helperText={!offerData.reportingManager ? 'Reporting Manager is required' : 'Select the direct supervisor for this position'}
+                  />
                 )}
               />
             </Grid>
