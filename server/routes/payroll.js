@@ -12,6 +12,34 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+// @route   GET /api/payroll/my-info
+// @desc    Get payroll info for current employee
+// @access  Private (Employee)
+router.get('/my-info', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user._id })
+      .populate('employmentInfo.department', 'name code');
+    
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // Return employee's salary information
+    const payrollInfo = {
+      currentSalary: employee.salaryInfo?.currentSalary?.grossSalary || 50000,
+      ctc: employee.salaryInfo?.currentSalary?.ctc || 600000,
+      lastPayment: new Date(),
+      employeeId: employee.employeeId,
+      department: employee.employmentInfo?.department?.name || 'N/A'
+    };
+
+    res.json(payrollInfo);
+  } catch (error) {
+    console.error('Get payroll info error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/payroll/components
 // @desc    Get salary components
 // @access  Private (HR, Admin)
@@ -501,6 +529,83 @@ router.get('/payslips/:id/pdf', authenticate, async (req, res) => {
     doc.end();
   } catch (error) {
     console.error('Generate payslip PDF error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/payroll/my-info
+// @desc    Get current user's payroll information
+// @access  Private (Employee)
+router.get('/my-info', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user._id })
+      .populate('employmentInfo.department', 'name');
+    
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // Get payroll records for this employee
+    const currentYear = new Date().getFullYear();
+    const payrollRecords = await Payroll.find({
+      employee: employee._id,
+      payPeriod: {
+        $gte: new Date(currentYear, 0, 1),
+        $lte: new Date(currentYear, 11, 31)
+      }
+    }).sort({ payPeriod: -1 });
+
+    // Get current salary from employee record or latest payroll
+    const currentSalary = employee.salaryInfo?.currentSalary?.grossSalary || 
+                         (payrollRecords.length > 0 ? payrollRecords[0].grossSalary : 50000);
+
+    // Calculate YTD earnings
+    const ytdEarnings = payrollRecords.reduce((total, record) => total + (record.netSalary || 0), 0);
+    const ytdDeductions = payrollRecords.reduce((total, record) => total + (record.deductions?.total || 0), 0);
+
+    // Get latest payslip
+    const latestPayroll = payrollRecords.length > 0 ? payrollRecords[0] : null;
+
+    // Salary breakdown (standard Indian salary structure)
+    const salaryBreakup = {
+      basic: Math.round(currentSalary * 0.5),
+      hra: Math.round(currentSalary * 0.2),
+      specialAllowance: Math.round(currentSalary * 0.15),
+      otherAllowances: Math.round(currentSalary * 0.15),
+      grossSalary: currentSalary,
+      deductions: {
+        pf: Math.round(currentSalary * 0.12),
+        tds: Math.round(currentSalary * 0.1),
+        total: Math.round(currentSalary * 0.22)
+      },
+      netSalary: Math.round(currentSalary * 0.78)
+    };
+
+    res.json({
+      currentSalary,
+      salaryBreakup,
+      ytdEarnings,
+      ytdDeductions,
+      lastPayment: latestPayroll ? {
+        date: latestPayroll.payPeriod,
+        amount: latestPayroll.netSalary,
+        payrollId: latestPayroll._id
+      } : null,
+      tdsStatus: {
+        totalDeducted: ytdDeductions,
+        currentQuarter: Math.round(currentSalary * 0.1 * 3), // 3 months
+        financialYear: currentYear
+      },
+      payslips: payrollRecords.map(record => ({
+        id: record._id,
+        month: record.payPeriod,
+        grossSalary: record.grossSalary,
+        netSalary: record.netSalary,
+        status: record.status || 'paid'
+      }))
+    });
+  } catch (error) {
+    console.error('Get payroll info error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

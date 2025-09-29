@@ -20,6 +20,11 @@ const organizationRoutes = require('./routes/organization');
 const onboardingRoutes = require('./routes/onboarding');
 const candidatePortalRoutes = require('./routes/candidatePortal');
 const eSignatureRoutes = require('./routes/eSignature');
+const permissionRoutes = require('./routes/permissions');
+const assetRoutes = require('./routes/assets');
+
+// Import services
+const attendanceScheduler = require('./services/attendanceScheduler');
 
 const app = express();
 
@@ -92,6 +97,8 @@ app.use('/api/organization', organizationRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/candidate-portal', candidatePortalRoutes);
 app.use('/api/esignature', eSignatureRoutes);
+app.use('/api/permissions', permissionRoutes);
+app.use('/api/assets', assetRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -121,5 +128,8 @@ const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Start attendance scheduler
+  attendanceScheduler.start();
 });
 

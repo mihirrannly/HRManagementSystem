@@ -198,6 +198,7 @@ const employeeSchema = new mongoose.Schema({
 // Generate employee ID
 employeeSchema.pre('save', async function(next) {
   try {
+    // Only generate employeeId if it's a new document and no employeeId is provided
     if (this.isNew && !this.employeeId) {
       // Get all existing CODR employee IDs from both Employee and Onboarding collections
       const [allEmployees, allOnboardings] = await Promise.all([

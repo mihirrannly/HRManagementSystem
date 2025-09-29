@@ -23,6 +23,7 @@ import {
   BeachAccess as BeachAccessIcon,
   AttachMoney as AttachMoneyIcon,
   Assessment as AssessmentIcon,
+  Security as SecurityIcon,
   Business as BusinessIcon,
   PersonAdd as PersonAddIcon,
   ExitToApp as ExitToAppIcon,
@@ -65,6 +66,18 @@ const menuItems = [
     text: 'Reports',
     icon: <AssessmentIcon />,
     path: '/reports',
+    roles: ['admin', 'hr', 'manager']
+  },
+  {
+    text: 'Permissions',
+    icon: <SecurityIcon />,
+    path: '/permissions',
+    roles: ['admin', 'hr']
+  },
+  {
+    text: 'Asset Management',
+    icon: <ComputerIcon />,
+    path: '/assets',
     roles: ['admin', 'hr', 'manager']
   },
 ];

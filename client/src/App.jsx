@@ -26,6 +26,11 @@ import Leave from './pages/Leave/Leave';
 import Payroll from './pages/Payroll/Payroll';
 import Reports from './pages/Reports/Reports';
 import OrganizationAdvanced from './pages/Organization/OrganizationAdvanced';
+import Permissions from './pages/Permissions/Permissions';
+import PermissionsDebug from './pages/Permissions/PermissionsDebug';
+import PermissionsFixed from './pages/Permissions/PermissionsFixed';
+import AuthTest from './pages/Permissions/AuthTest';
+import AssetManagement from './pages/Assets/AssetManagement';
 import OfferAcceptance from './pages/OfferAcceptance';
 import CandidateDocuments from './pages/CandidateDocuments';
 import DocumentLinkRecovery from './pages/DocumentLinkRecovery';
@@ -210,6 +215,8 @@ function App() {
                 <Route path="attendance" element={<Attendance />} />
                 <Route path="leave" element={<Leave />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="permissions" element={<PermissionsFixed />} />
+                <Route path="assets" element={<AssetManagement />} />
               </Route>
 
               {/* Fallback route */}

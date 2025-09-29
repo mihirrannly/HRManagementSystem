@@ -120,6 +120,31 @@ router.get('/', [
   }
 });
 
+// @route   GET /api/employees/me
+// @desc    Get current user's employee data
+// @access  Private (Employee)
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    console.log('🔍 /me endpoint hit, user ID:', req.user._id);
+    
+    const employee = await Employee.findOne({ user: req.user._id })
+      .populate('employmentInfo.department', 'name code description')
+      .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
+      .populate('user', 'email role isActive lastLogin');
+
+    console.log('📋 Employee found:', employee ? employee.employeeId : 'Not found');
+
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    res.json(employee);
+  } catch (error) {
+    console.error('Get my employee data error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/employees/:id
 // @desc    Get employee by ID
 // @access  Private

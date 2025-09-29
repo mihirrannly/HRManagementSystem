@@ -45,8 +45,13 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
+    if (initialized) {
+      return;
+    }
+    
     const initAuth = async () => {
       const token = localStorage.getItem('token');
       const savedUser = localStorage.getItem('user');
@@ -64,10 +69,11 @@ export const AuthProvider = ({ children }) => {
         }
       }
       setLoading(false);
+      setInitialized(true);
     };
 
     initAuth();
-  }, []);
+  }, [initialized]);
 
   const login = async (email, password) => {
     try {
@@ -101,6 +107,13 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       toast.info('Logged out successfully');
     }
+  };
+
+  const forceLogout = () => {
+    localStorage.clear();
+    setUser(null);
+    setLoading(false);
+    window.location.reload();
   };
 
   const register = async (userData) => {
@@ -162,6 +175,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     logout,
+    forceLogout,
     register,
     updateProfile,
     changePassword,

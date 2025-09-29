@@ -7,6 +7,34 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+// @route   GET /api/leave/my-summary
+// @desc    Get leave summary for current employee
+// @access  Private (Employee)
+router.get('/my-summary', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // For now, return mock data since we don't have real leave records
+    const currentYear = new Date().getFullYear();
+    
+    // Mock leave balance data
+    const leaveBalance = {
+      available: 18, // Total available leaves
+      used: 6,      // Leaves used so far
+      pending: 1,   // Pending leave requests
+      remaining: 12 // Remaining leaves
+    };
+
+    res.json(leaveBalance);
+  } catch (error) {
+    console.error('Get leave summary error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/leave/types
 // @desc    Get all leave types
 // @access  Private
@@ -555,6 +583,63 @@ router.post('/holidays', [
     });
   } catch (error) {
     console.error('Add holiday error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/leave/my-summary
+// @desc    Get current user's leave summary
+// @access  Private (Employee)
+router.get('/my-summary', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // Get current year leaves
+    const currentYear = new Date().getFullYear();
+    const leaves = await Leave.find({
+      employee: employee._id,
+      startDate: {
+        $gte: new Date(currentYear, 0, 1),
+        $lte: new Date(currentYear, 11, 31)
+      }
+    });
+
+    // Calculate leave statistics
+    const approved = leaves.filter(leave => leave.status === 'approved');
+    const pending = leaves.filter(leave => leave.status === 'pending').length;
+    const used = approved.reduce((total, leave) => total + leave.totalDays, 0);
+
+    // Standard leave allocation (can be made configurable)
+    const casualLeave = 12 - approved.filter(leave => leave.type === 'casual').reduce((total, leave) => total + leave.totalDays, 0);
+    const sickLeave = 12 - approved.filter(leave => leave.type === 'sick').reduce((total, leave) => total + leave.totalDays, 0);
+    const earnedLeave = 21 - approved.filter(leave => leave.type === 'earned').reduce((total, leave) => total + leave.totalDays, 0);
+
+    // Get upcoming approved leaves
+    const upcoming = approved.filter(leave => new Date(leave.startDate) > new Date())
+      .map(leave => ({
+        type: leave.type,
+        startDate: leave.startDate,
+        endDate: leave.endDate,
+        totalDays: leave.totalDays,
+        reason: leave.reason
+      }));
+
+    res.json({
+      available: casualLeave + sickLeave + earnedLeave,
+      used,
+      pending,
+      upcoming,
+      balance: {
+        casualLeave: Math.max(0, casualLeave),
+        sickLeave: Math.max(0, sickLeave),
+        earnedLeave: Math.max(0, earnedLeave)
+      }
+    });
+  } catch (error) {
+    console.error('Get leave summary error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -30,8 +30,17 @@ import { useAuth } from '../../contexts/AuthContext';
 const schema = yup.object({
   email: yup
     .string()
-    .email('Please enter a valid email')
-    .required('Email is required'),
+    .test('email-or-employee-id', 'Please enter a valid email or employee ID (CODR###)', function(value) {
+      if (!value) return false;
+      
+      // Check if it's a valid email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      // Check if it's a valid employee ID (CODR followed by numbers)
+      const employeeIdRegex = /^CODR\d+$/i;
+      
+      return emailRegex.test(value) || employeeIdRegex.test(value);
+    })
+    .required('Email or Employee ID is required'),
   password: yup
     .string()
     .min(6, 'Password must be at least 6 characters')
@@ -133,16 +142,18 @@ const Login = () => {
             <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
               <TextField
                 fullWidth
-                label="Email Address"
-                type="email"
+                label="Email or Employee ID"
+                type="text"
                 margin="normal"
+                placeholder="user@rannkly.com or CODR037"
+                autoComplete="username"
                 {...register('email')}
                 error={!!errors.email}
                 helperText={errors.email?.message}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <EmailIcon color="action" />
+                      <BusinessIcon color="action" />
                     </InputAdornment>
                   ),
                 }}
@@ -154,6 +165,7 @@ const Login = () => {
                 label="Password"
                 type={showPassword ? 'text' : 'password'}
                 margin="normal"
+                autoComplete="current-password"
                 {...register('password')}
                 error={!!errors.password}
                 helperText={errors.password?.message}
@@ -237,6 +249,12 @@ const Login = () => {
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 <strong>Employee:</strong> employee@rannkly.com / employee123456
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                <strong>Any Employee:</strong> [employee-email] / TempPassword123!
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Examples: sangitasingh@rannkly.com, mihir@rannkly.com, kunika@rannkly.com
               </Typography>
             </Box>
           </CardContent>

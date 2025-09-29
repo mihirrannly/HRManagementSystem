@@ -65,22 +65,46 @@ router.post('/register', [
 });
 
 // @route   POST /api/auth/login
-// @desc    Login user
+// @desc    Login user (supports both email and employee ID)
 // @access  Public
-router.post('/login', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').exists()
-], async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+
+    const { email: loginInput, password } = req.body;
+
+    // Manual validation for email/employee ID
+    if (!loginInput || !loginInput.trim()) {
+      return res.status(400).json({ 
+        message: 'Email or Employee ID is required' 
+      });
     }
 
-    const { email, password } = req.body;
+    // Validate input format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const employeeIdRegex = /^CODR\d+$/i;
+    
+    if (!emailRegex.test(loginInput) && !employeeIdRegex.test(loginInput)) {
+      return res.status(400).json({ 
+        message: 'Please enter a valid email address or employee ID (CODR###)' 
+      });
+    }
 
-    // Find user
-    const user = await User.findOne({ email });
+    let user = null;
+
+    if (emailRegex.test(loginInput)) {
+      // Login with email
+      user = await User.findOne({ email: loginInput.toLowerCase() });
+    } else if (employeeIdRegex.test(loginInput)) {
+      // Login with employee ID - find the employee first, then get the user
+      const Employee = require('../models/Employee');
+      const employee = await Employee.findOne({ employeeId: loginInput.toUpperCase() })
+        .populate('user');
+      
+      if (employee && employee.user) {
+        user = employee.user;
+      }
+    }
+
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }

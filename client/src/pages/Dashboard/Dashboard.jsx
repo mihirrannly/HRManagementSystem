@@ -48,6 +48,7 @@ import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../contexts/AuthContext';
+import EmployeeDashboard from './EmployeeDashboard';
 
 // Sample data for charts (replace with real API data)
 const attendanceData = [
@@ -124,6 +125,12 @@ const StatCard = ({ title, value, change, icon, color = 'primary', onClick }) =>
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Show employee-specific dashboard for employee role
+  if (user?.role === 'employee') {
+    return <EmployeeDashboard />;
+  }
+
   const [dashboardData, setDashboardData] = useState({
     overview: {
       totalEmployees: 0,

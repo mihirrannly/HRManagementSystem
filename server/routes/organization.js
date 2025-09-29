@@ -534,8 +534,9 @@ router.post('/import', [
 
         // Check if employee exists
         let existingEmployee = null;
-        if (empData.employeeNumber) {
-          existingEmployee = await Employee.findOne({ employeeId: empData.employeeNumber });
+        const csvEmployeeId = empData.employee_number || empData.employeeNumber || empData.employeeId;
+        if (csvEmployeeId) {
+          existingEmployee = await Employee.findOne({ employeeId: csvEmployeeId });
         }
         if (!existingEmployee && empData.email) {
           const existingUser = await User.findOne({ email: empData.email.toLowerCase() });
@@ -618,7 +619,8 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
 
   // Create employee
   const employee = new Employee({
-    // Don't set employeeId - let Employee model generate it automatically
+    // Use employeeId from CSV data if available, otherwise let model generate it
+    employeeId: empData.employee_number || empData.employeeNumber || empData.employeeId || undefined,
     user: user._id,
     personalInfo: {
       firstName,
@@ -722,6 +724,12 @@ router.post('/import-master-data', [
   body('headers').isArray().withMessage('Headers must be an array'),
   body('mode').isIn(['comprehensive', 'update', 'create']).withMessage('Invalid import mode')
 ], async (req, res) => {
+  console.log('🚀 IMPORT-MASTER-DATA ENDPOINT CALLED');
+  console.log('📊 Headers received:', req.body.headers);
+  console.log('👥 Number of employees:', req.body.employees?.length);
+  if (req.body.employees?.length > 0) {
+    console.log('🔍 First employee data:', JSON.stringify(req.body.employees[0], null, 2));
+  }
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -890,8 +898,11 @@ router.post('/import-master-data', [
         };
 
         // Prepare employee data matching the schema
+        const csvEmployeeId = empData['employee_number'] || empData['employee_id'] || empData['employeeId'] || empData['employeeNumber'] || undefined;
+        
         const employeePayload = {
-          // Don't set employeeId from CSV - always let model generate CODR format
+          // Use employeeId from CSV if available, otherwise let model generate CODR format
+          employeeId: csvEmployeeId,
           // user: will be set after user creation
           personalInfo: {
             firstName,
