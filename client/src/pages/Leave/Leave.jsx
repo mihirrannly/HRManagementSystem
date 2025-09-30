@@ -222,6 +222,15 @@ const Leave = () => {
       return canApprove;
     }
     
+    // Admin users can approve if they are specifically in the approval flow (fallback for HR leaves)
+    if (user?.role === 'admin') {
+      const canApprove = request.approvalFlow?.some(approval => 
+        approval.approverType === 'admin' && approval.status === 'pending'
+      );
+      console.log('✅ Admin can approve (fallback):', canApprove);
+      return canApprove;
+    }
+    
     // Manager users can approve manager approvals
     if (user?.role === 'manager') {
       const canApprove = request.approvalFlow?.some(approval => 
@@ -239,7 +248,8 @@ const Leave = () => {
     if (!request.approvalFlow) return { approve: 'Approve', reject: 'Reject' };
     
     const userApproval = request.approvalFlow.find(approval => {
-      if ((isHR || isAdmin) && approval.approverType === 'hr') return true;
+      if (isHR && approval.approverType === 'hr') return true;
+      if (isAdmin && approval.approverType === 'admin') return true;
       if (isManager && approval.approverType === 'manager') return true;
       return false;
     });
@@ -415,7 +425,9 @@ const Leave = () => {
                           <Box sx={{ mt: 1 }}>
                             {request.approvalFlow.map((approval, index) => (
                               <Typography key={index} variant="caption" display="block" color="text.secondary">
-                                {approval.approverType === 'manager' ? '👨‍💼 Manager' : '🏢 HR'}: {
+                                {approval.approverType === 'manager' ? '👨‍💼 Manager' : 
+                                 approval.approverType === 'hr' ? '🏢 HR' : 
+                                 approval.approverType === 'admin' ? '👑 Admin' : '❓ Unknown'}: {
                                   approval.status === 'approved' ? '✅ Approved' : 
                                   approval.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'
                                 }
@@ -452,8 +464,8 @@ const Leave = () => {
                             </Tooltip>
                           </Box>
                         )}
-                        {user?.role === 'admin' && (request.status === 'pending' || request.status === 'partially_approved') && (
-                          <Tooltip title="Admins can view all leave requests but cannot approve them. Only the reporting manager and HR can approve.">
+                        {user?.role === 'admin' && (request.status === 'pending' || request.status === 'partially_approved') && !canApproveReject(request) && (
+                          <Tooltip title="Admins can view all leave requests. They can only approve when specifically assigned (e.g., for HR leave requests).">
                             <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                               👁️ View Only
                             </Typography>

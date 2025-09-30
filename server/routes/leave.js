@@ -379,11 +379,13 @@ router.post('/request', [
     }
     
     // Find HR employees to add to approval flow (only HR, not admins)
+    // Exclude the employee who is applying for leave to prevent self-approval
     const hrEmployees = await Employee.find({
-      user: { $exists: true }
+      user: { $exists: true },
+      _id: { $ne: employee._id } // Exclude the current employee
     }).populate('user', 'role').exec();
     
-    // Find HR employee (only HR role, not admins)
+    // Find HR employee (only HR role, not admins, and not the person applying)
     const hrEmployee = hrEmployees.find(emp => emp.user && emp.user.role === 'hr');
     
     if (hrEmployee) {
@@ -394,7 +396,27 @@ router.post('/request', [
         status: 'pending'
       });
     } else {
-      console.log('⚠️ Warning: No HR employee found for approval flow. Only employees with HR role can approve leave requests.');
+      console.log('⚠️ Warning: No HR employee found for approval flow (excluding self). Looking for admin as fallback...');
+      
+      // Fallback: If no other HR employee is available, find an admin
+      const adminEmployees = await Employee.find({
+        user: { $exists: true },
+        _id: { $ne: employee._id } // Exclude the current employee
+      }).populate('user', 'role').exec();
+      
+      const adminEmployee = adminEmployees.find(emp => emp.user && emp.user.role === 'admin');
+      
+      if (adminEmployee) {
+        approvalFlow.push({
+          approver: adminEmployee._id,
+          approverType: 'admin',
+          level: 2,
+          status: 'pending'
+        });
+        console.log('✅ Added admin as fallback approver for HR leave request');
+      } else {
+        console.log('❌ Error: No HR or admin employee found for approval flow. Leave request may not be approvable.');
+      }
     }
     
     leaveRequest.approvalFlow = approvalFlow;
@@ -654,11 +676,20 @@ router.put('/requests/:id/approve', [
         });
       }
     } else if (req.user.role === 'admin') {
-      // Admins can VIEW all requests but cannot APPROVE them
-      console.log('🚫 Admin authorization failed:', {
-        ...authorizationDetails,
-        reason: 'Admins can view all leave requests but cannot approve them. Only the reporting manager and HR can approve.'
-      });
+      // Check if admin is specifically added to approval flow (as fallback for HR leave requests)
+      userApproval = leaveRequest.approvalFlow.find(
+        approval => approval.approverType === 'admin' && approval.approver.toString() === approverEmployee._id.toString()
+      );
+      
+      if (userApproval) {
+        console.log('✅ Admin authorized as fallback approver for HR leave request');
+      } else {
+        // Admins can VIEW all requests but cannot APPROVE them unless specifically in approval flow
+        console.log('🚫 Admin authorization failed:', {
+          ...authorizationDetails,
+          reason: 'Admin not found in approval flow. Admins can only approve when specifically assigned (e.g., for HR leave requests).'
+        });
+      }
     }
 
     if (!userApproval) {
