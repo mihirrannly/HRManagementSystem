@@ -40,7 +40,7 @@ import moment from 'moment';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Leave = () => {
-  const { user, isHR, isAdmin, isManager } = useAuth();
+  const { user, employee, isHR, isAdmin, isManager } = useAuth();
   
   // Debug logging
   console.log('🔍 Leave component user data:', {
@@ -186,11 +186,7 @@ const Leave = () => {
       approvalFlow: request.approvalFlow
     });
     
-    // Only pure admins (role === 'admin') cannot approve. HR and managers can approve.
-    if (user?.role === 'admin') {
-      console.log('❌ Pure admin cannot approve');
-      return false;
-    }
+    // Remove the blanket admin restriction - we'll check specifically if admin is in approval flow below
     
     // Check if request is still pending or partially approved
     if (request.status !== 'pending' && request.status !== 'partially_approved') {
@@ -199,10 +195,11 @@ const Leave = () => {
     }
     
     // Check if user has already approved/rejected this request
-    if (request.approvalFlow) {
+    if (request.approvalFlow && employee?._id) {
       const userApproval = request.approvalFlow.find(approval => {
-        if (user?.role === 'hr' && approval.approverType === 'hr') return true;
-        if (user?.role === 'manager' && approval.approverType === 'manager') return true;
+        if (user?.role === 'hr' && approval.approverType === 'hr' && approval.approver._id === employee._id) return true;
+        if (user?.role === 'admin' && approval.approverType === 'admin' && approval.approver._id === employee._id) return true;
+        if (user?.role === 'manager' && approval.approverType === 'manager' && approval.approver._id === employee._id) return true;
         return false;
       });
       
@@ -216,7 +213,9 @@ const Leave = () => {
     // HR users can approve HR approvals
     if (user?.role === 'hr') {
       const canApprove = request.approvalFlow?.some(approval => 
-        approval.approverType === 'hr' && approval.status === 'pending'
+        approval.approverType === 'hr' && 
+        approval.status === 'pending' &&
+        approval.approver._id === employee?._id
       );
       console.log('✅ HR can approve:', canApprove);
       return canApprove;
@@ -225,16 +224,27 @@ const Leave = () => {
     // Admin users can approve if they are specifically in the approval flow (fallback for HR leaves)
     if (user?.role === 'admin') {
       const canApprove = request.approvalFlow?.some(approval => 
-        approval.approverType === 'admin' && approval.status === 'pending'
+        approval.approverType === 'admin' && 
+        approval.status === 'pending' &&
+        approval.approver._id === employee?._id
       );
-      console.log('✅ Admin can approve (fallback):', canApprove);
+      console.log('✅ Admin can approve (fallback):', canApprove, {
+        employeeId: employee?._id,
+        approvalFlow: request.approvalFlow?.map(a => ({
+          type: a.approverType,
+          approverId: a.approver._id,
+          status: a.status
+        }))
+      });
       return canApprove;
     }
     
     // Manager users can approve manager approvals
     if (user?.role === 'manager') {
       const canApprove = request.approvalFlow?.some(approval => 
-        approval.approverType === 'manager' && approval.status === 'pending'
+        approval.approverType === 'manager' && 
+        approval.status === 'pending' &&
+        approval.approver._id === employee?._id
       );
       console.log('✅ Manager can approve:', canApprove);
       return canApprove;
@@ -248,9 +258,9 @@ const Leave = () => {
     if (!request.approvalFlow) return { approve: 'Approve', reject: 'Reject' };
     
     const userApproval = request.approvalFlow.find(approval => {
-      if (isHR && approval.approverType === 'hr') return true;
-      if (isAdmin && approval.approverType === 'admin') return true;
-      if (isManager && approval.approverType === 'manager') return true;
+      if (isHR && approval.approverType === 'hr' && approval.approver._id === employee?._id) return true;
+      if (isAdmin && approval.approverType === 'admin' && approval.approver._id === employee?._id) return true;
+      if (isManager && approval.approverType === 'manager' && approval.approver._id === employee?._id) return true;
       return false;
     });
     
