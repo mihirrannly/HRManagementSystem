@@ -232,19 +232,23 @@ const Leave = () => {
     
     // Admin users can approve if they are specifically in the approval flow (fallback for HR leaves)
     if (user?.role === 'admin') {
+      console.log('🔍 Detailed admin check:', {
+        employeeId: employee?._id,
+        approvalFlowDetails: request.approvalFlow?.map(a => ({
+          type: a.approverType,
+          approverId: a.approver?._id,
+          status: a.status,
+          approverName: a.approver?.personalInfo ? `${a.approver.personalInfo.firstName} ${a.approver.personalInfo.lastName}` : 'Unknown',
+          idMatch: a.approver?._id === employee?._id
+        }))
+      });
+      
       const canApprove = request.approvalFlow?.some(approval => 
         approval.approverType === 'admin' && 
         approval.status === 'pending' &&
-        approval.approver._id === employee?._id
+        approval.approver?._id === employee?._id
       );
-      console.log('✅ Admin can approve (fallback):', canApprove, {
-        employeeId: employee?._id,
-        approvalFlow: request.approvalFlow?.map(a => ({
-          type: a.approverType,
-          approverId: a.approver._id,
-          status: a.status
-        }))
-      });
+      console.log('✅ Admin can approve (fallback):', canApprove);
       return canApprove;
     }
     
