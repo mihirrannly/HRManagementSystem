@@ -45,6 +45,7 @@ const Leave = () => {
   // Debug logging
   console.log('🔍 Leave component user data:', {
     user,
+    employee,
     isHR,
     isAdmin,
     isManager
@@ -181,9 +182,17 @@ const Leave = () => {
     
     console.log('🔍 canApproveReject check:', {
       user: user,
+      employee: employee,
       userRole: user?.role,
+      employeeId: employee?._id,
       requestStatus: request.status,
-      approvalFlow: request.approvalFlow
+      approvalFlow: request.approvalFlow,
+      approvalFlowDetails: request.approvalFlow?.map(a => ({
+        type: a.approverType,
+        status: a.status,
+        approverId: a.approver?._id,
+        approverName: a.approver?.personalInfo ? `${a.approver.personalInfo.firstName} ${a.approver.personalInfo.lastName}` : 'Unknown'
+      }))
     });
     
     // Remove the blanket admin restriction - we'll check specifically if admin is in approval flow below
