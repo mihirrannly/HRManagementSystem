@@ -44,6 +44,7 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
 
@@ -58,14 +59,34 @@ export const AuthProvider = ({ children }) => {
 
       if (token && savedUser) {
         try {
-          setUser(JSON.parse(savedUser));
-          // Verify token is still valid
-          await axios.get('/auth/me');
+          // Always fetch fresh user data from server instead of using cached localStorage
+          const response = await axios.get('/auth/me');
+          console.log('🔍 /auth/me response:', response.data);
+          
+          const freshUserData = response.data.user;
+          const freshEmployeeData = response.data.employee;
+          
+          // Update localStorage with fresh data
+          localStorage.setItem('user', JSON.stringify(freshUserData));
+          localStorage.setItem('employee', JSON.stringify(freshEmployeeData));
+          setUser(freshUserData);
+          setEmployee(freshEmployeeData);
+          
+          console.log('✅ Updated user data:', freshUserData);
+          console.log('✅ Updated employee data:', freshEmployeeData);
         } catch (error) {
           console.error('Token verification failed:', error);
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setUser(null);
+          // Only clear auth if it's actually an auth error (401) - keep user logged in for network errors
+          if (error.response?.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('employee');
+            setUser(null);
+            setEmployee(null);
+          } else {
+            // For network errors (ECONNREFUSED, etc), keep the user logged in
+            console.warn('Network error during token verification, keeping user logged in:', error.message);
+          }
         }
       }
       setLoading(false);
@@ -83,6 +104,10 @@ export const AuthProvider = ({ children }) => {
 
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
+      if (userData.employee) {
+        localStorage.setItem('employee', JSON.stringify(userData.employee));
+        setEmployee(userData.employee);
+      }
       setUser(userData);
 
       toast.success('Login successful!');
@@ -104,7 +129,9 @@ export const AuthProvider = ({ children }) => {
     } finally {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('employee');
       setUser(null);
+      setEmployee(null);
       toast.info('Logged out successfully');
     }
   };
@@ -112,6 +139,7 @@ export const AuthProvider = ({ children }) => {
   const forceLogout = () => {
     localStorage.clear();
     setUser(null);
+    setEmployee(null);
     setLoading(false);
     window.location.reload();
   };
@@ -172,6 +200,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
+    employee,
     loading,
     login,
     logout,

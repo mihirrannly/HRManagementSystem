@@ -15,7 +15,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
   try {
     // Get total employees
     const totalEmployees = await Employee.countDocuments({ 
-      'employmentInfo.status': 'active' 
+      'employmentInfo.isActive': true 
     });
 
     // Get new employees this month
@@ -24,7 +24,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
     currentMonth.setHours(0, 0, 0, 0);
     
     const newEmployeesThisMonth = await Employee.countDocuments({
-      'employmentInfo.status': 'active',
+      'employmentInfo.isActive': true,
       'employmentInfo.dateOfJoining': { $gte: currentMonth }
     });
 
@@ -33,7 +33,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
 
     // Get employees on probation
     const employeesOnProbation = await Employee.countDocuments({
-      'employmentInfo.status': 'active',
+      'employmentInfo.isActive': true,
       'employmentInfo.probationEndDate': { $gte: new Date() }
     });
 
@@ -76,7 +76,14 @@ router.get('/dashboard', authenticate, async (req, res) => {
         $project: {
           name: 1,
           code: 1,
-          employeeCount: { $size: '$employees' }
+          employeeCount: { 
+            $size: {
+              $filter: {
+                input: '$employees',
+                cond: { $eq: ['$$this.employmentInfo.isActive', true] }
+              }
+            }
+          }
         }
       },
       {

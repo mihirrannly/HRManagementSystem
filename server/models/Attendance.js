@@ -135,6 +135,10 @@ const attendanceSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  flexibleEndTime: {
+    type: Date,
+    default: null
+  },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'

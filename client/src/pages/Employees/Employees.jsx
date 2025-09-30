@@ -15,6 +15,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Tooltip,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -40,6 +42,7 @@ const Employees = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [leaveBalances, setLeaveBalances] = useState({});
 
   useEffect(() => {
     fetchEmployees();
@@ -49,7 +52,27 @@ const Employees = () => {
     try {
       setLoading(true);
       const response = await axios.get('/employees');
-      setEmployees(response.data.employees || []);
+      const employeeList = response.data.employees || [];
+      setEmployees(employeeList);
+      
+      // Fetch leave balances for all employees
+      const balances = {};
+      await Promise.all(
+        employeeList.map(async (employee) => {
+          try {
+            const balanceResponse = await axios.get(`/leave/employee-balance/${employee._id}`);
+            balances[employee._id] = balanceResponse.data;
+          } catch (error) {
+            console.error(`Error fetching leave balance for employee ${employee._id}:`, error);
+            balances[employee._id] = {
+              casualLeave: { available: 12, used: 0, allocated: 12 },
+              sickLeave: { available: 12, used: 0, allocated: 12 },
+              specialLeave: { available: 3, used: 0, allocated: 3 }
+            };
+          }
+        })
+      );
+      setLeaveBalances(balances);
     } catch (error) {
       console.error('Error fetching employees:', error);
       toast.error('Failed to fetch employees');
@@ -145,6 +168,42 @@ const Employees = () => {
           size="small"
         />
       ),
+    },
+    {
+      field: 'leaveBalance',
+      headerName: 'Leave Balance',
+      width: 200,
+      renderCell: (params) => {
+        const balance = leaveBalances[params.row._id];
+        if (!balance) return <Typography variant="body2">Loading...</Typography>;
+        
+        const totalAvailable = balance.casualLeave.available + balance.sickLeave.available + balance.specialLeave.available;
+        const totalAllocated = balance.casualLeave.allocated + balance.sickLeave.allocated + balance.specialLeave.allocated;
+        
+        return (
+          <Tooltip 
+            title={
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>Leave Balance Details:</Typography>
+                <Typography variant="body2">Casual: {balance.casualLeave.available}/{balance.casualLeave.allocated}</Typography>
+                <Typography variant="body2">Sick: {balance.sickLeave.available}/{balance.sickLeave.allocated}</Typography>
+                <Typography variant="body2">Special: {balance.specialLeave.available}/{balance.specialLeave.allocated}</Typography>
+              </Box>
+            }
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                {totalAvailable}/{totalAllocated}
+              </Typography>
+              <Stack direction="row" spacing={0.5}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#4CAF50' }} />
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#FF9800' }} />
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#9C27B0' }} />
+              </Stack>
+            </Stack>
+          </Tooltip>
+        );
+      },
     },
     {
       field: 'actions',

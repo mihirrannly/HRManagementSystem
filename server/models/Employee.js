@@ -179,6 +179,29 @@ const employeeSchema = new mongoose.Schema({
     }
   }],
   
+  // Leave Balance Information
+  leaveBalance: {
+    casualLeave: {
+      allocated: { type: Number, default: 12 },
+      used: { type: Number, default: 0 },
+      remaining: { type: Number, default: 12 }
+    },
+    sickLeave: {
+      allocated: { type: Number, default: 12 },
+      used: { type: Number, default: 0 },
+      remaining: { type: Number, default: 12 }
+    },
+    specialLeave: {
+      allocated: { type: Number, default: 3 },
+      used: { type: Number, default: 0 },
+      remaining: { type: Number, default: 3 }
+    },
+    lastUpdated: {
+      type: Date,
+      default: Date.now
+    }
+  },
+
   // Additional Information (Dynamic fields from imports, forms, etc.)
   additionalInfo: {
     type: mongoose.Schema.Types.Mixed,

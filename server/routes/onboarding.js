@@ -400,6 +400,7 @@ router.get('/:id', auth, async (req, res) => {
 // Create new onboarding
 router.post('/', auth, async (req, res) => {
   try {
+    console.log(`📝 Creating new onboarding for: ${req.body.employeeName} by user: ${req.user.email}`);
     const onboardingData = {
       ...req.body,
       createdBy: req.user._id
@@ -438,6 +439,7 @@ router.post('/', auth, async (req, res) => {
 // Create comprehensive onboarding with all features
 router.post('/comprehensive', auth, async (req, res) => {
   try {
+    console.log(`📝 Creating comprehensive onboarding for: ${req.body.employeeName} by user: ${req.user.email}`);
     const onboardingData = {
       ...req.body,
       createdBy: req.user._id

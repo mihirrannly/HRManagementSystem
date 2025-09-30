@@ -476,5 +476,137 @@ router.get('/reports/org-chart', [
   }
 });
 
+// @route   GET /api/employees/my-team
+// @desc    Get team members for current user (if they are a manager)
+// @access  Private
+router.get('/my-team', authenticate, async (req, res) => {
+  try {
+    const currentEmployee = await Employee.findOne({ user: req.user._id });
+    if (!currentEmployee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // Find team members reporting to this employee
+    const teamMembers = await Employee.find({
+      'employmentInfo.reportingManager': currentEmployee._id,
+      'employmentInfo.isActive': true
+    })
+    .populate('user', 'email role')
+    .populate('employmentInfo.department', 'name')
+    .select('employeeId personalInfo employmentInfo createdAt')
+    .sort({ 'personalInfo.firstName': 1 });
+
+    // Get leave balances for team members
+    const teamMembersWithLeaves = await Promise.all(
+      teamMembers.map(async (member) => {
+        try {
+          const currentYear = new Date().getFullYear();
+          const leaveBalance = await require('../models/Leave').LeaveBalance.findOne({
+            employee: member._id,
+            year: currentYear
+          });
+
+          return {
+            ...member.toObject(),
+            leaveBalance: leaveBalance ? {
+              casualLeave: leaveBalance.casualLeave,
+              sickLeave: leaveBalance.sickLeave,
+              specialLeave: leaveBalance.specialLeave
+            } : null
+          };
+        } catch (error) {
+          return {
+            ...member.toObject(),
+            leaveBalance: null
+          };
+        }
+      })
+    );
+
+    res.json({
+      teamMembers: teamMembersWithLeaves,
+      totalTeamSize: teamMembers.length,
+      manager: {
+        employeeId: currentEmployee.employeeId,
+        name: `${currentEmployee.personalInfo?.firstName} ${currentEmployee.personalInfo?.lastName}`,
+        designation: currentEmployee.employmentInfo?.designation
+      }
+    });
+  } catch (error) {
+    console.error('Get team members error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/employees/reporting-structure
+// @desc    Get reporting structure information for current user
+// @access  Private
+router.get('/reporting-structure', authenticate, async (req, res) => {
+  console.log('🔍 Reporting structure endpoint hit!');
+  try {
+    const currentEmployee = await Employee.findOne({ user: req.user._id })
+      .populate('employmentInfo.reportingManager', 'employeeId personalInfo employmentInfo.designation')
+      .populate('employmentInfo.department', 'name');
+
+    if (!currentEmployee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    // Get team members (if user is a manager)
+    const teamMembers = await Employee.find({
+      'employmentInfo.reportingManager': currentEmployee._id,
+      'employmentInfo.isActive': true
+    })
+    .populate('user', 'email role')
+    .select('employeeId personalInfo employmentInfo.designation')
+    .sort({ 'personalInfo.firstName': 1 });
+
+    // Get peers (employees with same reporting manager)
+    const peers = currentEmployee.employmentInfo?.reportingManager ? 
+      await Employee.find({
+        'employmentInfo.reportingManager': currentEmployee.employmentInfo.reportingManager._id,
+        'employmentInfo.isActive': true,
+        '_id': { $ne: currentEmployee._id }
+      })
+      .select('employeeId personalInfo employmentInfo.designation')
+      .sort({ 'personalInfo.firstName': 1 }) : [];
+
+    res.json({
+      currentEmployee: {
+        employeeId: currentEmployee.employeeId,
+        name: `${currentEmployee.personalInfo?.firstName} ${currentEmployee.personalInfo?.lastName}`,
+        designation: currentEmployee.employmentInfo?.designation,
+        department: currentEmployee.employmentInfo?.department?.name,
+        role: req.user.role
+      },
+      reportingManager: currentEmployee.employmentInfo?.reportingManager ? {
+        employeeId: currentEmployee.employmentInfo.reportingManager.employeeId,
+        name: `${currentEmployee.employmentInfo.reportingManager.personalInfo?.firstName} ${currentEmployee.employmentInfo.reportingManager.personalInfo?.lastName}`,
+        designation: currentEmployee.employmentInfo.reportingManager.employmentInfo?.designation
+      } : null,
+      teamMembers: teamMembers.map(member => ({
+        employeeId: member.employeeId,
+        name: `${member.personalInfo?.firstName} ${member.personalInfo?.lastName}`,
+        designation: member.employmentInfo?.designation,
+        role: member.user?.role
+      })),
+      peers: peers.map(peer => ({
+        employeeId: peer.employeeId,
+        name: `${peer.personalInfo?.firstName} ${peer.personalInfo?.lastName}`,
+        designation: peer.employmentInfo?.designation
+      })),
+      statistics: {
+        totalTeamSize: teamMembers.length,
+        totalPeers: peers.length,
+        isManager: teamMembers.length > 0
+      }
+    });
+  } catch (error) {
+    console.error('Get reporting structure error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+console.log('🔥 EMPLOYEES ROUTES LOADED - INCLUDING NEW ENDPOINTS!');
 module.exports = router;
 

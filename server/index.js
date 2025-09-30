@@ -22,6 +22,7 @@ const candidatePortalRoutes = require('./routes/candidatePortal');
 const eSignatureRoutes = require('./routes/eSignature');
 const permissionRoutes = require('./routes/permissions');
 const assetRoutes = require('./routes/assets');
+const shiftRoutes = require('./routes/shifts');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -99,6 +100,7 @@ app.use('/api/candidate-portal', candidatePortalRoutes);
 app.use('/api/esignature', eSignatureRoutes);
 app.use('/api/permissions', permissionRoutes);
 app.use('/api/assets', assetRoutes);
+app.use('/api/shifts', shiftRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

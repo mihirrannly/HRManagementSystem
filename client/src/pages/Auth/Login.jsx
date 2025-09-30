@@ -239,22 +239,10 @@ const Login = () => {
                 </a>
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                <strong>Admin:</strong> admin@rannkly.com / admin123456
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                <strong>HR:</strong> hr@rannkly.com / hr123456
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                <strong>Manager:</strong> manager@rannkly.com / manager123456
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <strong>Employee:</strong> employee@rannkly.com / employee123456
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                <strong>Any Employee:</strong> [employee-email] / TempPassword123!
+                <strong>Admin:</strong> mihir@rannkly.com / mihir123456
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                Examples: sangitasingh@rannkly.com, mihir@rannkly.com, kunika@rannkly.com
+                ✅ Only real employee data is available (dummy accounts removed)
               </Typography>
             </Box>
           </CardContent>

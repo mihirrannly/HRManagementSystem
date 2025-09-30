@@ -32,6 +32,7 @@ import {
   Email as EmailIcon,
   Sms as SmsIcon,
   Save as SaveIcon,
+  Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 
 const SettingsModule = () => {
@@ -76,6 +77,12 @@ const SettingsModule = () => {
       title: 'General Settings',
       icon: <TuneIcon />,
       color: '#1976d2'
+    },
+    {
+      id: 'shifts',
+      title: 'Shift Management',
+      icon: <ScheduleIcon />,
+      color: '#667eea'
     },
     {
       id: 'notifications',

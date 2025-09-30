@@ -7,6 +7,7 @@ import {
   Grid,
   Card,
   CardContent,
+  CardActions,
   Tabs,
   Tab,
   Table,
@@ -33,7 +34,27 @@ import {
   Badge,
   InputAdornment,
   Autocomplete,
-  Avatar
+  Avatar,
+  Fade,
+  Zoom,
+  Slide,
+  Collapse,
+  LinearProgress,
+  Divider,
+  Stack,
+  Container,
+  Breadcrumbs,
+  Link,
+  Fab,
+  SpeedDial,
+  SpeedDialAction,
+  SpeedDialIcon,
+  ButtonGroup,
+  ToggleButton,
+  ToggleButtonGroup,
+  Switch,
+  FormControlLabel,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -50,7 +71,29 @@ import {
   Print as PrintIcon,
   Camera as CameraIcon,
   Chair as ChairIcon,
-  More as MoreIcon
+  More as MoreIcon,
+  Dashboard as DashboardIcon,
+  Inventory as InventoryIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  Schedule as ScheduleIcon,
+  LocationOn as LocationIcon,
+  AttachMoney as MoneyIcon,
+  CalendarToday as CalendarIcon,
+  Visibility as ViewIcon,
+  GetApp as ExportIcon,
+  CloudUpload as ImportIcon,
+  QrCode as QrCodeIcon,
+  Settings as SettingsIcon,
+  Analytics as AnalyticsIcon,
+  Security as SecurityIcon,
+  Notifications as NotificationsIcon,
+  ViewList as ListViewIcon,
+  ViewModule as GridViewIcon,
+  Sort as SortIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
@@ -124,6 +167,15 @@ const AssetManagement = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [employees, setEmployees] = useState([]);
+
+  // Enhanced UI states
+  const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedAssets, setSelectedAssets] = useState([]);
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
+  const [dashboardView, setDashboardView] = useState(false);
 
   const categories = [
     { value: 'laptop', label: 'Laptop', icon: <ComputerIcon /> },
@@ -404,82 +456,188 @@ const AssetManagement = () => {
     />
   );
 
+  // Enhanced helper functions
+  const getAssetIcon = (category) => {
+    const categoryObj = categories.find(cat => cat.value === category);
+    return categoryObj ? categoryObj.icon : <MoreIcon />;
+  };
+
+  const getStatusIcon = (status) => {
+    const icons = {
+      available: <CheckCircleIcon sx={{ color: 'success.main' }} />,
+      assigned: <AssignmentIcon sx={{ color: 'primary.main' }} />,
+      maintenance: <MaintenanceIcon sx={{ color: 'warning.main' }} />,
+      retired: <ScheduleIcon sx={{ color: 'text.disabled' }} />,
+      lost: <WarningIcon sx={{ color: 'error.main' }} />
+    };
+    return icons[status] || <MoreIcon />;
+  };
+
+  const getAssetValue = (assets) => {
+    return assets.reduce((total, asset) => total + (asset.purchasePrice || 0), 0);
+  };
+
+  const sortAssets = (assetsToSort) => {
+    return [...assetsToSort].sort((a, b) => {
+      let aValue = a[sortBy];
+      let bValue = b[sortBy];
+      
+      if (sortBy === 'purchaseDate') {
+        aValue = new Date(aValue || 0);
+        bValue = new Date(bValue || 0);
+      }
+      
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+  };
+
+  const filteredAndSortedAssets = sortAssets(assets);
+
   if (loading && assets.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
-        <Typography sx={{ ml: 2 }}>Loading assets...</Typography>
-      </Box>
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
+          <CircularProgress size={60} thickness={4} />
+          <Typography variant="h6" sx={{ mt: 2, color: 'text.secondary' }}>
+            Loading Asset Management System...
+          </Typography>
+          <Box sx={{ width: '100%', maxWidth: 400, mt: 2 }}>
+            <LinearProgress />
+          </Box>
+        </Box>
+      </Container>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Asset Management
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setAssetDialog(true)}
-        >
-          Add Asset
-        </Button>
+    <Container maxWidth="xl" sx={{ py: 2 }}>
+      {/* Professional Header */}
+      <Box sx={{ mb: 3 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <InventoryIcon sx={{ fontSize: 24, color: 'primary.main', mr: 1.5 }} />
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+                Asset Management
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                IT Asset Tracking & Management
+              </Typography>
+            </Box>
+          </Box>
+          
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setAssetDialog(true)}
+              sx={{ 
+                textTransform: 'none',
+                fontWeight: 500,
+                px: 2
+              }}
+            >
+              Add Asset
+            </Button>
+            
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={(e, newView) => newView && setViewMode(newView)}
+              size="small"
+            >
+              <ToggleButton value="table">
+                <ListViewIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="grid">
+                <GridViewIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+        </Stack>
+
+        {/* Professional Statistics Cards */}
+        <Grid container spacing={2}>
+          {assetStats.byStatus?.map((stat) => (
+            <Grid item xs={12} sm={6} md={2.4} key={stat._id}>
+              <Card
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    boxShadow: 1
+                  }
+                }}
+                onClick={() => setStatusFilter(stat._id)}
+              >
+                <CardContent sx={{ p: 2 }}>
+                  <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                    {getStatusIcon(stat._id)}
+                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 500 }}>
+                      {stat._id}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    {stat.count}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    ${(stat.totalValue || 0).toLocaleString()}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       </Box>
 
-      {/* Statistics Cards */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {assetStats.byStatus?.map((stat) => (
-          <Grid item xs={12} sm={6} md={2.4} key={stat._id}>
-            <Card sx={{ border: '1px solid', borderColor: 'grey.200', boxShadow: 'none' }}>
-              <CardContent sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary" gutterBottom>
-                  {stat._id.charAt(0).toUpperCase() + stat._id.slice(1)}
-                </Typography>
-                <Typography variant="h6" fontWeight="500">
-                  {stat.count}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  ${(stat.totalValue || 0).toLocaleString()}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Search and Filters */}
-      <Paper sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'grey.200', boxShadow: 'none' }}>
+      {/* Professional Search and Filters */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          mb: 3,
+          border: '1px solid',
+          borderColor: 'divider'
+        }}
+      >
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={4}>
             <TextField
               fullWidth
+              size="small"
               placeholder="Search assets..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <SearchIcon />
+                    <SearchIcon fontSize="small" />
                   </InputAdornment>
                 ),
               }}
             />
           </Grid>
-          <Grid item xs={12} md={3}>
-            <FormControl fullWidth>
+          
+          <Grid item xs={12} md={2}>
+            <FormControl fullWidth size="small">
               <InputLabel>Category</InputLabel>
               <Select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 label="Category"
               >
-                <MenuItem value="">All Categories</MenuItem>
+                <MenuItem value="">All</MenuItem>
                 {categories.map((category) => (
                   <MenuItem key={category.value} value={category.value}>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      {category.icon}
+                      {React.cloneElement(category.icon, { fontSize: 'small' })}
                       <Typography sx={{ ml: 1 }}>{category.label}</Typography>
                     </Box>
                   </MenuItem>
@@ -487,15 +645,16 @@ const AssetManagement = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
-            <FormControl fullWidth>
+          
+          <Grid item xs={12} md={2}>
+            <FormControl fullWidth size="small">
               <InputLabel>Status</InputLabel>
               <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 label="Status"
               >
-                <MenuItem value="">All Status</MenuItem>
+                <MenuItem value="">All</MenuItem>
                 <MenuItem value="available">Available</MenuItem>
                 <MenuItem value="assigned">Assigned</MenuItem>
                 <MenuItem value="maintenance">Maintenance</MenuItem>
@@ -504,141 +663,371 @@ const AssetManagement = () => {
               </Select>
             </FormControl>
           </Grid>
+          
           <Grid item xs={12} md={2}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={() => fetchAssets()}
-            >
-              Refresh
-            </Button>
+            <FormControl fullWidth size="small">
+              <InputLabel>Sort By</InputLabel>
+              <Select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                label="Sort By"
+              >
+                <MenuItem value="name">Name</MenuItem>
+                <MenuItem value="assetId">Asset ID</MenuItem>
+                <MenuItem value="purchaseDate">Purchase Date</MenuItem>
+                <MenuItem value="purchasePrice">Price</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          <Grid item xs={12} md={2}>
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ExportIcon />}
+                sx={{ textTransform: 'none' }}
+              >
+                Export
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => fetchAssets()}
+                sx={{ minWidth: 'auto', px: 1 }}
+              >
+                <RefreshIcon fontSize="small" />
+              </Button>
+            </Stack>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Assets Table */}
-      <TableContainer component={Paper} sx={{ border: '1px solid', borderColor: 'grey.200', boxShadow: 'none' }}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Asset ID</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>Category</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Condition</TableCell>
-              <TableCell>Assigned To</TableCell>
-              <TableCell>Purchase Date</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {assets.map((asset) => (
-              <TableRow key={asset._id}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    {getCategoryIcon(asset.category)}
-                    <Typography sx={{ ml: 1, fontWeight: 'bold' }}>
-                      {asset.assetId}
-                    </Typography>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2" fontWeight="medium">
-                    {asset.name}
-                  </Typography>
-                  {asset.brand && asset.model && (
-                    <Typography variant="caption" color="textSecondary">
-                      {asset.brand} {asset.model}
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {categories.find(cat => cat.value === asset.category)?.label || asset.category}
-                </TableCell>
-                <TableCell>
-                  {getStatusChip(asset.status)}
-                </TableCell>
-                <TableCell>
-                  {getConditionChip(asset.condition)}
-                </TableCell>
-                <TableCell>
-                  {asset.currentAssignment?.employee ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Avatar sx={{ width: 24, height: 24, mr: 1, fontSize: '0.75rem' }}>
-                        {asset.currentAssignment.employee.personalInfo.firstName[0]}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body2">
-                          {asset.currentAssignment.employee.personalInfo.firstName}{' '}
-                          {asset.currentAssignment.employee.personalInfo.lastName}
+      {/* Dynamic Content Area */}
+      <Fade in={true}>
+        <Box>
+          {viewMode === 'grid' ? (
+            /* Professional Grid View */
+            <Grid container spacing={2}>
+              {filteredAndSortedAssets.map((asset) => (
+                <Grid item xs={12} sm={6} md={4} lg={3} key={asset._id}>
+                  <Card
+                    sx={{
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        borderColor: 'primary.main',
+                        boxShadow: 1
+                      }
+                    }}
+                  >
+                    <CardContent sx={{ p: 2 }}>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
+                        <Box
+                          sx={{
+                            background: 'primary.main',
+                            borderRadius: 1,
+                            p: 0.5,
+                            color: 'white'
+                          }}
+                        >
+                          {React.cloneElement(getAssetIcon(asset.category), { fontSize: 'small' })}
+                        </Box>
+                        {getStatusChip(asset.status)}
+                      </Stack>
+                      
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        {asset.name}
+                      </Typography>
+                      
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                        {asset.assetId}
+                      </Typography>
+                      
+                      {asset.brand && asset.model && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
+                          {asset.brand} {asset.model}
                         </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          {asset.currentAssignment.employee.employeeId}
+                      )}
+                      
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
+                        <Typography variant="caption" color="text.secondary">
+                          Condition
                         </Typography>
-                      </Box>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="textSecondary">
-                      Unassigned
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {asset.purchaseDate ? moment(asset.purchaseDate).format('MMM DD, YYYY') : '-'}
-                </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', gap: 0.5 }}>
-                    <Tooltip title="Edit Asset">
-                      <IconButton size="small" onClick={() => openEditDialog(asset)}>
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
+                        {getConditionChip(asset.condition)}
+                      </Stack>
+                      
+                      {asset.currentAssignment?.employee ? (
+                        <Stack direction="row" alignItems="center" mb={1}>
+                          <Avatar sx={{ width: 20, height: 20, mr: 1, fontSize: '0.7rem' }}>
+                            {asset.currentAssignment.employee.personalInfo.firstName[0]}
+                          </Avatar>
+                          <Typography variant="caption" sx={{ fontWeight: 500 }}>
+                            {asset.currentAssignment.employee.personalInfo.firstName}{' '}
+                            {asset.currentAssignment.employee.personalInfo.lastName}
+                          </Typography>
+                        </Stack>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                          Unassigned
+                        </Typography>
+                      )}
+                      
+                      {asset.purchasePrice && (
+                        <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600 }}>
+                          ${asset.purchasePrice.toLocaleString()}
+                        </Typography>
+                      )}
+                    </CardContent>
                     
-                    {asset.status === 'available' ? (
-                      <Tooltip title="Assign Asset">
-                        <IconButton size="small" onClick={() => openAssignDialog(asset)}>
-                          <AssignmentIcon />
-                        </IconButton>
-                      </Tooltip>
-                    ) : asset.status === 'assigned' ? (
-                      <Tooltip title="Return Asset">
-                        <IconButton size="small" onClick={() => openReturnDialog(asset)}>
-                          <ReturnIcon />
-                        </IconButton>
-                      </Tooltip>
-                    ) : null}
-                    
-                    <Tooltip title="Add Maintenance">
-                      <IconButton size="small" onClick={() => openMaintenanceDialog(asset)}>
-                        <MaintenanceIcon />
-                      </IconButton>
-                    </Tooltip>
-                    
-                    <Tooltip title="Delete Asset">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => handleDeleteAsset(asset._id)}
-                        disabled={asset.status === 'assigned'}
+                    <CardActions sx={{ px: 2, pb: 2, pt: 0 }}>
+                      <Stack direction="row" spacing={0.5} sx={{ width: '100%' }}>
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={() => openEditDialog(asset)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        
+                        {asset.status === 'available' ? (
+                          <Tooltip title="Assign">
+                            <IconButton
+                              size="small"
+                              onClick={() => openAssignDialog(asset)}
+                              color="success"
+                            >
+                              <AssignmentIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : asset.status === 'assigned' ? (
+                          <Tooltip title="Return">
+                            <IconButton
+                              size="small"
+                              onClick={() => openReturnDialog(asset)}
+                              color="warning"
+                            >
+                              <ReturnIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : null}
+                        
+                        <Tooltip title="Maintenance">
+                          <IconButton
+                            size="small"
+                            onClick={() => openMaintenanceDialog(asset)}
+                            color="info"
+                          >
+                            <MaintenanceIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            /* Professional Table View */
+            <Paper
+              elevation={0}
+              sx={{
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Asset</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Condition</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Assigned To</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Purchase Info</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }} align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredAndSortedAssets.map((asset) => (
+                      <TableRow
+                        key={asset._id}
+                        sx={{
+                          '&:hover': {
+                            backgroundColor: 'grey.50'
+                          }
+                        }}
                       >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                        <TableCell>
+                          <Stack direction="row" alignItems="center" spacing={1}>
+                            <Box
+                              sx={{
+                                background: 'primary.main',
+                                borderRadius: 1,
+                                p: 0.5,
+                                color: 'white'
+                              }}
+                            >
+                              {React.cloneElement(getAssetIcon(asset.category), { fontSize: 'small' })}
+                            </Box>
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                {asset.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {asset.assetId}
+                              </Typography>
+                              {asset.brand && asset.model && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {asset.brand} {asset.model}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Stack>
+                        </TableCell>
+                        
+                        <TableCell>
+                          <Typography variant="body2">
+                            {categories.find(cat => cat.value === asset.category)?.label || asset.category}
+                          </Typography>
+                        </TableCell>
+                        
+                        <TableCell>
+                          {getStatusChip(asset.status)}
+                        </TableCell>
+                        
+                        <TableCell>
+                          {getConditionChip(asset.condition)}
+                        </TableCell>
+                        
+                        <TableCell>
+                          {asset.currentAssignment?.employee ? (
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                              <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
+                                {asset.currentAssignment.employee.personalInfo.firstName[0]}
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2">
+                                  {asset.currentAssignment.employee.personalInfo.firstName}{' '}
+                                  {asset.currentAssignment.employee.personalInfo.lastName}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {asset.currentAssignment.employee.employeeId}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Unassigned
+                            </Typography>
+                          )}
+                        </TableCell>
+                        
+                        <TableCell>
+                          <Stack spacing={0.5}>
+                            {asset.purchasePrice && (
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                ${asset.purchasePrice.toLocaleString()}
+                              </Typography>
+                            )}
+                            <Typography variant="caption" color="text.secondary">
+                              {asset.purchaseDate ? moment(asset.purchaseDate).format('MMM DD, YYYY') : 'No date'}
+                            </Typography>
+                          </Stack>
+                        </TableCell>
+                        
+                        <TableCell align="center">
+                          <Stack direction="row" spacing={0.5} justifyContent="center">
+                            <Tooltip title="Edit">
+                              <IconButton
+                                size="small"
+                                onClick={() => openEditDialog(asset)}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            
+                            {asset.status === 'available' ? (
+                              <Tooltip title="Assign">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openAssignDialog(asset)}
+                                  color="success"
+                                >
+                                  <AssignmentIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            ) : asset.status === 'assigned' ? (
+                              <Tooltip title="Return">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openReturnDialog(asset)}
+                                  color="warning"
+                                >
+                                  <ReturnIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            ) : null}
+                            
+                            <Tooltip title="Maintenance">
+                              <IconButton
+                                size="small"
+                                onClick={() => openMaintenanceDialog(asset)}
+                                color="info"
+                              >
+                                <MaintenanceIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            
+                            <Tooltip title="Delete">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteAsset(asset._id)}
+                                  disabled={asset.status === 'assigned'}
+                                  color="error"
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+        </Box>
+      </Fade>
 
-      {/* Add/Edit Asset Dialog */}
-      <Dialog open={assetDialog} onClose={() => setAssetDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          {editingAsset ? 'Edit Asset' : 'Add New Asset'}
+
+      {/* Professional Add/Edit Asset Dialog */}
+      <Dialog 
+        open={assetDialog} 
+        onClose={() => setAssetDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          pb: 2
+        }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <InventoryIcon color="primary" />
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {editingAsset ? 'Edit Asset' : 'Add New Asset'}
+            </Typography>
+          </Stack>
         </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
+        <DialogContent sx={{ p: 3 }}>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -832,18 +1221,50 @@ const AssetManagement = () => {
             )}
           </Grid>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAssetDialog(false)}>Cancel</Button>
-          <Button onClick={handleCreateAsset} variant="contained">
-            {editingAsset ? 'Update' : 'Create'}
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: '1px solid',
+          borderColor: 'divider',
+          gap: 1
+        }}>
+          <Button 
+            onClick={() => setAssetDialog(false)}
+            variant="outlined"
+            sx={{ textTransform: 'none' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateAsset} 
+            variant="contained"
+            startIcon={editingAsset ? <EditIcon /> : <AddIcon />}
+            sx={{ textTransform: 'none' }}
+          >
+            {editingAsset ? 'Update Asset' : 'Create Asset'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Assign Asset Dialog */}
-      <Dialog open={assignDialog} onClose={() => setAssignDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Assign Asset</DialogTitle>
-        <DialogContent>
+      {/* Professional Assign Asset Dialog */}
+      <Dialog 
+        open={assignDialog} 
+        onClose={() => setAssignDialog(false)} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          pb: 2
+        }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <AssignmentIcon color="success" />
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Assign Asset
+            </Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
           <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
             Assigning: {selectedAsset?.name} ({selectedAsset?.assetId})
           </Typography>
@@ -894,21 +1315,71 @@ const AssetManagement = () => {
             margin="normal"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAssignDialog(false)}>Cancel</Button>
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: '1px solid',
+          borderColor: 'divider',
+          gap: 1
+        }}>
+          <Button 
+            onClick={() => setAssignDialog(false)}
+            variant="outlined"
+            sx={{ textTransform: 'none' }}
+          >
+            Cancel
+          </Button>
           <Button 
             onClick={handleAssignAsset} 
             variant="contained"
             disabled={!assignForm.employeeId}
+            startIcon={<AssignmentIcon />}
+            color="success"
+            sx={{ textTransform: 'none' }}
           >
-            Assign
+            Assign Asset
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Return Asset Dialog */}
-      <Dialog open={returnDialog} onClose={() => setReturnDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Return Asset</DialogTitle>
+      {/* Enhanced Return Asset Dialog */}
+      <Dialog 
+        open={returnDialog} 
+        onClose={() => setReturnDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2
+        }}>
+          <Box
+            sx={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              borderRadius: 2,
+              p: 1,
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <ReturnIcon />
+          </Box>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 600 }}>
+              Return Asset
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              Process asset return and update condition
+            </Typography>
+          </Box>
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
             Returning: {selectedAsset?.name} ({selectedAsset?.assetId})
@@ -1039,7 +1510,7 @@ const AssetManagement = () => {
           {error}
         </Alert>
       </Snackbar>
-    </Box>
+    </Container>
   );
 };
 

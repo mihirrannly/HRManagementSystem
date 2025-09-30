@@ -12,6 +12,7 @@ const MODULES = {
   REPORTS: 'reports',
   ORGANIZATION: 'organization',
   ONBOARDING: 'onboarding',
+  ASSETS: 'assets',
   SETTINGS: 'settings',
   PERMISSIONS: 'permissions'
 };

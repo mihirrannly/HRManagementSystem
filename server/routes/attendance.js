@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, query, validationResult } = require('express-validator');
-const moment = require('moment');
+const moment = require('moment-timezone');
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
 const { LeaveRequest } = require('../models/Leave');
@@ -8,7 +8,84 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { checkPermissions, MODULES, ACTIONS } = require('../middleware/permissions');
 const attendanceService = require('../services/attendanceService');
 
+// Office configuration
+const OFFICE_CONFIG = {
+  timezone: 'Asia/Kolkata', // Indian Standard Time
+  allowedIPs: [
+    '127.0.0.1', // localhost for development
+    '::1', // localhost IPv6
+    '192.168.1.0/24', // Office local network (adjust as needed)
+    '10.0.0.0/8', // Private network range
+    '172.16.0.0/12' // Private network range
+  ],
+  workingHours: {
+    start: '09:00',
+    end: '18:00'
+  }
+};
+
+// Helper function to check if IP is in office network
+const isOfficeIP = (clientIP) => {
+  console.log('🔍 Checking IP:', clientIP);
+  
+  // For development, allow localhost
+  if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1') {
+    console.log('✅ Localhost access allowed');
+    return true;
+  }
+  
+  // Check against office IP ranges
+  for (const allowedIP of OFFICE_CONFIG.allowedIPs) {
+    if (allowedIP.includes('/')) {
+      // CIDR notation check (simplified)
+      const [network, mask] = allowedIP.split('/');
+      if (clientIP.startsWith(network.split('.').slice(0, -1).join('.'))) {
+        console.log('✅ Office network access allowed');
+        return true;
+      }
+    } else if (clientIP === allowedIP) {
+      console.log('✅ Exact IP match allowed');
+      return true;
+    }
+  }
+  
+  console.log('❌ IP not in office network');
+  return false;
+};
+
+// Helper function to get current time in office timezone
+const getOfficeTime = () => {
+  return moment().tz(OFFICE_CONFIG.timezone);
+};
+
 const router = express.Router();
+
+// @route   GET /api/attendance/office-status
+// @desc    Check if current IP is from office premises
+// @access  Private
+router.get('/office-status', authenticate, async (req, res) => {
+  try {
+    const clientIP = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || req.connection.remoteAddress;
+    const actualIP = clientIP.includes(',') ? clientIP.split(',')[0].trim() : clientIP;
+    
+    const isOffice = isOfficeIP(actualIP);
+    const officeTime = getOfficeTime();
+    
+    res.json({
+      isOfficeIP: isOffice,
+      clientIP: actualIP,
+      currentTime: officeTime.format('YYYY-MM-DD HH:mm:ss'),
+      timezone: OFFICE_CONFIG.timezone,
+      workingHours: OFFICE_CONFIG.workingHours,
+      message: isOffice 
+        ? 'You are connected from office premises' 
+        : 'You are not connected from office premises. Check-in/out is not allowed.'
+    });
+  } catch (error) {
+    console.error('Error checking office status:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // @route   GET /api/attendance/my-summary
 // @desc    Get attendance summary for current employee
@@ -24,19 +101,18 @@ router.get('/my-summary', authenticate, async (req, res) => {
     const currentDate = new Date();
     const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     
-    // Calculate working days in current month (excluding weekends)
+    // Calculate working days in current month (including all 7 days)
     let totalWorkingDays = 0;
     let presentDays = 0;
     let lateDays = 0;
     
     for (let d = new Date(startOfMonth); d <= currentDate; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== 0 && d.getDay() !== 6) { // Not weekend
-        totalWorkingDays++;
-        if (Math.random() > 0.1) { // 90% attendance
-          presentDays++;
-          if (Math.random() > 0.8) { // 20% late when present
-            lateDays++;
-          }
+      // Include all days (7 days a week)
+      totalWorkingDays++;
+      if (Math.random() > 0.1) { // 90% attendance
+        presentDays++;
+        if (Math.random() > 0.8) { // 20% late when present
+          lateDays++;
         }
       }
     }
@@ -64,38 +140,61 @@ router.get('/today', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Employee profile not found' });
     }
 
-    // For now, return mock data
-    const today = new Date();
-    const isWeekend = today.getDay() === 0 || today.getDay() === 6;
+    const officeTime = getOfficeTime();
+    const today = officeTime.clone().startOf('day').toDate();
     
-    if (isWeekend) {
-      return res.json({ message: 'Weekend - No attendance required' });
+    // Check if today is a working day (Monday to Friday)
+    const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    
+    if (!isWorkingDay) {
+      return res.json({ 
+        checkedIn: false, 
+        checkedOut: false,
+        checkIn: null,
+        checkOut: null,
+        totalHours: 0,
+        status: 'weekend',
+        message: 'Today is not a working day'
+      });
     }
 
-    // Mock today's attendance
-    const hasCheckedIn = Math.random() > 0.3; // 70% chance of checking in
-    const hasCheckedOut = hasCheckedIn && Math.random() > 0.5; // 50% chance of checking out if checked in
+    // Get real attendance record for today
+    const attendance = await Attendance.findOne({
+      employee: employee._id,
+      date: today
+    });
 
-    if (hasCheckedIn) {
-      const checkInTime = new Date();
-      checkInTime.setHours(9, Math.floor(Math.random() * 60), 0, 0);
+    if (attendance) {
+      const hasCheckedIn = attendance.checkIn && attendance.checkIn.time;
+      const hasCheckedOut = attendance.checkOut && attendance.checkOut.time;
       
       const response = {
-        checkedIn: true,
-        checkIn: checkInTime,
-        checkedOut: hasCheckedOut
+        checkedIn: hasCheckedIn,
+        checkedOut: hasCheckedOut,
+        checkIn: hasCheckedIn ? attendance.checkIn.time : null,
+        checkOut: hasCheckedOut ? attendance.checkOut.time : null,
+        totalHours: attendance.totalHours || 0,
+        regularHours: attendance.regularHours || 0,
+        overtimeHours: attendance.overtimeHours || 0,
+        breakTime: '0h 0m',
+        status: attendance.status,
+        isLate: attendance.isLate || false,
+        lateMinutes: attendance.lateMinutes || 0,
+        earlyDeparture: attendance.earlyDeparture || false,
+        earlyDepartureMinutes: attendance.earlyDepartureMinutes || 0
       };
-
-      if (hasCheckedOut) {
-        const checkOutTime = new Date();
-        checkOutTime.setHours(17 + Math.floor(Math.random() * 3), Math.floor(Math.random() * 60), 0, 0);
-        response.checkOut = checkOutTime;
-        response.totalHours = Math.round((checkOutTime - checkInTime) / (1000 * 60 * 60) * 10) / 10;
-      }
 
       res.json(response);
     } else {
-      res.json({ checkedIn: false, checkedOut: false });
+      res.json({ 
+        checkedIn: false, 
+        checkedOut: false,
+        checkIn: null,
+        checkOut: null,
+        totalHours: 0,
+        status: 'not-marked'
+      });
     }
   } catch (error) {
     console.error('Get today attendance error:', error);
@@ -137,80 +236,61 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { page = 1, limit = 30, startDate, endDate } = req.query;
     
-    // Build query
-    const query = { user: req.user.userId };
+    // Get employee record
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
     
+    // Build date query
+    let dateQuery = {};
     if (startDate && endDate) {
-      query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
+      dateQuery = {
+        $gte: moment(startDate).startOf('day').toDate(),
+        $lte: moment(endDate).endOf('day').toDate()
+      };
+    } else {
+      // Default to last 30 days
+      dateQuery = {
+        $gte: moment().subtract(30, 'days').startOf('day').toDate(),
+        $lte: moment().endOf('day').toDate()
       };
     }
     
-    // For now, return mock attendance data since we don't have real records
-    const mockAttendanceRecords = [];
-    const currentDate = new Date();
+    // Get real attendance records
+    const attendanceRecords = await Attendance.find({
+      employee: employee._id,
+      date: dateQuery
+    }).sort({ date: -1 }).limit(parseInt(limit));
     
-    // Generate mock data for the last 30 days
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date(currentDate);
-      date.setDate(date.getDate() - i);
-      
-      // Skip weekends
-      if (date.getDay() === 0 || date.getDay() === 6) continue;
-      
-      const isPresent = Math.random() > 0.1; // 90% attendance rate
-      const isLate = isPresent && Math.random() > 0.8; // 20% late when present
-      
-      if (isPresent) {
-        const checkInHour = isLate ? 9 + Math.floor(Math.random() * 2) : 9; // 9-11 AM if late, 9 AM if on time
-        const checkInMinute = Math.floor(Math.random() * 60);
-        const checkOutHour = 17 + Math.floor(Math.random() * 3); // 5-8 PM
-        const checkOutMinute = Math.floor(Math.random() * 60);
-        
-        const checkInTime = new Date(date);
-        checkInTime.setHours(checkInHour, checkInMinute, 0, 0);
-        
-        const checkOutTime = new Date(date);
-        checkOutTime.setHours(checkOutHour, checkOutMinute, 0, 0);
-        
-        const totalHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
-        const lateMinutes = isLate ? (checkInHour - 9) * 60 + checkInMinute : 0;
-        
-        mockAttendanceRecords.push({
-          _id: `mock_${date.toISOString().split('T')[0]}`,
-          date: date,
-          checkIn: { time: checkInTime },
-          checkOut: { time: checkOutTime },
-          totalHours: totalHours,
-          status: isLate ? 'late' : 'present',
-          isLate: isLate,
-          lateMinutes: lateMinutes
-        });
-      } else {
-        mockAttendanceRecords.push({
-          _id: `mock_${date.toISOString().split('T')[0]}`,
-          date: date,
-          checkIn: null,
-          checkOut: null,
-          totalHours: 0,
-          status: 'absent',
-          isLate: false,
-          lateMinutes: 0
-        });
-      }
-    }
+    // Format records for frontend
+    const formattedRecords = attendanceRecords.map(record => ({
+      _id: record._id,
+      date: record.date,
+      checkIn: record.checkIn?.time ? { time: record.checkIn.time } : null,
+      checkOut: record.checkOut?.time ? { time: record.checkOut.time } : null,
+      totalHours: record.totalHours || 0,
+      regularHours: record.regularHours || 0,
+      overtimeHours: record.overtimeHours || 0,
+      status: record.status || 'absent',
+      isLate: record.isLate || false,
+      lateMinutes: record.lateMinutes || 0,
+      earlyDeparture: record.earlyDeparture || false,
+      earlyDepartureMinutes: record.earlyDepartureMinutes || 0,
+      breaks: record.breaks || []
+    }));
     
-    // Calculate stats
-    const totalDays = mockAttendanceRecords.length;
-    const presentDays = mockAttendanceRecords.filter(r => r.status === 'present' || r.status === 'late').length;
-    const absentDays = mockAttendanceRecords.filter(r => r.status === 'absent').length;
-    const lateDays = mockAttendanceRecords.filter(r => r.status === 'late').length;
-    const totalHours = mockAttendanceRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+    // Calculate stats (excluding weekends)
+    const workingDayRecords = formattedRecords.filter(r => r.status !== 'weekend');
+    const totalWorkingDays = workingDayRecords.length;
+    const presentDays = workingDayRecords.filter(r => r.status === 'present' || r.status === 'late').length;
+    const absentDays = workingDayRecords.filter(r => r.status === 'absent').length;
+    const lateDays = workingDayRecords.filter(r => r.status === 'late').length;
+    const totalHours = workingDayRecords.reduce((sum, record) => sum + (record.totalHours || 0), 0);
     const averageHours = presentDays > 0 ? totalHours / presentDays : 0;
     
     const stats = {
-      totalDays,
+      totalDays: totalWorkingDays,
       presentDays,
       absentDays,
       lateDays,
@@ -219,12 +299,12 @@ router.get('/', authenticate, async (req, res) => {
     };
     
     res.json({
-      attendance: mockAttendanceRecords.reverse(), // Most recent first
+      attendance: formattedRecords,
       stats,
       pagination: {
         currentPage: parseInt(page),
-        totalPages: 1,
-        totalRecords: mockAttendanceRecords.length,
+        totalPages: Math.ceil(totalWorkingDays / parseInt(limit)),
+        totalRecords: totalWorkingDays,
         limit: parseInt(limit)
       }
     });
@@ -240,41 +320,57 @@ router.get('/', authenticate, async (req, res) => {
 // @access  Private
 router.get('/status', authenticate, async (req, res) => {
   try {
-    // For now, return mock attendance data
-    // In a real system, this would come from an attendance tracking system
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    const officeTime = getOfficeTime();
+    const today = officeTime.clone().startOf('day').toDate();
     
-    const today = new Date();
-    const currentTime = today.toLocaleTimeString('en-US', { 
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit'
+    // Try to get real attendance record for today
+    const attendance = await Attendance.findOne({
+      employee: employee._id,
+      date: today
     });
 
-    // Mock attendance status
-    const attendanceStatus = {
-      date: today.toISOString().split('T')[0],
-      status: 'present', // present, absent, late, half-day
-      checkIn: '09:15',
-      checkOut: null, // null if not checked out yet
-      workingHours: '0:00',
-      location: 'Office',
-      isLate: false,
-      breakTime: '00:30',
-      overtime: '00:00'
-    };
+    let attendanceStatus;
 
-    // If current time is after 6 PM, simulate check-out
-    const currentHour = today.getHours();
-    if (currentHour >= 18) {
-      attendanceStatus.checkOut = '18:30';
-      attendanceStatus.workingHours = '8:45';
+    if (attendance) {
+      // Real attendance data exists
+      const hasCheckedIn = attendance.checkIn && attendance.checkIn.time;
+      const hasCheckedOut = attendance.checkOut && attendance.checkOut.time;
+      
+      attendanceStatus = {
+        date: today.toISOString().split('T')[0],
+        checkedIn: hasCheckedIn,
+        isCheckedIn: hasCheckedIn,
+        checkedOut: hasCheckedOut,
+        isCheckedOut: hasCheckedOut,
+        checkInTime: hasCheckedIn ? attendance.checkIn.time : null,
+        checkOutTime: hasCheckedOut ? attendance.checkOut.time : null,
+        status: attendance.status,
+        isLate: attendance.isLate || false,
+        lateMinutes: attendance.lateMinutes || 0,
+        totalHours: attendance.totalHours || 0,
+        workingHours: attendance.totalHours ? `${Math.floor(attendance.totalHours)}h ${Math.round((attendance.totalHours % 1) * 60)}m` : '0h 0m'
+      };
     } else {
-      // Calculate working hours so far
-      const checkInTime = new Date(`${today.toDateString()} 09:15`);
-      const diffMs = today - checkInTime;
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      attendanceStatus.workingHours = `${hours}:${minutes.toString().padStart(2, '0')}`;
+      // No attendance record for today
+      attendanceStatus = {
+        date: today.toISOString().split('T')[0],
+        checkedIn: false,
+        isCheckedIn: false,
+        checkedOut: false,
+        isCheckedOut: false,
+        checkInTime: null,
+        checkOutTime: null,
+        status: 'absent',
+        isLate: false,
+        lateMinutes: 0,
+        totalHours: 0,
+        workingHours: '0h 0m'
+      };
     }
 
     res.json(attendanceStatus);
@@ -290,15 +386,44 @@ router.get('/status', authenticate, async (req, res) => {
 // @access  Private
 router.post('/checkin', authenticate, async (req, res) => {
   try {
-    console.log('📥 Check-in request received:', req.body);
+    console.log('📥 Check-in request received from IP:', req.ip);
+    console.log('📥 Request headers:', req.headers);
 
     const employee = await Employee.findOne({ user: req.user._id });
     if (!employee) {
       return res.status(404).json({ message: 'Employee profile not found' });
     }
 
+    // Get client IP (handle proxy/forwarded cases)
+    const clientIP = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || req.connection.remoteAddress;
+    const actualIP = clientIP.includes(',') ? clientIP.split(',')[0].trim() : clientIP;
+    
+    console.log('🔍 Client IP detected:', actualIP);
+
+    // Validate office location by IP
+    if (!isOfficeIP(actualIP)) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Check-in is only allowed from office premises. Please ensure you are connected to the office network.',
+        clientIP: actualIP
+      });
+    }
+
     const { location, deviceInfo } = req.body;
-    const today = moment().startOf('day').toDate();
+    const officeTime = getOfficeTime();
+    const today = officeTime.clone().startOf('day').toDate();
+    
+    // Check if today is a working day (Monday to Friday)
+    const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    
+    if (!isWorkingDay) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Check-in is only allowed on working days (Monday to Friday)',
+        dayOfWeek: officeTime.format('dddd')
+      });
+    }
     
     // Check if already checked in today
     const existingAttendance = await Attendance.findOne({
@@ -309,24 +434,45 @@ router.post('/checkin', authenticate, async (req, res) => {
     if (existingAttendance && existingAttendance.checkIn?.time) {
       return res.status(400).json({ 
         success: false,
-        message: 'Already checked in today' 
+        message: 'Already checked in today',
+        checkInTime: moment(existingAttendance.checkIn.time).tz(OFFICE_CONFIG.timezone).format('HH:mm')
       });
     }
 
-    // Create or update attendance record
-    const checkInTime = new Date();
+    // Get check-in time in office timezone
+    const checkInTime = officeTime.toDate();
+    const workStart = moment.tz(officeTime.format('YYYY-MM-DD') + ' ' + OFFICE_CONFIG.workingHours.start, OFFICE_CONFIG.timezone);
+    const isLate = officeTime.isAfter(workStart);
+    const lateMinutes = isLate ? Math.ceil(officeTime.diff(workStart, 'minutes')) : 0;
+
+    // Calculate flexible end time based on check-in time (9 hours later)
+    // If employee comes at 9:30 AM, they can leave at 6:30 PM (9 hours later)
+    const flexibleEndTime = moment(officeTime).add(9, 'hours');
+
     const attendanceData = {
       employee: employee._id,
       date: today,
       checkIn: {
         time: checkInTime,
-        location: location || { latitude: 28.6139, longitude: 77.2090, address: 'Test Location' },
+        location: location || { 
+          address: 'Office Location', 
+          ipAddress: actualIP,
+          method: 'ip-validation'
+        },
         method: 'web',
-        deviceInfo: deviceInfo || { userAgent: req.headers['user-agent'] },
-        ipAddress: req.ip || '127.0.0.1',
-        isValidLocation: true
+        deviceInfo: deviceInfo || { 
+          userAgent: req.headers['user-agent'],
+          ip: actualIP
+        },
+        ipAddress: actualIP,
+        isValidLocation: true,
+        isLate: isLate,
+        lateMinutes: lateMinutes
       },
-      status: 'present'
+      status: isLate ? 'late' : 'present',
+      isLate: isLate,
+      lateMinutes: lateMinutes,
+      flexibleEndTime: flexibleEndTime.toDate() // Store when employee can leave based on check-in time
     };
 
     let attendance;
@@ -338,14 +484,24 @@ router.post('/checkin', authenticate, async (req, res) => {
       await attendance.save();
     }
 
-    console.log('✅ Check-in successful for employee:', employee.employeeId);
+    console.log('✅ Check-in successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'));
+
+    const lateMessage = isLate 
+      ? ` (${Math.floor(lateMinutes / 60)}h ${lateMinutes % 60}m late)`
+      : '';
 
     res.json({
       success: true,
-      message: `Check-in successful at ${moment(checkInTime).format('HH:mm')}`,
+      message: `Check-in successful at ${officeTime.format('HH:mm')}${lateMessage}. You can leave at ${flexibleEndTime.format('HH:mm')}`,
+      isLate: isLate,
+      lateMinutes: lateMinutes,
+      flexibleEndTime: flexibleEndTime.format('HH:mm'),
+      checkInTime: officeTime.format('HH:mm'),
       attendance: {
         checkIn: attendance.checkIn,
-        status: attendance.status
+        status: attendance.status,
+        isLate: attendance.isLate,
+        lateMinutes: attendance.lateMinutes
       }
     });
 
@@ -364,15 +520,43 @@ router.post('/checkin', authenticate, async (req, res) => {
 // @access  Private
 router.post('/checkout', authenticate, async (req, res) => {
   try {
-    console.log('📤 Check-out request received:', req.body);
+    console.log('📤 Check-out request received from IP:', req.ip);
 
     const employee = await Employee.findOne({ user: req.user._id });
     if (!employee) {
       return res.status(404).json({ message: 'Employee profile not found' });
     }
 
+    // Get client IP (handle proxy/forwarded cases)
+    const clientIP = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || req.connection.remoteAddress;
+    const actualIP = clientIP.includes(',') ? clientIP.split(',')[0].trim() : clientIP;
+    
+    console.log('🔍 Client IP detected:', actualIP);
+
+    // Validate office location by IP
+    if (!isOfficeIP(actualIP)) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Check-out is only allowed from office premises. Please ensure you are connected to the office network.',
+        clientIP: actualIP
+      });
+    }
+
     const { location, deviceInfo, earlyLeaveReason } = req.body;
-    const today = moment().startOf('day').toDate();
+    const officeTime = getOfficeTime();
+    const today = officeTime.clone().startOf('day').toDate();
+    
+    // Check if today is a working day (Monday to Friday)
+    const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    
+    if (!isWorkingDay) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Check-out is only allowed on working days (Monday to Friday)',
+        dayOfWeek: officeTime.format('dddd')
+      });
+    }
     
     // Find today's attendance record
     const attendance = await Attendance.findOne({
@@ -390,38 +574,75 @@ router.post('/checkout', authenticate, async (req, res) => {
     if (attendance.checkOut?.time) {
       return res.status(400).json({ 
         success: false,
-        message: 'Already checked out today' 
+        message: 'Already checked out today',
+        checkOutTime: moment(attendance.checkOut.time).tz(OFFICE_CONFIG.timezone).format('HH:mm')
       });
     }
 
+    // Get checkout time in office timezone
+    const checkOutTime = officeTime.toDate();
+    
+    // Use flexible end time if available, otherwise use standard 7 PM
+    const workEnd = attendance.flexibleEndTime 
+      ? moment(attendance.flexibleEndTime).tz(OFFICE_CONFIG.timezone)
+      : moment.tz(officeTime.format('YYYY-MM-DD') + ' ' + OFFICE_CONFIG.workingHours.end, OFFICE_CONFIG.timezone);
+    
+    const isEarlyDeparture = officeTime.isBefore(workEnd);
+    const earlyMinutes = isEarlyDeparture ? Math.ceil(workEnd.diff(officeTime, 'minutes')) : 0;
+
     // Update attendance record with checkout
-    const checkOutTime = new Date();
     attendance.checkOut = {
       time: checkOutTime,
-      location: location || { latitude: 28.6139, longitude: 77.2090, address: 'Test Location' },
+      location: location || { 
+        address: 'Office Location', 
+        ipAddress: actualIP,
+        method: 'ip-validation'
+      },
       method: 'web',
-      deviceInfo: deviceInfo || { userAgent: req.headers['user-agent'] },
-      ipAddress: req.ip || '127.0.0.1',
+      deviceInfo: deviceInfo || { 
+        userAgent: req.headers['user-agent'],
+        ip: actualIP
+      },
+      ipAddress: actualIP,
       earlyLeaveReason: earlyLeaveReason || null,
-      isValidLocation: true
+      isValidLocation: true,
+      isEarlyDeparture: isEarlyDeparture,
+      earlyMinutes: earlyMinutes
     };
 
-    // Calculate total hours
-    const totalMs = checkOutTime - attendance.checkIn.time;
-    attendance.totalHours = totalMs / (1000 * 60 * 60); // Convert to hours
+    // Calculate total hours (in office timezone)
+    const checkInMoment = moment(attendance.checkIn.time).tz(OFFICE_CONFIG.timezone);
+    const checkOutMoment = officeTime;
+    const totalHours = checkOutMoment.diff(checkInMoment, 'minutes') / 60; // Convert minutes to hours
+    attendance.totalHours = Math.round(totalHours * 100) / 100; // Round to 2 decimal places
+    
+    // Store early departure information
+    attendance.earlyDeparture = isEarlyDeparture;
+    attendance.earlyDepartureMinutes = earlyMinutes;
 
     await attendance.save();
 
-    console.log('✅ Check-out successful for employee:', employee.employeeId);
+    console.log('✅ Check-out successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'));
+
+    const flexibleEndTimeStr = attendance.flexibleEndTime 
+      ? moment(attendance.flexibleEndTime).tz(OFFICE_CONFIG.timezone).format('HH:mm')
+      : '19:00';
 
     res.json({
       success: true,
-      message: `Check-out successful at ${moment(checkOutTime).format('HH:mm')}`,
+      message: `Check-out successful at ${officeTime.format('HH:mm')}${isEarlyDeparture ? ` (${Math.floor(earlyMinutes / 60)}h ${earlyMinutes % 60}m before ${flexibleEndTimeStr})` : ''}`,
+      isEarlyDeparture: isEarlyDeparture,
+      earlyMinutes: earlyMinutes,
+      flexibleEndTime: flexibleEndTimeStr,
+      checkOutTime: officeTime.format('HH:mm'),
       totalHours: attendance.totalHours,
+      workingHours: `${Math.floor(attendance.totalHours)}h ${Math.round((attendance.totalHours % 1) * 60)}m`,
       attendance: {
         checkIn: attendance.checkIn,
         checkOut: attendance.checkOut,
-        totalHours: attendance.totalHours
+        totalHours: attendance.totalHours,
+        isEarlyDeparture: isEarlyDeparture,
+        earlyMinutes: earlyMinutes
       }
     });
 
@@ -593,10 +814,59 @@ router.get('/summary', [
 router.get('/team-summary', [
   authenticate,
   authorize(['admin', 'hr', 'manager']),
-  query('date').optional().isISO8601()
+  query('date').optional().isISO8601(),
+  query('startDate').optional().isISO8601(),
+  query('endDate').optional().isISO8601(),
+  query('period').optional().isIn(['today', 'yesterday', 'week', 'month', 'quarter'])
 ], async (req, res) => {
   try {
-    const date = req.query.date ? moment(req.query.date).startOf('day').toDate() : moment().startOf('day').toDate();
+    let startDate, endDate;
+    
+    // Handle different period types
+    if (req.query.period) {
+      const now = moment().tz('Asia/Kolkata');
+      switch (req.query.period) {
+        case 'today':
+          startDate = now.clone().startOf('day').toDate();
+          endDate = now.clone().endOf('day').toDate();
+          break;
+        case 'yesterday':
+          startDate = now.clone().subtract(1, 'day').startOf('day').toDate();
+          endDate = now.clone().subtract(1, 'day').endOf('day').toDate();
+          break;
+        case 'week':
+          startDate = now.clone().startOf('week').toDate();
+          endDate = now.clone().endOf('week').toDate();
+          break;
+        case 'month':
+          startDate = now.clone().startOf('month').toDate();
+          endDate = now.clone().endOf('month').toDate();
+          break;
+        case 'quarter':
+          startDate = now.clone().startOf('quarter').toDate();
+          endDate = now.clone().endOf('quarter').toDate();
+          break;
+        default:
+          startDate = now.clone().startOf('day').toDate();
+          endDate = now.clone().endOf('day').toDate();
+      }
+    } else if (req.query.startDate && req.query.endDate) {
+      startDate = moment(req.query.startDate).startOf('day').toDate();
+      endDate = moment(req.query.endDate).endOf('day').toDate();
+    } else if (req.query.date) {
+      const date = moment(req.query.date).startOf('day').toDate();
+      startDate = date;
+      endDate = moment(date).endOf('day').toDate();
+    } else {
+      // Default to today
+      const now = moment().tz('Asia/Kolkata');
+      startDate = now.clone().startOf('day').toDate();
+      endDate = now.clone().endOf('day').toDate();
+    }
+    
+    console.log('📊 Team summary requested for period:', req.query.period || 'custom');
+    console.log('📅 Date range:', moment(startDate).format('YYYY-MM-DD'), 'to', moment(endDate).format('YYYY-MM-DD'));
+    console.log('👤 Requested by user role:', req.user.role);
     
     let employeeFilter = {};
     
@@ -616,93 +886,117 @@ router.get('/team-summary', [
       employeeFilter = { employee: { $in: teamMembers.map(emp => emp._id) } };
     }
 
-    // Get attendance records for the date
+    // Get attendance records for the date range
     const attendanceRecords = await Attendance.find({
       ...employeeFilter,
-      date: date
+      date: { $gte: startDate, $lte: endDate }
     }).populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department')
       .populate('leaveRequest', 'leaveType status');
+    
+    console.log('📋 Found attendance records:', attendanceRecords.length);
+    attendanceRecords.forEach(record => {
+      console.log(`  - ${record.employee.employeeId}: ${record.status} (CheckIn: ${record.checkIn?.time ? 'Yes' : 'No'}, CheckOut: ${record.checkOut?.time ? 'Yes' : 'No'})`);
+    });
 
-    // Get all employees for the filter (to show who didn't check in)
+    // Get all employees for the filter
     const allEmployees = await Employee.find(
       req.user.role === 'manager' 
         ? { 'employmentInfo.reportingManager': (await Employee.findOne({ user: req.user._id }))._id, 'employmentInfo.isActive': true }
         : { 'employmentInfo.isActive': true }
     ).select('_id personalInfo.firstName personalInfo.lastName employeeId');
 
-    // Create summary
-    const summary = {
-      date: date,
-      totalEmployees: allEmployees.length,
-      present: 0,
-      absent: 0,
-      late: 0,
-      onLeave: 0,
-      weekend: attendanceService.isWeekendOrHoliday(date),
-      employees: []
-    };
+    console.log('👥 Total employees found:', allEmployees.length);
+    console.log('👥 Employee list:', allEmployees.map(emp => `${emp.employeeId} - ${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`));
 
-    // Process each employee
-    for (const employee of allEmployees) {
-      const attendanceRecord = attendanceRecords.find(
-        record => record.employee._id.toString() === employee._id.toString()
-      );
+    // Calculate aggregate statistics for the date range
+    const totalRecords = attendanceRecords.length;
+    const presentRecords = attendanceRecords.filter(r => r.status === 'present' || r.status === 'late').length;
+    const absentRecords = attendanceRecords.filter(r => r.status === 'absent').length;
+    const lateRecords = attendanceRecords.filter(r => r.status === 'late').length;
+    const totalHours = attendanceRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+    const averageHours = presentRecords > 0 ? totalHours / presentRecords : 0;
 
-      let status = 'absent';
-      let checkInTime = null;
-      let checkOutTime = null;
-      let totalHours = 0;
-      let isLate = false;
-      let lateMinutes = 0;
+    // Group attendance by date for detailed view
+    const attendanceByDate = {};
+    const currentDate = moment(startDate);
+    
+    // Initialize all dates in range
+    while (currentDate.isSameOrBefore(endDate, 'day')) {
+      const dateKey = currentDate.format('YYYY-MM-DD');
+      const dayOfWeek = currentDate.day();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      attendanceByDate[dateKey] = {
+        date: currentDate.format('YYYY-MM-DD'),
+        dayOfWeek: currentDate.format('dddd'),
+        isWeekend,
+        employees: []
+      };
+      
+      // Add employee data for this date
+      for (const employee of allEmployees) {
+        const attendanceRecord = attendanceRecords.find(
+          record => record.employee._id.toString() === employee._id.toString() &&
+                   moment(record.date).format('YYYY-MM-DD') === dateKey
+        );
 
-      if (attendanceRecord) {
-        status = attendanceRecord.status;
-        checkInTime = attendanceRecord.checkIn?.time;
-        checkOutTime = attendanceRecord.checkOut?.time;
-        totalHours = attendanceRecord.totalHours || 0;
-        isLate = attendanceRecord.isLate;
-        lateMinutes = attendanceRecord.lateMinutes || 0;
-      } else {
-        // Check if employee is on leave
-        const leaveRequest = await attendanceService.isEmployeeOnLeave(employee._id, date);
-        if (leaveRequest) {
-          status = 'on-leave';
+        let status = isWeekend ? 'weekend' : 'absent';
+        let checkInTime = null;
+        let checkOutTime = null;
+        let totalHours = 0;
+        let isLate = false;
+        let lateMinutes = 0;
+
+        if (attendanceRecord) {
+          status = attendanceRecord.status;
+          checkInTime = attendanceRecord.checkIn?.time;
+          checkOutTime = attendanceRecord.checkOut?.time;
+          totalHours = attendanceRecord.totalHours || 0;
+          isLate = attendanceRecord.isLate;
+          lateMinutes = attendanceRecord.lateMinutes || 0;
         }
-      }
 
-      // Count for summary
-      switch (status) {
-        case 'present':
-          summary.present++;
-          break;
-        case 'late':
-          summary.present++;
-          summary.late++;
-          break;
-        case 'absent':
-          summary.absent++;
-          break;
-        case 'on-leave':
-          summary.onLeave++;
-          break;
+        attendanceByDate[dateKey].employees.push({
+          employee: {
+            _id: employee._id,
+            employeeId: employee.employeeId,
+            name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`
+          },
+          status,
+          checkInTime,
+          checkOutTime,
+          totalHours,
+          isLate,
+          lateMinutes
+        });
       }
-
-      summary.employees.push({
-        employee: {
-          _id: employee._id,
-          employeeId: employee.employeeId,
-          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`
-        },
-        status,
-        checkInTime,
-      checkOutTime,
-        totalHours,
-        isLate,
-        lateMinutes
-      });
+      
+      currentDate.add(1, 'day');
     }
 
-    res.json(summary);
+    // Transform response to match frontend expectations
+    const response = {
+      dateRange: {
+        startDate: moment(startDate).format('YYYY-MM-DD'),
+        endDate: moment(endDate).format('YYYY-MM-DD'),
+        period: req.query.period || 'custom'
+      },
+      stats: {
+        totalEmployees: allEmployees.length,
+        totalRecords,
+        presentRecords,
+        absentRecords,
+        lateRecords,
+        totalHours: Math.round(totalHours * 100) / 100,
+        averageHours: Math.round(averageHours * 100) / 100,
+        attendanceRate: allEmployees.length > 0 ? Math.round((presentRecords / totalRecords) * 100) : 0
+      },
+      attendanceByDate,
+      // For backward compatibility with single-date requests
+      employees: Object.values(attendanceByDate)[0]?.employees || []
+    };
+
+    res.json(response);
 
   } catch (error) {
     console.error('Error fetching team summary:', error);
@@ -718,7 +1012,7 @@ router.put('/:id/manual-entry', [
   authorize(['admin', 'hr']),
   body('checkInTime').optional().isISO8601(),
   body('checkOutTime').optional().isISO8601(),
-  body('status').isIn(['present', 'absent', 'late', 'half-day']),
+  body('status').isIn(['present', 'absent', 'late', 'half-day', 'on-leave', 'weekend']),
   body('notes').optional().isString()
 ], async (req, res) => {
   try {
@@ -787,13 +1081,8 @@ router.get('/my-summary', authenticate, async (req, res) => {
       date: { $gte: startOfMonth, $lte: endOfMonth }
     });
 
-    // Calculate statistics
-    const totalWorkingDays = moment().daysInMonth() - 
-      Array.from({length: moment().daysInMonth()}, (_, i) => i + 1)
-        .filter(day => {
-          const date = moment().date(day);
-          return date.day() === 0 || date.day() === 6; // Sunday or Saturday
-        }).length;
+    // Calculate statistics (including all 7 days)
+    const totalWorkingDays = moment().daysInMonth(); // All days in month
 
     const present = attendanceRecords.filter(record => record.status === 'present').length;
     const absent = attendanceRecords.filter(record => record.status === 'absent').length;
@@ -815,6 +1104,140 @@ router.get('/my-summary', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Get attendance summary error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/attendance/calendar
+// @desc    Get attendance data for calendar view (Admin/HR/Manager)
+// @access  Private (Admin, HR, Manager)
+router.get('/calendar', [
+  authenticate,
+  authorize(['admin', 'hr', 'manager']),
+  query('startDate').optional().isISO8601(),
+  query('endDate').optional().isISO8601(),
+  query('employeeId').optional().isMongoId()
+], async (req, res) => {
+  try {
+    const { startDate, endDate, employeeId } = req.query;
+    
+    // Default to current month if no dates provided
+    const start = startDate ? moment(startDate).startOf('day').toDate() : moment().startOf('month').toDate();
+    const end = endDate ? moment(endDate).endOf('day').toDate() : moment().endOf('month').toDate();
+    
+    // Build employee filter
+    let employeeFilter = {};
+    if (employeeId) {
+      employeeFilter = { _id: employeeId };
+    } else if (req.user.role === 'manager') {
+      // Get manager's team members
+      const managerEmployee = await Employee.findOne({ user: req.user._id });
+      if (!managerEmployee) {
+        return res.status(404).json({ message: 'Manager employee profile not found' });
+      }
+      
+      const teamMembers = await Employee.find({
+        'employmentInfo.reportingManager': managerEmployee._id,
+        'employmentInfo.isActive': true
+      }).select('_id');
+      
+      employeeFilter = { _id: { $in: teamMembers.map(emp => emp._id) } };
+    } else {
+      // Admin/HR can see all active employees
+      employeeFilter = { 'employmentInfo.isActive': true };
+    }
+    
+    // Get employees
+    const employees = await Employee.find(employeeFilter)
+      .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department')
+      .populate('employmentInfo.department', 'name code');
+    
+    // Get attendance records for the date range
+    const attendanceRecords = await Attendance.find({
+      employee: { $in: employees.map(emp => emp._id) },
+      date: { $gte: start, $lte: end }
+    }).populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName');
+    
+    // Create a map for quick lookup
+    const attendanceMap = {};
+    attendanceRecords.forEach(record => {
+      const dateKey = moment(record.date).format('YYYY-MM-DD');
+      const empId = record.employee._id.toString();
+      
+      if (!attendanceMap[dateKey]) {
+        attendanceMap[dateKey] = {};
+      }
+      
+      attendanceMap[dateKey][empId] = {
+        _id: record._id,
+        employeeId: record.employee.employeeId,
+        employeeName: `${record.employee.personalInfo.firstName} ${record.employee.personalInfo.lastName}`,
+        checkIn: record.checkIn?.time || null,
+        checkOut: record.checkOut?.time || null,
+        totalHours: record.totalHours || 0,
+        status: record.status || 'absent',
+        isLate: record.isLate || false,
+        lateMinutes: record.lateMinutes || 0,
+        earlyDeparture: record.earlyDeparture || false,
+        earlyDepartureMinutes: record.earlyDepartureMinutes || 0
+      };
+    });
+    
+    // Generate calendar data
+    const calendarData = [];
+    const currentDate = moment(start);
+    
+    while (currentDate.isSameOrBefore(end, 'day')) {
+      const dateKey = currentDate.format('YYYY-MM-DD');
+      const dayData = {
+        date: dateKey,
+        dayOfWeek: currentDate.format('dddd'),
+        employees: []
+      };
+      
+      employees.forEach(emp => {
+        const empId = emp._id.toString();
+        const attendance = attendanceMap[dateKey]?.[empId];
+        
+        // Check if this date is a weekend
+        const dayOfWeek = currentDate.day(); // 0 = Sunday, 6 = Saturday
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        
+        dayData.employees.push({
+          employeeId: emp.employeeId,
+          employeeName: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+          department: emp.employmentInfo.department?.name || 'N/A',
+          attendance: attendance || {
+            status: isWeekend ? 'weekend' : 'absent',
+            checkIn: null,
+            checkOut: null,
+            totalHours: 0,
+            isLate: false,
+            lateMinutes: 0
+          }
+        });
+      });
+      
+      calendarData.push(dayData);
+      currentDate.add(1, 'day');
+    }
+    
+    res.json({
+      calendarData,
+      employees: employees.map(emp => ({
+        _id: emp._id,
+        employeeId: emp.employeeId,
+        name: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+        department: emp.employmentInfo.department?.name || 'N/A'
+      })),
+      dateRange: {
+        start: moment(start).format('YYYY-MM-DD'),
+        end: moment(end).format('YYYY-MM-DD')
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching calendar data:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

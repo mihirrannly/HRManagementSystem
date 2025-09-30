@@ -7,6 +7,71 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+// @route   GET /api/leave/balance
+// @desc    Get leave balance for current employee
+// @access  Private (Employee)
+router.get('/balance', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    const currentYear = new Date().getFullYear();
+    
+    // Try to get real leave balance data
+    let leaveBalance = await LeaveBalance.findOne({ 
+      employee: employee._id, 
+      year: currentYear 
+    });
+
+    // If no balance record exists, create one with default values
+    if (!leaveBalance) {
+      leaveBalance = new LeaveBalance({
+        employee: employee._id,
+        year: currentYear,
+        casualLeave: { allocated: 12, used: 0, pending: 0, available: 12 },
+        sickLeave: { allocated: 12, used: 0, pending: 0, available: 12 },
+        specialLeave: { allocated: 3, used: 0, pending: 0, available: 3 }
+      });
+      await leaveBalance.save();
+    }
+
+    // Format response for frontend compatibility
+    const formattedBalance = [
+      {
+        _id: 'casual',
+        leaveType: { name: 'Casual Leave', code: 'CL', color: '#4CAF50' },
+        allocated: leaveBalance.casualLeave.allocated,
+        used: leaveBalance.casualLeave.used,
+        pending: leaveBalance.casualLeave.pending,
+        available: leaveBalance.casualLeave.available
+      },
+      {
+        _id: 'sick',
+        leaveType: { name: 'Sick Leave', code: 'SL', color: '#FF9800' },
+        allocated: leaveBalance.sickLeave.allocated,
+        used: leaveBalance.sickLeave.used,
+        pending: leaveBalance.sickLeave.pending,
+        available: leaveBalance.sickLeave.available
+      },
+      {
+        _id: 'special',
+        leaveType: { name: 'Special Leave', code: 'SPL', color: '#9C27B0' },
+        allocated: leaveBalance.specialLeave.allocated,
+        used: leaveBalance.specialLeave.used,
+        pending: leaveBalance.specialLeave.pending,
+        available: leaveBalance.specialLeave.available
+      }
+    ];
+
+    res.json(formattedBalance);
+  } catch (error) {
+    console.error('Get leave balance error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/leave/my-summary
 // @desc    Get leave summary for current employee
 // @access  Private (Employee)
@@ -40,7 +105,41 @@ router.get('/my-summary', authenticate, async (req, res) => {
 // @access  Private
 router.get('/types', authenticate, async (req, res) => {
   try {
-    const leaveTypes = await LeaveType.find({ isActive: true }).sort({ name: 1 });
+    // Return predefined leave types
+    const leaveTypes = [
+      {
+        _id: 'casual',
+        name: 'Casual Leave',
+        code: 'CL',
+        description: 'For personal reasons, planned activities',
+        maxDaysPerYear: 12,
+        color: '#4CAF50'
+      },
+      {
+        _id: 'sick',
+        name: 'Sick Leave',
+        code: 'SL',
+        description: 'For medical reasons and health issues',
+        maxDaysPerYear: 12,
+        color: '#FF9800'
+      },
+      {
+        _id: 'marriage',
+        name: 'Marriage Leave',
+        code: 'ML',
+        description: 'For own marriage (Special Leave)',
+        maxDaysPerYear: 3,
+        color: '#E91E63'
+      },
+      {
+        _id: 'bereavement',
+        name: 'Bereavement Leave',
+        code: 'BL',
+        description: 'For close family member bereavement (Special Leave)',
+        maxDaysPerYear: 3,
+        color: '#607D8B'
+      }
+    ];
     res.json(leaveTypes);
   } catch (error) {
     console.error('Get leave types error:', error);
@@ -159,7 +258,7 @@ router.get('/balance', [
 // @access  Private
 router.post('/request', [
   authenticate,
-  body('leaveType').isMongoId(),
+  body('leaveType').isIn(['casual', 'sick', 'marriage', 'bereavement']),
   body('startDate').isISO8601(),
   body('endDate').isISO8601(),
   body('reason').notEmpty().trim()
@@ -187,26 +286,68 @@ router.post('/request', [
       return res.status(400).json({ message: 'End date cannot be before start date' });
     }
 
-    // Check if leave type exists
-    const leaveTypeDoc = await LeaveType.findById(leaveType);
-    if (!leaveTypeDoc) {
-      return res.status(404).json({ message: 'Leave type not found' });
-    }
-
     // Calculate total days
     const totalDays = end.diff(start, 'days') + 1;
 
-    // Check leave balance
+    // Get or create leave balance for current year
     const currentYear = start.year();
-    const balance = await LeaveBalance.findOne({
+    let balance = await LeaveBalance.findOne({
       employee: employee._id,
-      leaveType: leaveType,
       year: currentYear
     });
 
-    if (balance && balance.available < totalDays) {
+    if (!balance) {
+      balance = new LeaveBalance({
+        employee: employee._id,
+        year: currentYear
+      });
+      await balance.save();
+    }
+
+    // Validate leave limits and monthly restrictions
+    const currentMonth = start.month() + 1; // moment months are 0-indexed
+    const monthlyUsage = balance.monthlyUsage.find(m => m.month === currentMonth) || 
+      { month: currentMonth, casualUsed: 0, sickUsed: 0, specialUsed: 0 };
+
+    // Check balance availability
+    let availableBalance = 0;
+    let balanceType = '';
+    
+    if (leaveType === 'casual') {
+      availableBalance = balance.casualLeave.available;
+      balanceType = 'casual leave';
+      
+      // Check monthly limit (1 casual leave per month normally, max 4 in special cases)
+      if (monthlyUsage.casualUsed + totalDays > (totalDays <= 4 ? 4 : 1)) {
+        return res.status(400).json({ 
+          message: `Monthly casual leave limit exceeded. You can take max 1 casual leave per month (or max 4 in special cases)` 
+        });
+      }
+    } else if (leaveType === 'sick') {
+      availableBalance = balance.sickLeave.available;
+      balanceType = 'sick leave';
+      
+      // Check monthly limit (1 sick leave per month normally, max 4 in special cases)
+      if (monthlyUsage.sickUsed + totalDays > (totalDays <= 4 ? 4 : 1)) {
+        return res.status(400).json({ 
+          message: `Monthly sick leave limit exceeded. You can take max 1 sick leave per month (or max 4 in special cases)` 
+        });
+      }
+    } else if (leaveType === 'marriage' || leaveType === 'bereavement') {
+      availableBalance = balance.specialLeave.available;
+      balanceType = 'special leave';
+      
+      // Special leaves can be taken max 3 days per year
+      if (totalDays > 3) {
+        return res.status(400).json({ 
+          message: `Special leave cannot exceed 3 days per request` 
+        });
+      }
+    }
+
+    if (availableBalance < totalDays) {
       return res.status(400).json({ 
-        message: `Insufficient leave balance. Available: ${balance.available}, Requested: ${totalDays}` 
+        message: `Insufficient ${balanceType} balance. Available: ${availableBalance}, Requested: ${totalDays}` 
       });
     }
 
@@ -224,25 +365,54 @@ router.post('/request', [
       handoverTo
     });
 
-    // Set up approval flow
+    // Set up dual approval flow (Manager + HR)
+    const approvalFlow = [];
+    
+    // Add reporting manager to approval flow
     if (employee.employmentInfo.reportingManager) {
-      leaveRequest.approvalFlow.push({
+      approvalFlow.push({
         approver: employee.employmentInfo.reportingManager._id,
+        approverType: 'manager',
         level: 1,
         status: 'pending'
       });
     }
+    
+    // Find HR employees to add to approval flow (only HR, not admins)
+    const hrEmployees = await Employee.find({
+      user: { $exists: true }
+    }).populate('user', 'role').exec();
+    
+    // Find HR employee (only HR role, not admins)
+    const hrEmployee = hrEmployees.find(emp => emp.user && emp.user.role === 'hr');
+    
+    if (hrEmployee) {
+      approvalFlow.push({
+        approver: hrEmployee._id,
+        approverType: 'hr',
+        level: 2,
+        status: 'pending'
+      });
+    } else {
+      console.log('⚠️ Warning: No HR employee found for approval flow. Only employees with HR role can approve leave requests.');
+    }
+    
+    leaveRequest.approvalFlow = approvalFlow;
 
     await leaveRequest.save();
 
     // Update pending balance
-    if (balance) {
-      balance.pending += totalDays;
-      await balance.save();
+    if (leaveType === 'casual') {
+      balance.casualLeave.pending += totalDays;
+    } else if (leaveType === 'sick') {
+      balance.sickLeave.pending += totalDays;
+    } else if (leaveType === 'marriage' || leaveType === 'bereavement') {
+      balance.specialLeave.pending += totalDays;
     }
 
+    await balance.save();
+
     const populatedRequest = await LeaveRequest.findById(leaveRequest._id)
-      .populate('leaveType', 'name code color')
       .populate('approvalFlow.approver', 'personalInfo.firstName personalInfo.lastName employeeId');
 
     res.status(201).json({
@@ -268,6 +438,10 @@ router.get('/requests', [
   query('limit').optional().isInt({ min: 1, max: 100 })
 ], async (req, res) => {
   try {
+    console.log('🔍 GET /api/leave/requests called');
+    console.log('👤 User:', req.user.email, '- Role:', req.user.role);
+    console.log('📋 Query params:', req.query);
+    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -296,14 +470,31 @@ router.get('/requests', [
           filter.employee = employee._id;
         }
       } else if (req.user.role === 'manager') {
-        // Show requests for team members
+        // Show requests for team members AND manager's own requests
+        console.log('🔍 Manager role detected, finding team members...');
         const managerEmployee = await Employee.findOne({ user: req.user._id });
+        console.log('👤 Manager employee:', managerEmployee ? `${managerEmployee.personalInfo?.firstName} ${managerEmployee.personalInfo?.lastName} (${managerEmployee.employeeId})` : 'Not found');
+        
         if (managerEmployee) {
           const teamMembers = await Employee.find({
             'employmentInfo.reportingManager': managerEmployee._id
-          }).select('_id');
-          filter.employee = { $in: teamMembers.map(emp => emp._id) };
+          }).select('_id employeeId personalInfo.firstName personalInfo.lastName');
+          
+          console.log(`👥 Found ${teamMembers.length} team members:`);
+          teamMembers.forEach(member => {
+            console.log(`   - ${member.personalInfo?.firstName} ${member.personalInfo?.lastName} (${member.employeeId})`);
+          });
+          
+          // Include both team members AND the manager's own requests
+          const employeeIds = [...teamMembers.map(emp => emp._id), managerEmployee._id];
+          filter.employee = { $in: employeeIds };
+          console.log(`📋 Manager filter includes ${employeeIds.length} employees (${teamMembers.length} team + 1 manager)`);
+          console.log('🔍 Employee IDs in filter:', employeeIds.map(id => id.toString()));
         }
+      } else if (req.user.role === 'hr' || req.user.role === 'admin') {
+        // HR and Admins can see ALL leave requests
+        // No filter applied - they see everything
+        console.log(`📋 ${req.user.role.toUpperCase()} user viewing all leave requests`);
       }
     }
 
@@ -332,17 +523,41 @@ router.get('/requests', [
 
     const requests = await LeaveRequest.find(filter)
       .populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName')
-      .populate('leaveType', 'name code color')
       .populate('approvalFlow.approver', 'personalInfo.firstName personalInfo.lastName employeeId')
       .populate('finalApprover', 'personalInfo.firstName personalInfo.lastName employeeId')
       .sort({ appliedDate: -1 })
       .skip(skip)
       .limit(limit);
 
+    // Add leave type information manually since it's now a string enum
+    const requestsWithLeaveType = requests.map(request => {
+      const requestObj = request.toObject();
+      const leaveTypeMap = {
+        casual: { name: 'Casual Leave', code: 'CL', color: '#4CAF50' },
+        sick: { name: 'Sick Leave', code: 'SL', color: '#FF9800' },
+        marriage: { name: 'Marriage Leave', code: 'ML', color: '#E91E63' },
+        bereavement: { name: 'Bereavement Leave', code: 'BL', color: '#607D8B' }
+      };
+      requestObj.leaveType = leaveTypeMap[request.leaveType] || { name: request.leaveType, code: request.leaveType.toUpperCase(), color: '#9E9E9E' };
+      return requestObj;
+    });
+
     const total = await LeaveRequest.countDocuments(filter);
 
+    console.log(`📊 Returning ${requestsWithLeaveType.length} requests out of ${total} total`);
+    requestsWithLeaveType.forEach((req, index) => {
+      console.log(`   ${index + 1}. ${req.employee.personalInfo?.firstName} ${req.employee.personalInfo?.lastName} - ${req.leaveType.name} - ${req.status}`);
+      // Debug: Check approvalFlow in API response
+      if (req.employee.personalInfo?.firstName === 'Vikas') {
+        console.log('🔍 DEBUG: Vikas request approvalFlow in API response:');
+        req.approvalFlow.forEach((approval, i) => {
+          console.log(`     ${i + 1}. approverType: '${approval.approverType}', status: ${approval.status}`);
+        });
+      }
+    });
+
     res.json({
-      requests,
+      requests: requestsWithLeaveType,
       pagination: {
         current: page,
         pages: Math.ceil(total / limit),
@@ -374,8 +589,7 @@ router.put('/requests/:id/approve', [
     const { action, comments } = req.body;
 
     const leaveRequest = await LeaveRequest.findById(req.params.id)
-      .populate('employee', 'employmentInfo.reportingManager personalInfo.firstName personalInfo.lastName')
-      .populate('leaveType');
+      .populate('employee', 'employmentInfo.reportingManager personalInfo.firstName personalInfo.lastName');
 
     if (!leaveRequest) {
       return res.status(404).json({ message: 'Leave request not found' });
@@ -387,36 +601,119 @@ router.put('/requests/:id/approve', [
       return res.status(404).json({ message: 'Approver employee profile not found' });
     }
 
-    // Check permissions
-    if (req.user.role === 'manager') {
-      if (leaveRequest.employee.employmentInfo.reportingManager?.toString() !== approverEmployee._id.toString()) {
-        return res.status(403).json({ message: 'Can only approve your team members requests' });
+    // Find the approval record for this user
+    let userApproval = null;
+    let authorizationDetails = {
+      userRole: req.user.role,
+      userEmployeeId: approverEmployee.employeeId,
+      userName: `${approverEmployee.personalInfo?.firstName} ${approverEmployee.personalInfo?.lastName}`,
+      requestEmployee: `${leaveRequest.employee.personalInfo?.firstName} ${leaveRequest.employee.personalInfo?.lastName}`,
+      reportingManager: leaveRequest.employee.employmentInfo.reportingManager?.toString(),
+      approverEmployeeId: approverEmployee._id.toString(),
+      approvalFlow: leaveRequest.approvalFlow.map(a => ({
+        type: a.approverType,
+        approver: a.approver.toString(),
+        status: a.status
+      }))
+    };
+    
+    // Check if user is the SPECIFIC reporting manager (not just any manager)
+    const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?.toString() === approverEmployee._id.toString();
+    
+    if (req.user.role === 'manager' && isReportingManager) {
+      userApproval = leaveRequest.approvalFlow.find(
+        approval => approval.approverType === 'manager' && approval.approver.toString() === approverEmployee._id.toString()
+      );
+      
+      if (!userApproval) {
+        console.log('🚫 Manager authorization failed:', {
+          ...authorizationDetails,
+          reason: 'Reporting manager not found in approval flow',
+          isReportingManager: true
+        });
       }
+    } else if (req.user.role === 'manager' && !isReportingManager) {
+      console.log('🚫 Manager authorization failed:', {
+        ...authorizationDetails,
+        reason: 'Not the reporting manager for this employee',
+        isReportingManager: false,
+        actualReportingManager: leaveRequest.employee.employmentInfo.reportingManager?.toString()
+      });
+    }
+    
+    // Check if user is HR (only HR can approve, not admins)
+    if (req.user.role === 'hr') {
+      userApproval = leaveRequest.approvalFlow.find(
+        approval => approval.approverType === 'hr' && approval.approver.toString() === approverEmployee._id.toString()
+      );
+      
+      if (!userApproval) {
+        console.log('🚫 HR authorization failed:', {
+          ...authorizationDetails,
+          reason: 'HR not found in approval flow for this request'
+        });
+      }
+    } else if (req.user.role === 'admin') {
+      // Admins can VIEW all requests but cannot APPROVE them
+      console.log('🚫 Admin authorization failed:', {
+        ...authorizationDetails,
+        reason: 'Admins can view all leave requests but cannot approve them. Only the reporting manager and HR can approve.'
+      });
     }
 
-    // Find current approval level
-    const currentApproval = leaveRequest.approvalFlow.find(
-      approval => approval.level === leaveRequest.currentApprovalLevel
-    );
-
-    if (!currentApproval) {
-      return res.status(400).json({ message: 'No pending approval found' });
+    if (!userApproval) {
+      let detailedMessage = `You are not authorized to approve this leave request. `;
+      
+      if (req.user.role === 'manager') {
+        const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?.toString() === approverEmployee._id.toString();
+        if (!isReportingManager) {
+          detailedMessage += `You are not the reporting manager for ${authorizationDetails.requestEmployee}. Only the direct reporting manager can approve this leave request. `;
+        } else {
+          detailedMessage += `You are not listed as the manager approver in the approval flow for this request. `;
+        }
+      } else if (req.user.role === 'hr') {
+        detailedMessage += `You are not listed as the HR approver in the approval flow for this request. `;
+      } else if (req.user.role === 'admin') {
+        detailedMessage += `Admins can view all leave requests but cannot approve them. Only the reporting manager and HR can approve leave requests. `;
+      } else {
+        detailedMessage += `Your role (${req.user.role}) does not have approval permissions. Only reporting managers and HR can approve leave requests. `;
+      }
+      
+      detailedMessage += `Current approval flow: ${leaveRequest.approvalFlow.map(a => `${a.approverType} (${a.status})`).join(', ')}`;
+      
+      console.log('🚫 Authorization failed details:', authorizationDetails);
+      
+      return res.status(403).json({ 
+        message: detailedMessage,
+        details: {
+          userRole: req.user.role,
+          userName: authorizationDetails.userName,
+          requestEmployee: authorizationDetails.requestEmployee,
+          approvalFlow: authorizationDetails.approvalFlow,
+          reason: 'Not authorized to approve this request'
+        }
+      });
     }
 
-    // Update approval
-    currentApproval.status = action === 'approve' ? 'approved' : 'rejected';
-    currentApproval.comments = comments;
-    currentApproval.actionDate = new Date();
+    if (userApproval.status !== 'pending') {
+      return res.status(400).json({ message: 'You have already processed this leave request' });
+    }
+
+    // Update the specific approval
+    userApproval.status = action === 'approve' ? 'approved' : 'rejected';
+    userApproval.comments = comments;
+    userApproval.actionDate = new Date();
 
     if (action === 'approve') {
-      // Check if there are more approval levels
-      const nextLevel = leaveRequest.currentApprovalLevel + 1;
-      const nextApproval = leaveRequest.approvalFlow.find(approval => approval.level === nextLevel);
-
-      if (nextApproval) {
-        leaveRequest.currentApprovalLevel = nextLevel;
-      } else {
-        // Final approval
+      // Check if both manager and HR have approved
+      const managerApproval = leaveRequest.approvalFlow.find(approval => approval.approverType === 'manager');
+      const hrApproval = leaveRequest.approvalFlow.find(approval => approval.approverType === 'hr');
+      
+      const managerApproved = managerApproval && managerApproval.status === 'approved';
+      const hrApproved = hrApproval && hrApproval.status === 'approved';
+      
+      if (managerApproved && hrApproved) {
+        // Both have approved - final approval
         leaveRequest.status = 'approved';
         leaveRequest.finalApprover = approverEmployee._id;
         leaveRequest.finalApprovalDate = new Date();
@@ -424,30 +721,66 @@ router.put('/requests/:id/approve', [
         // Update leave balance
         const balance = await LeaveBalance.findOne({
           employee: leaveRequest.employee._id,
-          leaveType: leaveRequest.leaveType._id,
           year: new Date(leaveRequest.startDate).getFullYear()
         });
 
         if (balance) {
-          balance.used += leaveRequest.totalDays;
-          balance.pending -= leaveRequest.totalDays;
+          const requestMonth = new Date(leaveRequest.startDate).getMonth() + 1;
+          
+          // Update balance based on leave type
+          if (leaveRequest.leaveType === 'casual') {
+            balance.casualLeave.used += leaveRequest.totalDays;
+            balance.casualLeave.pending -= leaveRequest.totalDays;
+          } else if (leaveRequest.leaveType === 'sick') {
+            balance.sickLeave.used += leaveRequest.totalDays;
+            balance.sickLeave.pending -= leaveRequest.totalDays;
+          } else if (leaveRequest.leaveType === 'marriage' || leaveRequest.leaveType === 'bereavement') {
+            balance.specialLeave.used += leaveRequest.totalDays;
+            balance.specialLeave.pending -= leaveRequest.totalDays;
+          }
+
+          // Update monthly usage
+          let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+          if (!monthlyUsage) {
+            monthlyUsage = { month: requestMonth, casualUsed: 0, sickUsed: 0, specialUsed: 0 };
+            balance.monthlyUsage.push(monthlyUsage);
+          }
+
+          if (leaveRequest.leaveType === 'casual') {
+            monthlyUsage.casualUsed += leaveRequest.totalDays;
+          } else if (leaveRequest.leaveType === 'sick') {
+            monthlyUsage.sickUsed += leaveRequest.totalDays;
+          } else if (leaveRequest.leaveType === 'marriage' || leaveRequest.leaveType === 'bereavement') {
+            monthlyUsage.specialUsed += leaveRequest.totalDays;
+          }
+
           await balance.save();
         }
+      } else if (managerApproved || hrApproved) {
+        // One has approved - partial approval
+        leaveRequest.status = 'partially_approved';
       }
+      // If neither has approved yet, status remains 'pending'
     } else {
-      // Rejected
+      // Rejected by either manager or HR
       leaveRequest.status = 'rejected';
       leaveRequest.rejectionReason = comments;
 
       // Return pending balance
       const balance = await LeaveBalance.findOne({
         employee: leaveRequest.employee._id,
-        leaveType: leaveRequest.leaveType._id,
         year: new Date(leaveRequest.startDate).getFullYear()
       });
 
       if (balance) {
-        balance.pending -= leaveRequest.totalDays;
+        // Return pending balance based on leave type
+        if (leaveRequest.leaveType === 'casual') {
+          balance.casualLeave.pending -= leaveRequest.totalDays;
+        } else if (leaveRequest.leaveType === 'sick') {
+          balance.sickLeave.pending -= leaveRequest.totalDays;
+        } else if (leaveRequest.leaveType === 'marriage' || leaveRequest.leaveType === 'bereavement') {
+          balance.specialLeave.pending -= leaveRequest.totalDays;
+        }
         await balance.save();
       }
     }
@@ -456,13 +789,22 @@ router.put('/requests/:id/approve', [
 
     const updatedRequest = await LeaveRequest.findById(leaveRequest._id)
       .populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName')
-      .populate('leaveType', 'name code color')
       .populate('approvalFlow.approver', 'personalInfo.firstName personalInfo.lastName employeeId')
       .populate('finalApprover', 'personalInfo.firstName personalInfo.lastName employeeId');
 
+    // Add leave type information manually
+    const updatedRequestObj = updatedRequest.toObject();
+    const leaveTypeMap = {
+      casual: { name: 'Casual Leave', code: 'CL', color: '#4CAF50' },
+      sick: { name: 'Sick Leave', code: 'SL', color: '#FF9800' },
+      marriage: { name: 'Marriage Leave', code: 'ML', color: '#E91E63' },
+      bereavement: { name: 'Bereavement Leave', code: 'BL', color: '#607D8B' }
+    };
+    updatedRequestObj.leaveType = leaveTypeMap[updatedRequest.leaveType] || { name: updatedRequest.leaveType, code: updatedRequest.leaveType.toUpperCase(), color: '#9E9E9E' };
+
     res.json({
       message: `Leave request ${action}d successfully`,
-      leaveRequest: updatedRequest
+      leaveRequest: updatedRequestObj
     });
   } catch (error) {
     console.error('Approve leave request error:', error);
@@ -597,50 +939,204 @@ router.get('/my-summary', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Employee profile not found' });
     }
 
-    // Get current year leaves
     const currentYear = new Date().getFullYear();
-    const leaves = await Leave.find({
-      employee: employee._id,
-      startDate: {
-        $gte: new Date(currentYear, 0, 1),
-        $lte: new Date(currentYear, 11, 31)
-      }
+    
+    // Get or create leave balance for current year
+    let leaveBalance = await LeaveBalance.findOne({ 
+      employee: employee._id, 
+      year: currentYear 
     });
 
-    // Calculate leave statistics
-    const approved = leaves.filter(leave => leave.status === 'approved');
-    const pending = leaves.filter(leave => leave.status === 'pending').length;
-    const used = approved.reduce((total, leave) => total + leave.totalDays, 0);
-
-    // Standard leave allocation (can be made configurable)
-    const casualLeave = 12 - approved.filter(leave => leave.type === 'casual').reduce((total, leave) => total + leave.totalDays, 0);
-    const sickLeave = 12 - approved.filter(leave => leave.type === 'sick').reduce((total, leave) => total + leave.totalDays, 0);
-    const earnedLeave = 21 - approved.filter(leave => leave.type === 'earned').reduce((total, leave) => total + leave.totalDays, 0);
+    if (!leaveBalance) {
+      leaveBalance = new LeaveBalance({
+        employee: employee._id,
+        year: currentYear
+      });
+      await leaveBalance.save();
+    }
 
     // Get upcoming approved leaves
-    const upcoming = approved.filter(leave => new Date(leave.startDate) > new Date())
-      .map(leave => ({
-        type: leave.type,
-        startDate: leave.startDate,
-        endDate: leave.endDate,
-        totalDays: leave.totalDays,
-        reason: leave.reason
-      }));
+    const upcomingLeaves = await LeaveRequest.find({
+      employee: employee._id,
+      status: 'approved',
+      startDate: { $gt: new Date() }
+    }).sort({ startDate: 1 });
+
+    const upcoming = upcomingLeaves.map(leave => ({
+      type: leave.leaveType,
+      startDate: leave.startDate,
+      endDate: leave.endDate,
+      totalDays: leave.totalDays,
+      reason: leave.reason
+    }));
+
+    // Calculate totals
+    const totalUsed = leaveBalance.casualLeave.used + leaveBalance.sickLeave.used + leaveBalance.specialLeave.used;
+    const totalPending = leaveBalance.casualLeave.pending + leaveBalance.sickLeave.pending + leaveBalance.specialLeave.pending;
+    const totalAvailable = leaveBalance.casualLeave.available + leaveBalance.sickLeave.available + leaveBalance.specialLeave.available;
 
     res.json({
-      available: casualLeave + sickLeave + earnedLeave,
-      used,
-      pending,
+      available: totalAvailable,
+      used: totalUsed,
+      pending: totalPending,
       upcoming,
       balance: {
-        casualLeave: Math.max(0, casualLeave),
-        sickLeave: Math.max(0, sickLeave),
-        earnedLeave: Math.max(0, earnedLeave)
+        casualLeave: leaveBalance.casualLeave.available,
+        sickLeave: leaveBalance.sickLeave.available,
+        specialLeave: leaveBalance.specialLeave.available
+      },
+      detailed: {
+        casual: leaveBalance.casualLeave,
+        sick: leaveBalance.sickLeave,
+        special: leaveBalance.specialLeave
       }
     });
   } catch (error) {
     console.error('Get leave summary error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/leave/employee-balance/:employeeId
+// @desc    Get leave balance for specific employee (for employee profile display)
+// @access  Private
+router.get('/employee-balance/:employeeId', authenticate, async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const currentYear = new Date().getFullYear();
+    
+    // Get or create leave balance for current year
+    let leaveBalance = await LeaveBalance.findOne({ 
+      employee: employeeId, 
+      year: currentYear 
+    });
+
+    if (!leaveBalance) {
+      leaveBalance = new LeaveBalance({
+        employee: employeeId,
+        year: currentYear
+      });
+      await leaveBalance.save();
+    }
+
+    res.json({
+      casualLeave: leaveBalance.casualLeave,
+      sickLeave: leaveBalance.sickLeave,
+      specialLeave: leaveBalance.specialLeave
+    });
+  } catch (error) {
+    console.error('Get employee leave balance error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/leave/debug-user
+// @desc    Debug current user information
+// @access  Private
+router.get('/debug-user', authenticate, async (req, res) => {
+  try {
+    const currentEmployee = await Employee.findOne({ user: req.user._id })
+      .populate('user', 'email role isActive')
+      .populate('employmentInfo.reportingManager', 'employeeId personalInfo.firstName personalInfo.lastName');
+
+    const debugInfo = {
+      currentUser: {
+        id: req.user._id,
+        email: req.user.email,
+        role: req.user.role,
+        isActive: req.user.isActive
+      },
+      currentEmployee: currentEmployee ? {
+        id: currentEmployee._id,
+        employeeId: currentEmployee.employeeId,
+        name: `${currentEmployee.personalInfo?.firstName} ${currentEmployee.personalInfo?.lastName}`,
+        designation: currentEmployee.employmentInfo?.designation,
+        isActive: currentEmployee.employmentInfo?.isActive,
+        reportingManager: currentEmployee.employmentInfo?.reportingManager ? {
+          id: currentEmployee.employmentInfo.reportingManager._id,
+          employeeId: currentEmployee.employmentInfo.reportingManager.employeeId,
+          name: `${currentEmployee.employmentInfo.reportingManager.personalInfo?.firstName} ${currentEmployee.employmentInfo.reportingManager.personalInfo?.lastName}`
+        } : null
+      } : null,
+      authorizationRules: {
+        canViewAllRequests: req.user.role === 'hr' || req.user.role === 'admin',
+        canApproveAsHR: req.user.role === 'hr',
+        canApproveAsManager: req.user.role === 'manager',
+        canApproveAsAdmin: false // Admins cannot approve
+      }
+    };
+
+    res.json(debugInfo);
+  } catch (error) {
+    console.error('Debug user error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/leave/debug-approval/:id
+// @desc    Debug approval authorization for a specific leave request
+// @access  Private
+router.get('/debug-approval/:id', authenticate, async (req, res) => {
+  try {
+    const leaveRequest = await LeaveRequest.findById(req.params.id)
+      .populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName employmentInfo.reportingManager')
+      .populate('approvalFlow.approver', 'employeeId personalInfo.firstName personalInfo.lastName user');
+
+    if (!leaveRequest) {
+      return res.status(404).json({ message: 'Leave request not found' });
+    }
+
+    const approverEmployee = await Employee.findOne({ user: req.user._id })
+      .populate('user', 'role email');
+
+    const debugInfo = {
+      currentUser: {
+        id: req.user._id,
+        email: req.user.email,
+        role: req.user.role,
+        employeeId: approverEmployee?.employeeId,
+        employeeName: `${approverEmployee?.personalInfo?.firstName} ${approverEmployee?.personalInfo?.lastName}`,
+        employeeObjectId: approverEmployee?._id?.toString()
+      },
+      leaveRequest: {
+        id: leaveRequest._id,
+        employee: {
+          id: leaveRequest.employee._id,
+          name: `${leaveRequest.employee.personalInfo?.firstName} ${leaveRequest.employee.personalInfo?.lastName}`,
+          employeeId: leaveRequest.employee.employeeId,
+          reportingManager: leaveRequest.employee.employmentInfo?.reportingManager?.toString()
+        },
+        status: leaveRequest.status,
+        approvalFlow: leaveRequest.approvalFlow.map(approval => ({
+          approverType: approval.approverType,
+          approverId: approval.approver._id.toString(),
+          approverName: `${approval.approver.personalInfo?.firstName} ${approval.approver.personalInfo?.lastName}`,
+          approverEmployeeId: approval.approver.employeeId,
+          status: approval.status,
+          level: approval.level
+        }))
+      },
+      authorization: {
+        isReportingManager: leaveRequest.employee.employmentInfo?.reportingManager?.toString() === approverEmployee?._id?.toString(),
+        hasManagerApproval: leaveRequest.approvalFlow.some(a => 
+          a.approverType === 'manager' && a.approver._id.toString() === approverEmployee?._id?.toString()
+        ),
+        hasHRApproval: leaveRequest.approvalFlow.some(a => 
+          a.approverType === 'hr' && a.approver._id.toString() === approverEmployee?._id?.toString()
+        ),
+        canApproveAsManager: req.user.role === 'manager' && 
+          leaveRequest.employee.employmentInfo?.reportingManager?.toString() === approverEmployee?._id?.toString(),
+        canApproveAsHR: (req.user.role === 'hr' || req.user.role === 'admin') &&
+          leaveRequest.approvalFlow.some(a => 
+            a.approverType === 'hr' && a.approver._id.toString() === approverEmployee?._id?.toString()
+          )
+      }
+    };
+
+    res.json(debugInfo);
+  } catch (error) {
+    console.error('Debug approval error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

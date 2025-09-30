@@ -48,6 +48,7 @@ import {
   AttachMoney as AttachMoneyIcon,
   CheckCircle as CheckCircleIcon,
   Schedule as ScheduleIcon,
+  Event as EventIcon,
   Cancel as CancelIcon,
   Refresh as RefreshIcon,
   Business as BusinessIcon,
@@ -70,7 +71,6 @@ import {
   Add as AddIcon,
   ContactSupport as ContactSupportIcon,
   Star as StarIcon,
-  Event as EventIcon,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -87,6 +87,7 @@ import {
 import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -183,13 +184,6 @@ const EmployeeDashboard = () => {
         earnedLeave: 0,
       },
     },
-    payroll: {
-      currentSalary: 0,
-      lastPayment: null,
-      salaryBreakup: {},
-      ytdEarnings: 0,
-      tdsStatus: {},
-    },
     activities: [],
     assets: [],
     documents: [],
@@ -204,6 +198,8 @@ const EmployeeDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
+  const [officeStatus, setOfficeStatus] = useState(null);
+  const [leaveBalance, setLeaveBalance] = useState([]);
   const [supportDialog, setSupportDialog] = useState(false);
   const [ticketForm, setTicketForm] = useState({
     category: '',
@@ -211,12 +207,60 @@ const EmployeeDashboard = () => {
     description: '',
     priority: 'medium',
   });
+  const [reportingStructure, setReportingStructure] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
 
   useEffect(() => {
     fetchEmployeeData();
     fetchTodayAttendance();
     fetchEmployeeAssets();
+    // fetchReportingStructure(); // Temporarily disabled due to API issues
+    fetchOfficeStatus();
+    fetchLeaveBalance();
   }, []);
+
+  const fetchLeaveBalance = async () => {
+    try {
+      const response = await axios.get('/leave/balance');
+      setLeaveBalance(response.data);
+    } catch (error) {
+      console.error('Error fetching leave balance:', error);
+      // Set default leave types if API fails
+      setLeaveBalance([
+        { leaveType: { name: 'Annual Leave', code: 'AL' }, allocated: 21, used: 5, available: 16 },
+        { leaveType: { name: 'Sick Leave', code: 'SL' }, allocated: 12, used: 2, available: 10 },
+        { leaveType: { name: 'Personal Leave', code: 'PL' }, allocated: 5, used: 1, available: 4 }
+      ]);
+    }
+  };
+
+  const fetchReportingStructure = async () => {
+    try {
+      console.log('🔍 Attempting to fetch reporting structure...');
+      const response = await axios.get('/employees/reporting-structure');
+      console.log('✅ Reporting structure response:', response.data);
+      setReportingStructure(response.data);
+      
+      // If user is a manager, fetch team details
+      if (response.data.statistics.isManager) {
+        const teamResponse = await axios.get('/employees/my-team');
+        setTeamMembers(teamResponse.data.teamMembers || []);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching reporting structure:', error);
+      console.error('❌ Error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      // Set empty data to prevent repeated calls
+      setReportingStructure({
+        currentEmployee: { name: 'Unknown', role: 'employee' },
+        statistics: { isManager: false }
+      });
+    }
+  };
 
   const fetchEmployeeData = async () => {
     try {
@@ -231,8 +275,6 @@ const EmployeeDashboard = () => {
       // Fetch leave summary
       const leaveResponse = await axios.get('/leave/my-summary');
       
-      // Fetch payroll info
-      const payrollResponse = await axios.get('/payroll/my-info');
 
       setEmployeeData({
         profile: profileResponse.data,
@@ -246,10 +288,6 @@ const EmployeeDashboard = () => {
           available: 0,
           used: 0,
           pending: 0,
-        },
-        payroll: payrollResponse.data || {
-          currentSalary: 0,
-          lastPayment: null,
         },
         activities: [],
       });
@@ -279,10 +317,6 @@ const EmployeeDashboard = () => {
           used: 6,
           pending: 1,
         },
-        payroll: {
-          currentSalary: 50000,
-          lastPayment: new Date(),
-        },
         activities: [],
       });
     } finally {
@@ -296,6 +330,16 @@ const EmployeeDashboard = () => {
       setAttendanceStatus(response.data);
     } catch (error) {
       console.error('Error fetching today attendance:', error);
+    }
+  };
+
+  const fetchOfficeStatus = async () => {
+    try {
+      const response = await axios.get('/attendance/office-status');
+      setOfficeStatus(response.data);
+    } catch (error) {
+      console.error('Error fetching office status:', error);
+      setOfficeStatus({ isOfficeIP: false, message: 'Unable to verify office location' });
     }
   };
 
@@ -331,11 +375,37 @@ const EmployeeDashboard = () => {
 
   const markAttendance = async (type) => {
     try {
-      await axios.post('/attendance/mark', { type });
-      fetchTodayAttendance();
-      fetchEmployeeData();
+      const endpoint = type === 'check-in' ? '/attendance/checkin' : '/attendance/checkout';
+      const response = await axios.post(endpoint, {
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          browser: navigator.userAgent,
+          os: navigator.platform,
+          device: /Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+        }
+      });
+      
+      if (response.data.success) {
+        toast.success(response.data.message);
+        if (type === 'check-in' && response.data.isLate) {
+          toast.warning(`You are ${response.data.lateMinutes} minutes late`);
+        }
+        if (type === 'check-out' && response.data.isEarlyDeparture) {
+          toast.warning(`Early departure: ${response.data.earlyMinutes} minutes`);
+        }
+        if (type === 'check-out' && response.data.workingHours) {
+          toast.info(`Total working hours: ${response.data.workingHours}`);
+        }
+        fetchTodayAttendance();
+        fetchEmployeeData();
+      }
     } catch (error) {
       console.error('Error marking attendance:', error);
+      if (error.response?.status === 403) {
+        toast.error(error.response.data.message || 'Attendance marking only allowed from office premises');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to mark attendance');
+      }
     }
   };
 
@@ -379,10 +449,9 @@ const EmployeeDashboard = () => {
 
   const getTodayStatus = () => {
     const today = new Date();
-    const isWeekend = today.getDay() === 0 || today.getDay() === 6;
     const isHoliday = false; // Check against holiday calendar
     
-    if (isWeekend) return { status: 'Weekend', color: 'info' };
+    // Allow attendance 7 days a week (removed weekend restriction)
     if (isHoliday) return { status: 'Holiday', color: 'warning' };
     if (attendanceStatus?.checkedIn) return { status: 'Present', color: 'success' };
     return { status: 'Not Checked In', color: 'error' };
@@ -411,45 +480,75 @@ const EmployeeDashboard = () => {
             </Avatar>
             <Box>
               <Typography variant="h6" fontWeight="500" gutterBottom>
-                Welcome, {employeeData.profile?.personalInfo?.firstName} {employeeData.profile?.personalInfo?.lastName}
+                Welcome, {`${employeeData.profile?.personalInfo?.firstName || ''} ${employeeData.profile?.personalInfo?.lastName || ''}`.trim() || 'User'}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {employeeData.profile?.employmentInfo?.designation} | 
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  {employeeData.profile?.employmentInfo?.designation || 'Employee'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">•</Typography>
                 <Chip 
                   label={todayStatus.status} 
                   size="small" 
                   variant="outlined"
-                  sx={{ ml: 1, fontSize: '0.7rem' }}
-                /> | 
-                {moment().format('DD MMM YYYY')}
-              </Typography>
+                  sx={{ fontSize: '0.7rem' }}
+                />
+                <Typography variant="body2" color="text.secondary">•</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {moment().format('DD MMM YYYY')}
+                </Typography>
+              </Box>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                Employee ID: {employeeData.profile?.employeeId} | {employeeData.profile?.employmentInfo?.department?.name} Department
+                Employee ID: {employeeData.profile?.employeeId || 'N/A'} | {employeeData.profile?.employmentInfo?.department?.name || 'Unknown'} Department
               </Typography>
             </Box>
           </Box>
           
-          <Box sx={{ display: 'flex', gap: 1, mt: { xs: 2, md: 0 } }}>
-            {!attendanceStatus?.checkedIn && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<CheckCircleIcon />}
-                onClick={() => markAttendance('check-in')}
-              >
-                Check In
-              </Button>
+          <Box sx={{ display: 'flex', gap: 1, mt: { xs: 2, md: 0 }, flexDirection: 'column', alignItems: { xs: 'flex-start', md: 'flex-end' } }}>
+            {officeStatus && (
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <Chip
+                  label={officeStatus.isOfficeIP ? 'Office Network' : 'Outside Office'}
+                  size="small"
+                  color={officeStatus.isOfficeIP ? 'success' : 'error'}
+                  variant="outlined"
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              </Box>
             )}
-            {attendanceStatus?.checkedIn && !attendanceStatus?.checkedOut && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<ScheduleIcon />}
-                onClick={() => markAttendance('check-out')}
-              >
-                Check Out
-              </Button>
-            )}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {!attendanceStatus?.checkedIn && attendanceStatus?.status !== 'weekend' && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<CheckCircleIcon />}
+                  onClick={() => markAttendance('check-in')}
+                  disabled={!officeStatus?.isOfficeIP}
+                  title={!officeStatus?.isOfficeIP ? 'Check-in only allowed from office premises' : ''}
+                >
+                  Check In
+                </Button>
+              )}
+              {attendanceStatus?.status === 'weekend' && (
+                <Chip
+                  label="Weekend - No Check-in Required"
+                  size="small"
+                  sx={{ bgcolor: '#9e9e9e', color: 'white', fontSize: '0.7rem' }}
+                />
+              )}
+              {attendanceStatus?.checkedIn && !attendanceStatus?.checkedOut && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ScheduleIcon />}
+                  onClick={() => markAttendance('check-out')}
+                  disabled={!officeStatus?.isOfficeIP}
+                  title={!officeStatus?.isOfficeIP ? 'Check-out only allowed from office premises' : ''}
+                >
+                  Check Out
+                </Button>
+              )}
+            </Box>
           </Box>
         </Box>
       </Paper>
@@ -457,10 +556,12 @@ const EmployeeDashboard = () => {
       {/* Quick Action Panel */}
       <Card sx={{ mb: 2, border: '1px solid', borderColor: 'grey.200' }}>
         <CardContent sx={{ py: 1.5 }}>
-          <Typography variant="body2" fontWeight="500" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
             <AssignmentIcon sx={{ mr: 1, fontSize: '1.1rem' }} />
-            Quick Actions
-          </Typography>
+            <Typography variant="body2" fontWeight="500" gutterBottom>
+              Quick Actions
+            </Typography>
+          </Box>
           <Grid container spacing={1}>
             <Grid item xs={12} sm={6} md={2}>
               <Button
@@ -484,18 +585,6 @@ const EmployeeDashboard = () => {
                 sx={{ py: 1, fontSize: '0.8rem' }}
               >
                 View Timesheet
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Button
-                fullWidth
-                variant="outlined"
-                size="small"
-                startIcon={<AttachMoneyIcon sx={{ fontSize: '1rem' }} />}
-                onClick={() => setTabValue(2)}
-                sx={{ py: 1, fontSize: '0.8rem' }}
-              >
-                View Payslip
               </Button>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
@@ -563,16 +652,6 @@ const EmployeeDashboard = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
-            title="Current Salary"
-            value={`₹${employeeData.payroll.currentSalary?.toLocaleString() || '0'}`}
-            subtitle="Monthly CTC"
-            icon={<AttachMoneyIcon />}
-            color="warning"
-            onClick={() => setTabValue(2)}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard
             title="Pending Tasks"
             value={employeeData.tasks?.length || 0}
             subtitle="Assigned to you"
@@ -603,9 +682,10 @@ const EmployeeDashboard = () => {
           >
             <Tab icon={<PersonIcon sx={{ fontSize: '1rem' }} />} label="Overview" />
             <Tab icon={<AccessTimeIcon sx={{ fontSize: '1rem' }} />} label="Attendance" />
-            <Tab icon={<AttachMoneyIcon sx={{ fontSize: '1rem' }} />} label="Payroll" />
             <Tab icon={<EditIcon sx={{ fontSize: '1rem' }} />} label="Personal Info" />
             <Tab icon={<DescriptionIcon sx={{ fontSize: '1rem' }} />} label="Documents" />
+            {/* Temporarily disabled due to API issues */}
+            {/* <Tab icon={<BusinessIcon sx={{ fontSize: '1rem' }} />} label="Team & Reporting" /> */}
             <Tab icon={<AssignmentIcon sx={{ fontSize: '1rem' }} />} label="Tasks & Notices" />
             <Tab icon={<TrendingUpIcon sx={{ fontSize: '1rem' }} />} label="Performance" />
             <Tab icon={<ComputerIcon sx={{ fontSize: '1rem' }} />} label="Assets" />
@@ -619,48 +699,141 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <CalendarTodayIcon sx={{ mr: 1 }} />
-                    Today's Status
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Today's Status
+                    </Typography>
+                  </Box>
                   
                   {attendanceStatus ? (
                     <Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, p: 2, border: '1px solid', borderColor: 'grey.200', borderRadius: 1 }}>
-                        <CheckCircleIcon sx={{ mr: 2, color: 'grey.600' }} />
-                        <Box>
-                          <Typography variant="body2" color="text.secondary">Check In</Typography>
-                          <Typography variant="h6" fontWeight="500">
-                            {moment(attendanceStatus.checkIn).format('HH:mm A')}
+                      {/* Check In/Out Times */}
+                      <Grid container spacing={2} sx={{ mb: 2 }}>
+                        <Grid item xs={6}>
+                          <Box sx={{ p: 2, border: '1px solid', borderColor: 'success.main', borderRadius: 1, bgcolor: 'success.50' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                              <CheckCircleIcon sx={{ mr: 1, color: 'success.main', fontSize: 20 }} />
+                              <Typography variant="body2" color="success.main" fontWeight="500">Check In</Typography>
+                            </Box>
+                            <Typography variant="h6" fontWeight="600">
+                              {moment(attendanceStatus.checkIn).format('HH:mm A')}
+                            </Typography>
+                            {attendanceStatus.isLate && (
+                              <Chip 
+                                label={`Late by ${attendanceStatus.lateMinutes} min`} 
+                                size="small" 
+                                color="warning" 
+                                sx={{ mt: 1 }} 
+                              />
+                            )}
+                          </Box>
+                        </Grid>
+                        <Grid item xs={6}>
+                          {attendanceStatus.checkOut ? (
+                            <Box sx={{ p: 2, border: '1px solid', borderColor: 'info.main', borderRadius: 1, bgcolor: 'info.50' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                <ScheduleIcon sx={{ mr: 1, color: 'info.main', fontSize: 20 }} />
+                                <Typography variant="body2" color="info.main" fontWeight="500">Check Out</Typography>
+                              </Box>
+                              <Typography variant="h6" fontWeight="600">
+                                {moment(attendanceStatus.checkOut).format('HH:mm A')}
+                              </Typography>
+                              {attendanceStatus.earlyDeparture && (
+                                <Chip 
+                                  label={`Early by ${attendanceStatus.earlyDepartureMinutes} min`} 
+                                  size="small" 
+                                  color="warning" 
+                                  sx={{ mt: 1 }} 
+                                />
+                              )}
+                            </Box>
+                          ) : (
+                            <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1, bgcolor: 'grey.50' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                <ScheduleIcon sx={{ mr: 1, color: 'grey.500', fontSize: 20 }} />
+                                <Typography variant="body2" color="text.secondary" fontWeight="500">Check Out</Typography>
+                              </Box>
+                              <Typography variant="body2" color="text.secondary">
+                                Still working...
+                              </Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                      </Grid>
+
+                      {/* Working Hours Summary */}
+                      <Box sx={{ p: 2, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200', borderRadius: 1, mb: 2 }}>
+                        <Typography variant="subtitle2" color="primary.main" fontWeight="600" gutterBottom>
+                          Today's Working Hours
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={4}>
+                            <Typography variant="body2" color="text.secondary">Total</Typography>
+                            <Typography variant="h6" fontWeight="600" color="primary.main">
+                              {attendanceStatus.totalHours ? `${attendanceStatus.totalHours.toFixed(1)}h` : 'In Progress'}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Typography variant="body2" color="text.secondary">Regular</Typography>
+                            <Typography variant="h6" fontWeight="600" color="success.main">
+                              {attendanceStatus.regularHours ? `${attendanceStatus.regularHours.toFixed(1)}h` : '0.0h'}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Typography variant="body2" color="text.secondary">Overtime</Typography>
+                            <Typography variant="h6" fontWeight="600" color="warning.main">
+                              {attendanceStatus.overtimeHours ? `${attendanceStatus.overtimeHours.toFixed(1)}h` : '0.0h'}
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Break Time</Typography>
+                          <Typography variant="body1" fontWeight="500">
+                            {attendanceStatus.breakTime || '0h 0m'}
                           </Typography>
                         </Box>
                       </Box>
-                      
-                      {attendanceStatus.checkOut ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, p: 2, border: '1px solid', borderColor: 'grey.200', borderRadius: 1 }}>
-                          <ScheduleIcon sx={{ mr: 2, color: 'grey.600' }} />
-                          <Box>
-                            <Typography variant="body2" color="text.secondary">Check Out</Typography>
-                            <Typography variant="h6" fontWeight="500">
-                              {moment(attendanceStatus.checkOut).format('HH:mm A')}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ) : (
-                        <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1, mb: 2 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Currently checked in. Don't forget to check out!
+
+                      {/* Comp-off and Leave Options */}
+                      {attendanceStatus.overtimeHours > 0 && (
+                        <Box sx={{ p: 2, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200', borderRadius: 1, mb: 2 }}>
+                          <Typography variant="subtitle2" color="warning.main" fontWeight="600" gutterBottom>
+                            Overtime Detected
                           </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                            You've worked {attendanceStatus.overtimeHours.toFixed(1)} extra hours today.
+                          </Typography>
+                          <Button 
+                            variant="outlined" 
+                            size="small" 
+                            color="warning"
+                            startIcon={<EventIcon />}
+                            sx={{ mr: 1 }}
+                          >
+                            Apply for Comp-off
+                          </Button>
                         </Box>
                       )}
-                      
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', border: '1px solid', borderColor: 'grey.200', borderRadius: 1 }}>
-                        <Typography variant="body2" fontWeight="500">
-                          Total Hours: {attendanceStatus.totalHours || 'In Progress'}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Break Time: {attendanceStatus.breakTime || '0h 0m'}
-                        </Typography>
+
+                      {/* Quick Actions */}
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Button 
+                          variant="outlined" 
+                          size="small" 
+                          startIcon={<BeachAccessIcon />}
+                          color="primary"
+                        >
+                          Apply Leave
+                        </Button>
+                        <Button 
+                          variant="outlined" 
+                          size="small" 
+                          startIcon={<AccessTimeIcon />}
+                          color="secondary"
+                        >
+                          Break History
+                        </Button>
                       </Box>
                     </Box>
                   ) : (
@@ -678,10 +851,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <BeachAccessIcon sx={{ mr: 1 }} />
-                    Leave Status
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Leave Status
+                    </Typography>
+                  </Box>
                   
                   <Grid container spacing={1} sx={{ mb: 2 }}>
                     <Grid item xs={4}>
@@ -740,10 +915,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <NotificationsIcon sx={{ mr: 1 }} />
-                    Recent Notices & Announcements
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Recent Notices & Announcements
+                    </Typography>
+                  </Box>
                   
                   {employeeData.notices?.length > 0 ? (
                     <List>
@@ -780,22 +957,158 @@ const EmployeeDashboard = () => {
         <TabPanel value={tabValue} index={1}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={8}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
-                    Monthly Attendance Calendar
-                  </Typography>
-                  <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      🟢 Present • 🟡 Late • 🔴 Absent • 🔵 Leave • ⚪ Weekend/Holiday
-                    </Typography>
+              <Card 
+                elevation={0}
+                sx={{ 
+                  borderRadius: 3,
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  position: 'relative'
+                }}
+              >
+                <CardContent sx={{ 
+                  p: 3,
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: 3
+                }}>
+                  {/* Enhanced Header */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Box sx={{ 
+                      p: 1.5, 
+                      borderRadius: 2, 
+                      background: 'linear-gradient(45deg, #667eea, #764ba2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <CalendarTodayIcon sx={{ color: 'white', fontSize: 20 }} />
+                    </Box>
+                    <Box>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 700,
+                        background: 'linear-gradient(45deg, #667eea, #764ba2)',
+                        backgroundClip: 'text',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent'
+                      }}>
+                        My Attendance Calendar
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                        Track your monthly attendance pattern
+                      </Typography>
+                    </Box>
                   </Box>
-                  {/* Calendar component would go here */}
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <CalendarTodayIcon sx={{ fontSize: 48, color: 'grey.400', mb: 2 }} />
-                    <Typography variant="body1" color="text.secondary">
-                      Monthly calendar view coming soon
+
+                  {/* Enhanced Legend */}
+                  <Box sx={{ 
+                    p: 2, 
+                    bgcolor: 'rgba(102, 126, 234, 0.05)', 
+                    borderRadius: 2, 
+                    mb: 3,
+                    border: '1px solid rgba(102, 126, 234, 0.1)'
+                  }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                      Status Legend:
                     </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                      {[
+                        { label: 'Present', color: '#10b981', icon: '✓' },
+                        { label: 'Late', color: '#f59e0b', icon: '⏰' },
+                        { label: 'Absent', color: '#ef4444', icon: '✗' },
+                        { label: 'Leave', color: '#3b82f6', icon: '🏖️' },
+                        { label: 'Holiday', color: '#8b5cf6', icon: '🎉' }
+                      ].map((item) => (
+                        <Box key={item.label} sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 1,
+                          bgcolor: 'white',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1,
+                          border: '1px solid rgba(0, 0, 0, 0.05)'
+                        }}>
+                          <Box 
+                            sx={{ 
+                              width: 12, 
+                              height: 12, 
+                              borderRadius: '50%', 
+                              bgcolor: item.color,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 8,
+                              color: 'white',
+                              fontWeight: 'bold'
+                            }} 
+                          >
+                            {item.icon}
+                          </Box>
+                          <Typography variant="caption" sx={{ fontWeight: 500 }}>
+                            {item.label}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+
+                  {/* Coming Soon with Enhanced Design */}
+                  <Box sx={{ 
+                    textAlign: 'center', 
+                    py: 6,
+                    background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                    borderRadius: 2,
+                    border: '2px dashed rgba(102, 126, 234, 0.2)'
+                  }}>
+                    <Box sx={{ 
+                      p: 2, 
+                      borderRadius: '50%', 
+                      background: 'linear-gradient(45deg, #667eea, #764ba2)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mb: 2
+                    }}>
+                      <CalendarTodayIcon sx={{ fontSize: 32, color: 'white' }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ 
+                      fontWeight: 600,
+                      color: 'text.primary',
+                      mb: 1
+                    }}>
+                      Personal Calendar View
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      color: 'text.secondary',
+                      mb: 2,
+                      maxWidth: 300,
+                      mx: 'auto'
+                    }}>
+                      Your personalized monthly attendance calendar with detailed insights and analytics is coming soon!
+                    </Typography>
+                    <Box sx={{ 
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      bgcolor: 'rgba(102, 126, 234, 0.1)',
+                      px: 2,
+                      py: 1,
+                      borderRadius: 2
+                    }}>
+                      <Box sx={{ 
+                        width: 8, 
+                        height: 8, 
+                        borderRadius: '50%', 
+                        bgcolor: '#667eea',
+                        animation: 'pulse 2s infinite'
+                      }} />
+                      <Typography variant="caption" sx={{ 
+                        color: '#667eea',
+                        fontWeight: 600
+                      }}>
+                        In Development
+                      </Typography>
+                    </Box>
                   </Box>
                 </CardContent>
               </Card>
@@ -843,164 +1156,114 @@ const EmployeeDashboard = () => {
                 </CardContent>
               </Card>
             </Grid>
+
+            {/* Leave Balance Section */}
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Leave Balance & Quick Actions
+                  </Typography>
+                  
+                  <Grid container spacing={2} sx={{ mb: 3 }}>
+                    {leaveBalance.map((leave, index) => (
+                      <Grid item xs={12} sm={4} key={index}>
+                        <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                          <Typography variant="subtitle2" fontWeight="600" gutterBottom>
+                            {leave.leaveType.name}
+                          </Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">Available:</Typography>
+                            <Typography variant="body2" fontWeight="500" color="success.main">
+                              {leave.available} days
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">Used:</Typography>
+                            <Typography variant="body2" fontWeight="500" color="warning.main">
+                              {leave.used} days
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2" color="text.secondary">Total:</Typography>
+                            <Typography variant="body2" fontWeight="500">
+                              {leave.allocated} days
+                            </Typography>
+                          </Box>
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={(leave.used / leave.allocated) * 100} 
+                            sx={{ mt: 1, height: 6, borderRadius: 3 }}
+                            color={leave.used / leave.allocated > 0.8 ? 'error' : 'primary'}
+                          />
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+
+                  <Divider sx={{ my: 2 }} />
+
+                  {/* Quick Leave Actions */}
+                  <Typography variant="subtitle2" fontWeight="600" gutterBottom>
+                    Quick Actions
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+                    <Button 
+                      variant="contained" 
+                      startIcon={<BeachAccessIcon />}
+                      color="primary"
+                      size="small"
+                    >
+                      Apply for Leave
+                    </Button>
+                    <Button 
+                      variant="outlined" 
+                      startIcon={<EventIcon />}
+                      color="secondary"
+                      size="small"
+                    >
+                      Request Comp-off
+                    </Button>
+                    <Button 
+                      variant="outlined" 
+                      startIcon={<AccessTimeIcon />}
+                      color="info"
+                      size="small"
+                    >
+                      View Leave History
+                    </Button>
+                    <Button 
+                      variant="outlined" 
+                      startIcon={<CalendarTodayIcon />}
+                      color="success"
+                      size="small"
+                    >
+                      Holiday Calendar
+                    </Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
           </Grid>
         </TabPanel>
 
-        {/* Tab 2: Payroll Snapshot */}
+        {/* Tab 2: Personal Information */}
         <TabPanel value={tabValue} index={2}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                    <AttachMoneyIcon sx={{ mr: 1 }} />
-                    Current Salary Breakdown
-                  </Typography>
-                  
-                  <TableContainer>
-                    <Table size="small">
-                      <TableBody>
-                        <TableRow>
-                          <TableCell>Basic Salary</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                            ₹{(employeeData.payroll.currentSalary * 0.5)?.toLocaleString() || '25,000'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>HRA</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                            ₹{(employeeData.payroll.currentSalary * 0.2)?.toLocaleString() || '10,000'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Special Allowance</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                            ₹{(employeeData.payroll.currentSalary * 0.15)?.toLocaleString() || '7,500'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Other Allowances</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                            ₹{(employeeData.payroll.currentSalary * 0.15)?.toLocaleString() || '7,500'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell colSpan={2}><Divider /></TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 'bold', color: 'primary.main' }}>Gross Salary</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                            ₹{employeeData.payroll.currentSalary?.toLocaleString() || '50,000'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>PF Deduction</TableCell>
-                          <TableCell align="right" sx={{ color: 'error.main' }}>
-                            -₹{(employeeData.payroll.currentSalary * 0.12)?.toLocaleString() || '6,000'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>TDS</TableCell>
-                          <TableCell align="right" sx={{ color: 'error.main' }}>
-                            -₹{(employeeData.payroll.currentSalary * 0.1)?.toLocaleString() || '5,000'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell colSpan={2}><Divider /></TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 'bold', color: 'success.main' }}>Net Salary</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                            ₹{(employeeData.payroll.currentSalary * 0.78)?.toLocaleString() || '39,000'}
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                    <DownloadIcon sx={{ mr: 1 }} />
-                    Latest Payslip
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, p: 2, bgcolor: 'primary.light', borderRadius: 1 }}>
-                    <DescriptionIcon sx={{ mr: 2, color: 'primary.dark' }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body1" fontWeight="bold" color="primary.dark">
-                        Payslip - {moment().format('MMMM YYYY')}
-                      </Typography>
-                      <Typography variant="body2" color="primary.dark">
-                        Generated on {moment().format('DD MMM YYYY')}
-                      </Typography>
-                    </Box>
-                    <Button variant="contained" size="small" startIcon={<DownloadIcon />}>
-                      Download
-                    </Button>
-                  </Box>
-
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Payment Date: {moment().add(1, 'day').format('DD MMM YYYY')}
-                  </Typography>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
-                    Year to Date Earnings
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="body2">Gross Earnings:</Typography>
-                    <Typography variant="body2" fontWeight="bold">
-                      ₹{(employeeData.payroll.currentSalary * 9)?.toLocaleString() || '4,50,000'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="body2">Total Deductions:</Typography>
-                    <Typography variant="body2" fontWeight="bold" color="error.main">
-                      ₹{(employeeData.payroll.currentSalary * 9 * 0.22)?.toLocaleString() || '99,000'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="body2">Net Earnings:</Typography>
-                    <Typography variant="body2" fontWeight="bold" color="success.main">
-                      ₹{(employeeData.payroll.currentSalary * 9 * 0.78)?.toLocaleString() || '3,51,000'}
-                    </Typography>
-                  </Box>
-
-                  <Divider sx={{ my: 2 }} />
-
-                  <Typography variant="body2" color="text.secondary">
-                    TDS Status: ₹{(employeeData.payroll.currentSalary * 9 * 0.1)?.toLocaleString() || '45,000'} deducted
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </TabPanel>
-
-        {/* Tab 3: Personal Information */}
-        <TabPanel value={tabValue} index={3}>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <PersonIcon sx={{ mr: 1 }} />
-                    Personal Details
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Personal Details
+                    </Typography>
+                  </Box>
                   
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="body2" color="text.secondary">Full Name</Typography>
                     <Typography variant="body1" fontWeight="bold">
-                      {employeeData.profile?.personalInfo?.firstName} {employeeData.profile?.personalInfo?.lastName}
+                      {`${employeeData.profile?.personalInfo?.firstName || ''} ${employeeData.profile?.personalInfo?.lastName || ''}`.trim() || 'Not provided'}
                     </Typography>
                   </Box>
 
@@ -1034,10 +1297,154 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <PhoneIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" gutterBottom>
+                      Contact Information
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Email</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.contactInfo?.email || 'Not provided'}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Phone Number</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.contactInfo?.phone || 'Not provided'}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Emergency Contact</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.contactInfo?.emergencyContact?.name || 'Not provided'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <HomeIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" gutterBottom>
+                      Address Information
+                    </Typography>
+                  </Box>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" gutterBottom>Current Address</Typography>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Street Address</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {employeeData.profile?.addressInfo?.currentAddress?.street || 'Not provided'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">City, State</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {employeeData.profile?.addressInfo?.currentAddress?.city || 'Not provided'}, {employeeData.profile?.addressInfo?.currentAddress?.state || 'Not provided'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">PIN Code</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {employeeData.profile?.addressInfo?.currentAddress?.pinCode || 'Not provided'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" gutterBottom>Bank Details</Typography>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Account Number</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          ****{employeeData.profile?.salaryInfo?.bankDetails?.accountNumber?.slice(-4) || '****'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Bank Name</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {employeeData.profile?.salaryInfo?.bankDetails?.bankName || 'Not provided'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">IFSC Code</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {employeeData.profile?.salaryInfo?.bankDetails?.ifscCode || 'Not provided'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        {/* Tab 3: Documents */}
+        <TabPanel value={tabValue} index={3}>
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <PersonIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" gutterBottom>
+                      Personal Details
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Full Name</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {`${employeeData.profile?.personalInfo?.firstName || ''} ${employeeData.profile?.personalInfo?.lastName || ''}`.trim() || 'Not provided'}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Date of Birth</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.personalInfo?.dateOfBirth ? 
+                        moment(employeeData.profile.personalInfo.dateOfBirth).format('DD MMM YYYY') : 
+                        'Not provided'
+                      }
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Gender</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.personalInfo?.gender || 'Not provided'}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Marital Status</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {employeeData.profile?.personalInfo?.maritalStatus || 'Not provided'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <EmailIcon sx={{ mr: 1 }} />
-                    Contact Information
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Contact Information
+                    </Typography>
+                  </Box>
                   
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="body2" color="text.secondary">Official Email</Typography>
@@ -1073,10 +1480,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <HomeIcon sx={{ mr: 1 }} />
-                    Address
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Address
+                    </Typography>
+                  </Box>
                   
                   {employeeData.profile?.contactInfo?.address ? (
                     <Box>
@@ -1105,10 +1514,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <ContactSupportIcon sx={{ mr: 1 }} />
-                    Emergency Contact
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Emergency Contact
+                    </Typography>
+                  </Box>
                   
                   {employeeData.profile?.contactInfo?.emergencyContact ? (
                     <Box>
@@ -1143,10 +1554,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <AccountBalanceIcon sx={{ mr: 1 }} />
-                    Bank Details & Tax Information
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Bank Details & Tax Information
+                    </Typography>
+                  </Box>
                   
                   <Grid container spacing={3}>
                     <Grid item xs={12} md={6}>
@@ -1204,14 +1617,16 @@ const EmployeeDashboard = () => {
           </Grid>
         </TabPanel>
 
-        {/* Tab 4: Documents Section */}
-        <TabPanel value={tabValue} index={4}>
+        {/* Tab 3: Documents Section */}
+        <TabPanel value={tabValue} index={3}>
           <Card>
             <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <DescriptionIcon sx={{ mr: 1 }} />
-                My Documents
-              </Typography>
+                <Typography variant="h6" gutterBottom>
+                  My Documents
+                </Typography>
+              </Box>
               
               <Grid container spacing={2}>
                 {[
@@ -1250,21 +1665,31 @@ const EmployeeDashboard = () => {
           </Card>
         </TabPanel>
 
-        {/* Tab 5: Tasks & Notices */}
-        <TabPanel value={tabValue} index={5}>
+        {/* Tab 4: Team & Reporting - Temporarily disabled due to API issues
+        <TabPanel value={tabValue} index={4}>
+          <Grid container spacing={3}>
+            Team & Reporting content temporarily disabled
+          </Grid>
+        </TabPanel>
+        */}
+
+        {/* Tab 4: Tasks & Notices (index adjusted) */}
+        <TabPanel value={tabValue} index={4}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <AssignmentIcon sx={{ mr: 1 }} />
-                    Assigned Tasks
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Assigned Tasks
+                    </Typography>
+                  </Box>
                   
                   {employeeData.tasks?.length > 0 ? (
                     <List>
                       {employeeData.tasks.map((task, index) => (
-                        <ListItem key={index} divider>
+                        <ListItem key={index} divider sx={{ alignItems: 'flex-start' }}>
                           <ListItemIcon>
                             <AssignmentIcon color={task.priority === 'high' ? 'error' : 'primary'} />
                           </ListItemIcon>
@@ -1272,11 +1697,13 @@ const EmployeeDashboard = () => {
                             primary={task.title}
                             secondary={`Due: ${moment(task.dueDate).format('DD MMM YYYY')} • ${task.status}`}
                           />
-                          <Chip
-                            label={task.priority}
-                            size="small"
-                            color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'}
-                          />
+                          <Box sx={{ ml: 2, mt: 0.5 }}>
+                            <Chip
+                              label={task.priority}
+                              size="small"
+                              color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'}
+                            />
+                          </Box>
                         </ListItem>
                       ))}
                     </List>
@@ -1298,10 +1725,12 @@ const EmployeeDashboard = () => {
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <NotificationsIcon sx={{ mr: 1 }} />
-                    HR Notices & Events
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      HR Notices & Events
+                    </Typography>
+                  </Box>
                   
                   <List>
                     <ListItem divider>
@@ -1338,16 +1767,18 @@ const EmployeeDashboard = () => {
           </Grid>
         </TabPanel>
 
-        {/* Tab 6: Performance/Goals */}
-        <TabPanel value={tabValue} index={6}>
+        {/* Tab 5: Performance/Goals */}
+        <TabPanel value={tabValue} index={5}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={8}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <TrendingUpIcon sx={{ mr: 1 }} />
-                    Key Result Areas (KRAs) & Goals
-                  </Typography>
+                    <Typography variant="h6" gutterBottom>
+                      Key Result Areas (KRAs) & Goals
+                    </Typography>
+                  </Box>
                   
                   <Box sx={{ textAlign: 'center', py: 4 }}>
                     <TrendingUpIcon sx={{ fontSize: 48, color: 'grey.400', mb: 2 }} />
@@ -1409,14 +1840,16 @@ const EmployeeDashboard = () => {
           </Grid>
         </TabPanel>
 
-        {/* Tab 7: Assets */}
-        <TabPanel value={tabValue} index={7}>
+        {/* Tab 6: Assets */}
+        <TabPanel value={tabValue} index={6}>
           <Card>
             <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <ComputerIcon sx={{ mr: 1 }} />
-                Assigned Assets ({employeeData.assets?.length || 0})
-              </Typography>
+                <Typography variant="h6" gutterBottom>
+                  Assigned Assets ({employeeData.assets?.length || 0})
+                </Typography>
+              </Box>
               
               {employeeData.assets && employeeData.assets.length > 0 ? (
                 <Grid container spacing={2}>

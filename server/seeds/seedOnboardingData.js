@@ -460,7 +460,9 @@ async function seedOnboardingData() {
 
 // Run the seed function if this file is executed directly
 if (require.main === module) {
-  seedOnboardingData();
+  console.log('⚠️  Onboarding seed script is DISABLED to prevent dummy data creation');
+  console.log('💡 To run seeds manually, uncomment the seedOnboardingData() call');
+  // seedOnboardingData();
 }
 
 module.exports = { seedOnboardingData, sampleOnboardings };

@@ -304,22 +304,26 @@ const Permissions = () => {
                       </Box>
                       <Box>
                         <Tooltip title="Edit Role">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => handleEditRole(role)}
-                            disabled={role.isSystemRole}
-                          >
-                            <EditIcon />
-                          </IconButton>
+                          <span>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleEditRole(role)}
+                              disabled={role.isSystemRole}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                         <Tooltip title="Delete Role">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => handleDeleteRole(role._id)}
-                            disabled={role.isSystemRole}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
+                          <span>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleDeleteRole(role._id)}
+                              disabled={role.isSystemRole}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       </Box>
                     </Box>

@@ -19,12 +19,14 @@ const seedData = async () => {
   try {
     console.log('🌱 Starting to seed database...');
 
-    // Clear existing data
-    await User.deleteMany({});
-    await Employee.deleteMany({});
-    await Department.deleteMany({});
-    await LeaveType.deleteMany({});
-    await SalaryComponent.deleteMany({});
+    // DISABLED: Clear existing data - This was deleting real employee data!
+    // await User.deleteMany({});
+    // await Employee.deleteMany({});
+    // await Department.deleteMany({});
+    // await LeaveType.deleteMany({});
+    // await SalaryComponent.deleteMany({});
+    
+    console.log('⚠️  Data clearing is DISABLED to preserve real employee data');
 
     console.log('✅ Cleared existing data');
 
@@ -521,5 +523,8 @@ const seedData = async () => {
   }
 };
 
-// Run the seed function
-seedData();
+// DISABLED: Run the seed function - This was adding dummy data!
+// seedData();
+
+console.log('⚠️  Seed script is DISABLED to prevent dummy data creation');
+console.log('💡 To run seeds manually, uncomment the seedData() call and run: node server/seeds/seedData.js');

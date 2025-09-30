@@ -14,7 +14,8 @@ const seedCustomRoles = async () => {
         description: 'An asset manager has all the permissions to manage the assets in the organization.',
         permissions: [
           { module: MODULES.DASHBOARD, actions: [ACTIONS.READ] },
-          { module: MODULES.ORGANIZATION, actions: [ACTIONS.READ, ACTIONS.CREATE, ACTIONS.UPDATE, ACTIONS.DELETE] },
+          { module: MODULES.ASSETS, actions: [ACTIONS.READ, ACTIONS.CREATE, ACTIONS.UPDATE, ACTIONS.DELETE, ACTIONS.EXPORT] },
+          { module: MODULES.ORGANIZATION, actions: [ACTIONS.READ] },
           { module: MODULES.EMPLOYEES, actions: [ACTIONS.READ] },
           { module: MODULES.REPORTS, actions: [ACTIONS.READ, ACTIONS.CREATE, ACTIONS.EXPORT] }
         ],

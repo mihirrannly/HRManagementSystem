@@ -46,6 +46,7 @@ import {
 import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 
 import { useAuth } from '../../contexts/AuthContext';
 import EmployeeDashboard from './EmployeeDashboard';
@@ -123,11 +124,15 @@ const StatCard = ({ title, value, change, icon, color = 'primary', onClick }) =>
 );
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const navigate = useNavigate();
 
   // Show employee-specific dashboard for employee role
-  if (user?.role === 'employee') {
+  // Also show employee dashboard for specific admin users and HR
+  const showEmployeeDashboard = user?.role === 'employee' || 
+    ['mihir@rannkly.com', 'vishnu@rannkly.com', 'shobhit@rannkly.com', 'hr@rannkly.com', 'prajwal@rannkly.com', 'prajwal.shinde@rannkly.com'].includes(user?.email?.toLowerCase());
+  
+  if (showEmployeeDashboard) {
     return <EmployeeDashboard />;
   }
 
@@ -149,11 +154,15 @@ const Dashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
-
+  const [officeStatus, setOfficeStatus] = useState(null);
   useEffect(() => {
     fetchDashboardData();
     fetchAttendanceStatus();
-  }, []);
+    // Fetch office status for users who can mark attendance
+    if (user?.role === 'employee' || user?.role === 'admin') {
+      fetchOfficeStatus();
+    }
+  }, [user]);
 
   const fetchDashboardData = async () => {
     try {
@@ -194,21 +203,72 @@ const Dashboard = () => {
     }
   };
 
+  const fetchOfficeStatus = async () => {
+    try {
+      const response = await axios.get('/attendance/office-status');
+      setOfficeStatus(response.data);
+    } catch (error) {
+      console.error('Error fetching office status:', error);
+      setOfficeStatus({ isOfficeIP: false, message: 'Unable to verify office location' });
+    }
+  };
+
   const handleCheckIn = async () => {
     try {
-      await axios.post('/attendance/checkin');
-      fetchAttendanceStatus();
+      const response = await axios.post('/attendance/checkin', {
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          browser: navigator.userAgent,
+          os: navigator.platform,
+          device: /Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+        }
+      });
+      
+      if (response.data.success) {
+        toast.success(response.data.message);
+        if (response.data.isLate) {
+          toast.warning(`You are ${response.data.lateMinutes} minutes late`);
+        }
+        fetchAttendanceStatus();
+      }
     } catch (error) {
       console.error('Error checking in:', error);
+      if (error.response?.status === 403) {
+        toast.error(error.response.data.message || 'Check-in only allowed from office premises');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to check in');
+      }
     }
   };
 
   const handleCheckOut = async () => {
     try {
-      await axios.post('/attendance/checkout');
-      fetchAttendanceStatus();
+      const response = await axios.post('/attendance/checkout', {
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          browser: navigator.userAgent,
+          os: navigator.platform,
+          device: /Mobile|Android|iPhone|iPad/.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+        }
+      });
+      
+      if (response.data.success) {
+        toast.success(response.data.message);
+        if (response.data.isEarlyDeparture) {
+          toast.warning(`Early departure: ${response.data.earlyMinutes} minutes`);
+        }
+        if (response.data.workingHours) {
+          toast.info(`Total working hours: ${response.data.workingHours}`);
+        }
+        fetchAttendanceStatus();
+      }
     } catch (error) {
       console.error('Error checking out:', error);
+      if (error.response?.status === 403) {
+        toast.error(error.response.data.message || 'Check-out only allowed from office premises');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to check out');
+      }
     }
   };
 
@@ -226,15 +286,15 @@ const Dashboard = () => {
       {/* Welcome Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Welcome back, {user?.employee?.name || 'User'}! 👋
+          Welcome back, {employee?.personalInfo ? `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}` : 'User'}! 👋
         </Typography>
         <Typography variant="body1" color="text.secondary">
           {moment().format('dddd, MMMM Do YYYY')}
         </Typography>
       </Box>
 
-      {/* Quick Actions for Employees */}
-      {user?.role === 'employee' && (
+      {/* Quick Actions for Employees and Admins */}
+      {(user?.role === 'employee' || user?.role === 'admin') && (
         <Card sx={{ mb: 4, bgcolor: 'primary.main', color: 'white' }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -255,7 +315,12 @@ const Dashboard = () => {
                 )}
               </Box>
               <Box>
-                {!attendanceStatus?.isCheckedIn ? (
+                {attendanceStatus?.status === 'weekend' ? (
+                  <Chip
+                    label="Weekend"
+                    sx={{ bgcolor: '#9e9e9e', color: 'white', fontWeight: 'bold' }}
+                  />
+                ) : !attendanceStatus?.isCheckedIn ? (
                   <Chip
                     label="Check In"
                     onClick={handleCheckIn}

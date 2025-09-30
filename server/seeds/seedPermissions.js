@@ -15,13 +15,22 @@ const seedPermissions = async () => {
         module: MODULES.DASHBOARD,
         name: 'Dashboard Access',
         description: 'Access to main dashboard and analytics',
-        availableActions: [ACTIONS.READ]
+        availableActions: [
+          { action: ACTIONS.READ, description: 'View dashboard and analytics' }
+        ]
       },
       {
         module: MODULES.EMPLOYEES,
         name: 'Employee Management',
         description: 'Manage employee records and profiles',
-        availableActions: [ACTIONS.READ, ACTIONS.CREATE, ACTIONS.UPDATE, ACTIONS.DELETE, ACTIONS.EXPORT, ACTIONS.IMPORT]
+        availableActions: [
+          { action: ACTIONS.READ, description: 'View employee records' },
+          { action: ACTIONS.CREATE, description: 'Create new employees' },
+          { action: ACTIONS.UPDATE, description: 'Edit employee information' },
+          { action: ACTIONS.DELETE, description: 'Delete employee records' },
+          { action: ACTIONS.EXPORT, description: 'Export employee data' },
+          { action: ACTIONS.IMPORT, description: 'Import employee data' }
+        ]
       },
       {
         module: MODULES.ATTENDANCE,
@@ -111,6 +120,18 @@ const seedPermissions = async () => {
           { action: ACTIONS.CREATE, description: 'Create onboarding workflows' },
           { action: ACTIONS.UPDATE, description: 'Update onboarding status' },
           { action: ACTIONS.APPROVE, description: 'Approve onboarding completion' }
+        ]
+      },
+      {
+        module: MODULES.ASSETS,
+        name: 'Asset Management',
+        description: 'Manage company assets and assignments',
+        availableActions: [
+          { action: ACTIONS.READ, description: 'View assets and assignments' },
+          { action: ACTIONS.CREATE, description: 'Create new assets' },
+          { action: ACTIONS.UPDATE, description: 'Edit assets and assign to employees' },
+          { action: ACTIONS.DELETE, description: 'Delete assets' },
+          { action: ACTIONS.EXPORT, description: 'Export asset reports' }
         ]
       },
       {

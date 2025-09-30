@@ -236,9 +236,9 @@ async function seedBulkOnboardingData() {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/rannkly_hr');
     console.log('✅ Connected to MongoDB');
 
-    // Clear existing onboarding data
-    await Onboarding.deleteMany({});
-    console.log('🧹 Cleared existing onboarding data');
+    // DISABLED: Clear existing onboarding data - This was deleting real data!
+    // await Onboarding.deleteMany({});
+    console.log('⚠️  Onboarding data clearing is DISABLED to preserve real data');
 
     // Generate records based on status distribution
     const allRecords = [];
@@ -345,7 +345,9 @@ async function seedBulkOnboardingData() {
 
 // Run the seed function if this file is executed directly
 if (require.main === module) {
-  seedBulkOnboardingData();
+  console.log('⚠️  Bulk onboarding seed script is DISABLED to prevent dummy data creation');
+  console.log('💡 To run seeds manually, uncomment the seedBulkOnboardingData() call');
+  // seedBulkOnboardingData();
 }
 
 module.exports = { seedBulkOnboardingData };

@@ -31,6 +31,7 @@ import {
   Folder as FolderIcon,
   Favorite as FavoriteIcon,
   Computer as ComputerIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -80,6 +81,12 @@ const menuItems = [
     path: '/assets',
     roles: ['admin', 'hr', 'manager']
   },
+  {
+    text: 'Settings',
+    icon: <SettingsIcon />,
+    path: '/settings',
+    roles: ['admin', 'hr']
+  },
 ];
 
 const Layout = () => {
@@ -87,7 +94,7 @@ const Layout = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, employee, logout } = useAuth();
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -121,17 +128,17 @@ const Layout = () => {
       {/* User Info */}
       <Box sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.50' }}>
         <Avatar sx={{ width: 56, height: 56, mx: 'auto', mb: 1, bgcolor: 'primary.main' }}>
-          {user?.employee?.name?.charAt(0) || user?.email?.charAt(0).toUpperCase()}
+          {employee?.personalInfo?.firstName?.charAt(0) || user?.email?.charAt(0).toUpperCase()}
         </Avatar>
         <Typography variant="subtitle2" fontWeight="medium">
-          {user?.employee?.name || 'User'}
+          {employee?.personalInfo ? `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}` : 'User'}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          {user?.employee?.designation || user?.role?.toUpperCase()}
+          {employee?.employmentInfo?.designation || user?.role?.toUpperCase()}
         </Typography>
-        {user?.employee?.employeeId && (
+        {employee?.employeeId && (
           <Typography variant="caption" display="block" color="text.secondary">
-            ID: {user.employee.employeeId}
+            ID: {employee.employeeId}
           </Typography>
         )}
       </Box>

@@ -54,44 +54,57 @@ const leaveBalanceSchema = new mongoose.Schema({
     ref: 'Employee',
     required: true
   },
-  leaveType: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'LeaveType',
-    required: true
-  },
   year: {
     type: Number,
     required: true
   },
-  allocated: {
-    type: Number,
-    default: 0
+  // Casual Leave Balance
+  casualLeave: {
+    allocated: { type: Number, default: 12 },
+    used: { type: Number, default: 0 },
+    pending: { type: Number, default: 0 },
+    available: { type: Number, default: 12 }
   },
-  used: {
-    type: Number,
-    default: 0
+  // Sick Leave Balance
+  sickLeave: {
+    allocated: { type: Number, default: 12 },
+    used: { type: Number, default: 0 },
+    pending: { type: Number, default: 0 },
+    available: { type: Number, default: 12 }
   },
-  pending: {
-    type: Number,
-    default: 0
+  // Special Leave Balance (Marriage, Bereavement)
+  specialLeave: {
+    allocated: { type: Number, default: 3 },
+    used: { type: Number, default: 0 },
+    pending: { type: Number, default: 0 },
+    available: { type: Number, default: 3 }
   },
-  available: {
-    type: Number,
-    default: 0
+  // Monthly usage tracking
+  monthlyUsage: [{
+    month: { type: Number, required: true }, // 1-12
+    casualUsed: { type: Number, default: 0 },
+    sickUsed: { type: Number, default: 0 },
+    specialUsed: { type: Number, default: 0 }
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
   },
-  carriedForward: {
-    type: Number,
-    default: 0
-  },
-  encashed: {
-    type: Number,
-    default: 0
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
 });
 
-// Calculate available balance
+// Calculate available balances and update timestamp
 leaveBalanceSchema.pre('save', function(next) {
-  this.available = this.allocated + this.carriedForward - this.used - this.pending - this.encashed;
+  // Calculate available balances for each leave type
+  this.casualLeave.available = this.casualLeave.allocated - this.casualLeave.used - this.casualLeave.pending;
+  this.sickLeave.available = this.sickLeave.allocated - this.sickLeave.used - this.sickLeave.pending;
+  this.specialLeave.available = this.specialLeave.allocated - this.specialLeave.used - this.specialLeave.pending;
+  
+  // Update timestamp
+  this.updatedAt = Date.now();
   next();
 });
 
@@ -102,8 +115,8 @@ const leaveRequestSchema = new mongoose.Schema({
     required: true
   },
   leaveType: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'LeaveType',
+    type: String,
+    enum: ['casual', 'sick', 'marriage', 'bereavement'],
     required: true
   },
   startDate: {
@@ -124,7 +137,7 @@ const leaveRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected', 'cancelled'],
+    enum: ['pending', 'partially_approved', 'approved', 'rejected', 'cancelled'],
     default: 'pending'
   },
   appliedDate: {
@@ -135,6 +148,11 @@ const leaveRequestSchema = new mongoose.Schema({
     approver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Employee'
+    },
+    approverType: {
+      type: String,
+      enum: ['manager', 'hr'],
+      required: true
     },
     level: Number,
     status: {
@@ -228,9 +246,10 @@ const holidaySchema = new mongoose.Schema({
 });
 
 // Indexes
-leaveBalanceSchema.index({ employee: 1, leaveType: 1, year: 1 }, { unique: true });
+leaveBalanceSchema.index({ employee: 1, year: 1 }, { unique: true });
 leaveRequestSchema.index({ employee: 1, startDate: 1 });
 leaveRequestSchema.index({ status: 1 });
+leaveRequestSchema.index({ leaveType: 1 });
 holidaySchema.index({ date: 1 });
 
 const LeaveType = mongoose.model('LeaveType', leaveTypeSchema);

@@ -69,13 +69,14 @@ router.post('/register', [
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
+    console.log('🔐 LOGIN ATTEMPT:', req.body.email || req.body.loginInput);
 
     const { email: loginInput, password } = req.body;
 
     // Manual validation for email/employee ID
     if (!loginInput || !loginInput.trim()) {
       return res.status(400).json({ 
-        message: 'Email or Employee ID is required' 
+        message: 'Please enter your email address or employee ID to login.' 
       });
     }
 
@@ -85,7 +86,14 @@ router.post('/login', async (req, res) => {
     
     if (!emailRegex.test(loginInput) && !employeeIdRegex.test(loginInput)) {
       return res.status(400).json({ 
-        message: 'Please enter a valid email address or employee ID (CODR###)' 
+        message: 'Invalid format. Please enter a valid email address (user@rannkly.com) or employee ID (CODR037).' 
+      });
+    }
+
+    // Validate password
+    if (!password || !password.trim()) {
+      return res.status(400).json({ 
+        message: 'Please enter your password.' 
       });
     }
 
@@ -97,22 +105,60 @@ router.post('/login', async (req, res) => {
     } else if (employeeIdRegex.test(loginInput)) {
       // Login with employee ID - find the employee first, then get the user
       const Employee = require('../models/Employee');
+      console.log('🔍 Looking up employee with ID:', loginInput.toUpperCase());
+      
       const employee = await Employee.findOne({ employeeId: loginInput.toUpperCase() })
         .populate('user');
       
-      if (employee && employee.user) {
-        user = employee.user;
+      console.log('🔍 Employee lookup result:', employee ? 'FOUND' : 'NOT FOUND');
+      
+      if (employee) {
+        console.log('🔍 Employee details:', {
+          _id: employee._id,
+          employeeId: employee.employeeId,
+          name: `${employee.personalInfo?.firstName} ${employee.personalInfo?.lastName}`,
+          hasUser: !!employee.user
+        });
+        
+        if (employee.user) {
+          console.log('🔍 User details from employee:', {
+            _id: employee.user._id,
+            email: employee.user.email,
+            role: employee.user.role,
+            isActive: employee.user.isActive
+          });
+          
+          user = employee.user;
+          console.log('🔍 User assigned to variable:', user._id);
+        }
       }
     }
 
-    if (!user || !user.isActive) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user) {
+      // Provide specific error message based on input type
+      if (emailRegex.test(loginInput)) {
+        return res.status(401).json({ 
+          message: 'No account found with this email address. Please check your email or contact HR.' 
+        });
+      } else {
+        return res.status(401).json({ 
+          message: 'Employee ID not found. Please check your employee ID or contact HR.' 
+        });
+      }
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        message: 'Your account has been deactivated. Please contact HR for assistance.' 
+      });
     }
 
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ 
+        message: 'Incorrect password. Please check your password and try again.' 
+      });
     }
 
     // Update last login
@@ -124,8 +170,23 @@ router.post('/login', async (req, res) => {
       .populate('employmentInfo.department', 'name code')
       .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.designation');
 
+    console.log('🔍 Final user object before token generation:', {
+      _id: user._id,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive
+    });
+
     // Generate token
     const token = generateToken(user._id);
+    console.log('🔍 Generated token for user ID:', user._id);
+
+    console.log('✅ LOGIN SUCCESS:', {
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+      employeeId: employee?.employeeId
+    });
 
     res.json({
       message: 'Login successful',
@@ -156,10 +217,13 @@ router.post('/login', async (req, res) => {
 // @access  Private
 router.get('/me', authenticate, async (req, res) => {
   try {
+    console.log('🔍 /me endpoint hit, user ID:', req.user._id);
+    console.log('🔍 User details:', { email: req.user.email, role: req.user.role });
+    
     const employee = await Employee.findOne({ user: req.user._id })
       .populate('employmentInfo.department', 'name code')
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
-      .select('employeeId personalInfo employmentInfo.designation employmentInfo.department employmentInfo.reportingManager');
+      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo');
 
     res.json({
       user: {
