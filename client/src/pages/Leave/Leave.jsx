@@ -195,7 +195,11 @@ const Leave = () => {
       }))
     });
     
-    // Remove the blanket admin restriction - we'll check specifically if admin is in approval flow below
+    // TEMPORARY FIX: Allow Mihir (Global Admin) to approve any pending leave request
+    if (user?.role === 'admin' && user?.email === 'mihir@rannkly.com') {
+      console.log('🚀 OVERRIDE: Mihir (Global Admin) can approve any leave request');
+      return true;
+    }
     
     // Check if request is still pending or partially approved
     if (request.status !== 'pending' && request.status !== 'partially_approved') {
