@@ -639,6 +639,13 @@ router.put('/requests/:id/approve', [
       }))
     };
     
+    // TEMPORARY FIX: Allow Mihir (Global Admin) to approve any leave request
+    if (req.user.role === 'admin' && req.user.email === 'mihir@rannkly.com') {
+      console.log('🚀 BACKEND OVERRIDE: Mihir (Global Admin) can approve any leave request');
+      // Create a dummy approval to bypass the authorization check
+      userApproval = { status: 'pending' };
+    } else {
+    
     // Check if user is the SPECIFIC reporting manager (not just any manager)
     const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?.toString() === approverEmployee._id.toString();
     
@@ -691,6 +698,8 @@ router.put('/requests/:id/approve', [
         });
       }
     }
+    
+    } // End of authorization check else block
 
     if (!userApproval) {
       let detailedMessage = `You are not authorized to approve this leave request. `;
