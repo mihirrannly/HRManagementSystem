@@ -577,11 +577,22 @@ onboardingSchema.methods.updateStepProgress = function(stepId, completed = true)
   
   // Initialize the specific step if it doesn't exist
   if (!this.stepProgress[stepId]) {
-    this.stepProgress[stepId] = { completed: false, completedAt: null };
+    this.stepProgress[stepId] = { completed: false, completedAt: null, status: 'pending' };
   }
   
+  // Update step status and completion
   this.stepProgress[stepId].completed = completed;
   this.stepProgress[stepId].completedAt = completed ? new Date() : null;
+  
+  // Set step status based on completion and context
+  if (completed) {
+    this.stepProgress[stepId].status = 'completed';
+  } else if (stepId === 'offer_letter' && this.offerLetter?.status === 'sent') {
+    // Special case: offer letter is sent but not yet accepted
+    this.stepProgress[stepId].status = 'in_progress';
+  } else {
+    this.stepProgress[stepId].status = 'pending';
+  }
   
   // Calculate overall progress
   const steps = ['offer_letter', 'document_collection', 'background_verification', 'it_setup', 'hr_setup', 'orientation', 'manager_introduction', 'workspace_setup', 'training_schedule', 'completion'];
@@ -589,7 +600,7 @@ onboardingSchema.methods.updateStepProgress = function(stepId, completed = true)
   // Initialize missing steps
   steps.forEach(step => {
     if (!this.stepProgress[step]) {
-      this.stepProgress[step] = { completed: false, completedAt: null };
+      this.stepProgress[step] = { completed: false, completedAt: null, status: 'pending' };
     }
   });
   

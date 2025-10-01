@@ -253,6 +253,13 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
 
   const getStepStatus = (stepId) => {
     if (!onboarding?.stepProgress) return 'pending';
+    
+    // Check if step has explicit status
+    if (onboarding.stepProgress[stepId]?.status) {
+      return onboarding.stepProgress[stepId].status;
+    }
+    
+    // Fallback to completed/pending logic
     return onboarding.stepProgress[stepId]?.completed ? 'completed' : 'pending';
   };
 
@@ -414,7 +421,9 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
           <Box sx={{ p: 1.5 }}>
             <Stepper activeStep={activeStep} orientation="vertical">
               {workflowSteps.map((step, index) => {
-                const isCompleted = getStepStatus(step.id) === 'completed';
+                const stepStatus = getStepStatus(step.id);
+                const isCompleted = stepStatus === 'completed';
+                const isInProgress = stepStatus === 'in_progress';
                 const isActive = index === activeStep;
                 
                 return (
@@ -426,6 +435,10 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
                             Completed {onboarding?.stepProgress?.[step.id]?.completedAt ? 
                               moment(onboarding.stepProgress[step.id].completedAt).format('MMM DD') : ''}
                           </Typography>
+                        ) : isInProgress ? (
+                          <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.7rem' }}>
+                            In Progress
+                          </Typography>
                         ) : (
                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                             Step {step.step} of 8
@@ -435,6 +448,19 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
                       icon={
                         isCompleted ? (
                           <CheckCircleIcon color="success" />
+                        ) : isInProgress ? (
+                          <Avatar sx={{ 
+                            bgcolor: 'warning.light', 
+                            color: 'warning.contrastText',
+                            border: '2px solid',
+                            borderColor: 'warning.main',
+                            width: 28, 
+                            height: 28,
+                            fontSize: '0.75rem',
+                            fontWeight: 600
+                          }}>
+                            {step.step}
+                          </Avatar>
                         ) : (
                           <Avatar sx={{ 
                             bgcolor: 'transparent', 
@@ -463,11 +489,11 @@ const OnboardingWorkflowNew = ({ onboarding: propOnboarding, onBack }) => {
                         <Button
                           variant="contained"
                           onClick={() => handleStepComplete(step.id)}
-                          disabled={isCompleted || processingStep === step.id}
+                          disabled={isCompleted || isInProgress || processingStep === step.id}
                           size="small"
                           sx={{ mr: 1, fontSize: '0.75rem', py: 0.5 }}
                         >
-                          {isCompleted ? 'Completed' : 'Mark Complete'}
+                          {isCompleted ? 'Completed' : isInProgress ? 'In Progress' : 'Mark Complete'}
                         </Button>
                         <Button
                           disabled={index === 0}

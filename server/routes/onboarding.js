@@ -1554,14 +1554,14 @@ async function syncOnboardingToEmployee(onboarding, employee, user) {
     
     if (candidatePersonalInfo.phone || onboarding.phone) {
       const newPhone = candidatePersonalInfo.phone || onboarding.phone;
-      trackChange('personalInfo.phone', employee.personalInfo.phone, newPhone);
-      employee.personalInfo.phone = newPhone;
+      trackChange('contactInfo.phone', employee.contactInfo.phone, newPhone);
+      employee.contactInfo.phone = newPhone;
     }
 
     if (candidatePersonalInfo.email || onboarding.email) {
       const newEmail = candidatePersonalInfo.email || onboarding.email;
-      trackChange('personalInfo.email', employee.personalInfo.email, newEmail);
-      employee.personalInfo.email = newEmail;
+      trackChange('contactInfo.personalEmail', employee.contactInfo.personalEmail, newEmail);
+      employee.contactInfo.personalEmail = newEmail;
     }
 
     if (candidatePersonalInfo.dateOfBirth || onboarding.dateOfBirth) {
@@ -1571,13 +1571,54 @@ async function syncOnboardingToEmployee(onboarding, employee, user) {
     }
 
     // Update other personal fields
-    const personalFields = ['gender', 'maritalStatus', 'nationality', 'bloodGroup', 'aadharNumber', 'panNumber'];
+    const personalFields = ['gender', 'maritalStatus', 'nationality', 'bloodGroup'];
     personalFields.forEach(field => {
       if (candidatePersonalInfo[field]) {
         trackChange(`personalInfo.${field}`, employee.personalInfo[field], candidatePersonalInfo[field]);
         employee.personalInfo[field] = candidatePersonalInfo[field];
       }
     });
+
+    // Update tax info fields (these go in salaryInfo.taxInfo in Employee model)
+    if (candidatePersonalInfo.aadharNumber) {
+      trackChange('salaryInfo.taxInfo.aadharNumber', employee.salaryInfo?.taxInfo?.aadharNumber, candidatePersonalInfo.aadharNumber);
+      employee.salaryInfo = employee.salaryInfo || {};
+      employee.salaryInfo.taxInfo = employee.salaryInfo.taxInfo || {};
+      employee.salaryInfo.taxInfo.aadharNumber = candidatePersonalInfo.aadharNumber;
+    }
+
+    if (candidatePersonalInfo.panNumber) {
+      trackChange('salaryInfo.taxInfo.panNumber', employee.salaryInfo?.taxInfo?.panNumber, candidatePersonalInfo.panNumber);
+      employee.salaryInfo = employee.salaryInfo || {};
+      employee.salaryInfo.taxInfo = employee.salaryInfo.taxInfo || {};
+      employee.salaryInfo.taxInfo.panNumber = candidatePersonalInfo.panNumber;
+    }
+
+    // Update bank details from candidate portal
+    if (onboarding.candidatePortal?.bankDetails?.length > 0) {
+      const primaryBank = onboarding.candidatePortal.bankDetails.find(bank => bank.isPrimary) || onboarding.candidatePortal.bankDetails[0];
+      if (primaryBank) {
+        employee.salaryInfo = employee.salaryInfo || {};
+        employee.salaryInfo.bankDetails = employee.salaryInfo.bankDetails || {};
+        
+        if (primaryBank.accountNumber) {
+          trackChange('salaryInfo.bankDetails.accountNumber', employee.salaryInfo.bankDetails.accountNumber, primaryBank.accountNumber);
+          employee.salaryInfo.bankDetails.accountNumber = primaryBank.accountNumber;
+        }
+        if (primaryBank.bankName) {
+          trackChange('salaryInfo.bankDetails.bankName', employee.salaryInfo.bankDetails.bankName, primaryBank.bankName);
+          employee.salaryInfo.bankDetails.bankName = primaryBank.bankName;
+        }
+        if (primaryBank.ifscCode) {
+          trackChange('salaryInfo.bankDetails.ifscCode', employee.salaryInfo.bankDetails.ifscCode, primaryBank.ifscCode);
+          employee.salaryInfo.bankDetails.ifscCode = primaryBank.ifscCode;
+        }
+        if (primaryBank.accountHolderName) {
+          trackChange('salaryInfo.bankDetails.accountHolderName', employee.salaryInfo.bankDetails.accountHolderName, primaryBank.accountHolderName);
+          employee.salaryInfo.bankDetails.accountHolderName = primaryBank.accountHolderName;
+        }
+      }
+    }
 
     // Update employment information
     if (onboarding.position) {
@@ -1589,6 +1630,24 @@ async function syncOnboardingToEmployee(onboarding, employee, user) {
       const newJoiningDate = candidatePersonalInfo.dateOfJoining || onboarding.startDate;
       trackChange('employmentInfo.dateOfJoining', employee.employmentInfo.dateOfJoining, newJoiningDate);
       employee.employmentInfo.dateOfJoining = newJoiningDate;
+    }
+
+    // Update employment status/type
+    if (candidatePersonalInfo.employmentStatus) {
+      // Map employment status to employeeType
+      const employmentTypeMap = {
+        'permanent': 'full-time',
+        'contract': 'contract',
+        'intern': 'intern',
+        'part-time': 'part-time'
+      };
+      const mappedType = employmentTypeMap[candidatePersonalInfo.employmentStatus] || 'full-time';
+      trackChange('employmentInfo.employeeType', employee.employmentInfo.employeeType, mappedType);
+      employee.employmentInfo.employeeType = mappedType;
+      
+      // Also store the original employment status in additionalInfo for reference
+      employee.additionalInfo = employee.additionalInfo || {};
+      employee.additionalInfo.employmentStatus = candidatePersonalInfo.employmentStatus;
     }
     
     // Update reporting manager if available
@@ -1609,18 +1668,42 @@ async function syncOnboardingToEmployee(onboarding, employee, user) {
       employee.contactInfo.alternatePhone = candidatePersonalInfo.alternatePhone;
     }
 
-    // Update address information
+    // Update address information - map to the correct Employee model structure
     if (onboarding.candidatePortal?.addressInfo) {
       const addressInfo = onboarding.candidatePortal.addressInfo;
+      
+      // Map current address to the main address field in Employee model
       if (addressInfo.currentAddress) {
+        const currentAddr = addressInfo.currentAddress;
         employee.contactInfo.address = employee.contactInfo.address || {};
-        employee.contactInfo.address.current = addressInfo.currentAddress;
-        changes.push({ field: 'contactInfo.address.current', oldValue: 'previous', newValue: 'updated' });
+        
+        if (currentAddr.street) {
+          trackChange('contactInfo.address.street', employee.contactInfo.address.street, currentAddr.street);
+          employee.contactInfo.address.street = currentAddr.street;
+        }
+        if (currentAddr.city) {
+          trackChange('contactInfo.address.city', employee.contactInfo.address.city, currentAddr.city);
+          employee.contactInfo.address.city = currentAddr.city;
+        }
+        if (currentAddr.state) {
+          trackChange('contactInfo.address.state', employee.contactInfo.address.state, currentAddr.state);
+          employee.contactInfo.address.state = currentAddr.state;
+        }
+        if (currentAddr.pincode) {
+          trackChange('contactInfo.address.postalCode', employee.contactInfo.address.postalCode, currentAddr.pincode);
+          employee.contactInfo.address.postalCode = currentAddr.pincode;
+        }
+        if (currentAddr.country) {
+          trackChange('contactInfo.address.country', employee.contactInfo.address.country, currentAddr.country);
+          employee.contactInfo.address.country = currentAddr.country;
+        }
       }
+      
+      // Store permanent address in additionalInfo for reference
       if (addressInfo.permanentAddress) {
-        employee.contactInfo.address = employee.contactInfo.address || {};
-        employee.contactInfo.address.permanent = addressInfo.permanentAddress;
-        changes.push({ field: 'contactInfo.address.permanent', oldValue: 'previous', newValue: 'updated' });
+        employee.additionalInfo = employee.additionalInfo || {};
+        employee.additionalInfo.permanentAddress = addressInfo.permanentAddress;
+        changes.push({ field: 'additionalInfo.permanentAddress', oldValue: 'previous', newValue: 'updated' });
       }
     }
 
@@ -1658,6 +1741,88 @@ async function syncOnboardingToEmployee(onboarding, employee, user) {
         reasonForLeaving: exp.reasonForLeaving
       }));
       changes.push({ field: 'experience', oldValue: 'previous', newValue: `${onboarding.candidatePortal.workExperience.experienceDetails.length} experiences` });
+    }
+
+    // Update documents from candidate portal
+    if (onboarding.candidatePortal?.governmentDocuments || onboarding.candidatePortal?.bankDocuments || onboarding.candidatePortal?.educationDocuments || onboarding.candidatePortal?.workExperienceDocuments) {
+      const documents = [];
+      
+      // Add government documents
+      if (onboarding.candidatePortal.governmentDocuments) {
+        if (onboarding.candidatePortal.governmentDocuments.aadhaarImage) {
+          documents.push({
+            type: 'id-proof',
+            name: 'Aadhaar Card',
+            filePath: onboarding.candidatePortal.governmentDocuments.aadhaarImage.url,
+            uploadedAt: onboarding.candidatePortal.governmentDocuments.aadhaarImage.uploadedAt
+          });
+        }
+        if (onboarding.candidatePortal.governmentDocuments.panImage) {
+          documents.push({
+            type: 'id-proof',
+            name: 'PAN Card',
+            filePath: onboarding.candidatePortal.governmentDocuments.panImage.url,
+            uploadedAt: onboarding.candidatePortal.governmentDocuments.panImage.uploadedAt
+          });
+        }
+      }
+      
+      // Add bank documents
+      if (onboarding.candidatePortal.bankDocuments) {
+        if (onboarding.candidatePortal.bankDocuments.cancelledCheque) {
+          documents.push({
+            type: 'other',
+            name: 'Cancelled Cheque',
+            filePath: onboarding.candidatePortal.bankDocuments.cancelledCheque.url,
+            uploadedAt: onboarding.candidatePortal.bankDocuments.cancelledCheque.uploadedAt
+          });
+        }
+        if (onboarding.candidatePortal.bankDocuments.passbook) {
+          documents.push({
+            type: 'other',
+            name: 'Bank Passbook',
+            filePath: onboarding.candidatePortal.bankDocuments.passbook.url,
+            uploadedAt: onboarding.candidatePortal.bankDocuments.passbook.uploadedAt
+          });
+        }
+        if (onboarding.candidatePortal.bankDocuments.bankStatement) {
+          documents.push({
+            type: 'other',
+            name: 'Bank Statement',
+            filePath: onboarding.candidatePortal.bankDocuments.bankStatement.url,
+            uploadedAt: onboarding.candidatePortal.bankDocuments.bankStatement.uploadedAt
+          });
+        }
+      }
+      
+      // Add education documents
+      if (onboarding.candidatePortal.educationDocuments?.length > 0) {
+        onboarding.candidatePortal.educationDocuments.forEach(doc => {
+          documents.push({
+            type: 'educational',
+            name: doc.name,
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt
+          });
+        });
+      }
+      
+      // Add work experience documents
+      if (onboarding.candidatePortal.workExperienceDocuments?.length > 0) {
+        onboarding.candidatePortal.workExperienceDocuments.forEach(doc => {
+          documents.push({
+            type: 'experience',
+            name: doc.name,
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt
+          });
+        });
+      }
+      
+      if (documents.length > 0) {
+        employee.documents = documents;
+        changes.push({ field: 'documents', oldValue: 'previous', newValue: `${documents.length} documents` });
+      }
     }
 
     // Update additional info with latest onboarding data

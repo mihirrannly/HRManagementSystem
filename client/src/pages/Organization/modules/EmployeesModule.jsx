@@ -18,6 +18,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Stack,
   TablePagination,
   FormControl,
   InputLabel,
@@ -40,7 +41,6 @@ import {
   ListItemIcon,
   Divider,
   Badge,
-  Stack,
   GlobalStyles,
   Snackbar,
   Alert,
@@ -802,26 +802,362 @@ const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChang
   </Grid>
 );
 
-// Placeholder components for other sections
-const TimeSection = ({ employee }) => (
-  <Grid container spacing={3}>
-    <Grid item xs={12}>
-      <SectionCard icon="⏰" title="Time & Attendance" color="info.main">
-        <FieldDisplay label="Work Schedule" value="Coming Soon" />
-        <FieldDisplay label="Time Zone" value="Coming Soon" />
-        <FieldDisplay label="Attendance Policy" value="Coming Soon" />
-      </SectionCard>
+// Time & Attendance Section Component
+const TimeSection = ({ employee }) => {
+  const [attendanceData, setAttendanceData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPeriod, setSelectedPeriod] = useState('month'); // month, week, today
+
+  useEffect(() => {
+    fetchAttendanceData();
+  }, [employee, selectedPeriod]);
+
+  const fetchAttendanceData = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      // Calculate date range based on selected period
+      const now = new Date();
+      let startDate, endDate;
+      
+      switch (selectedPeriod) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+          break;
+        case 'week':
+          const startOfWeek = new Date(now);
+          startOfWeek.setDate(now.getDate() - now.getDay());
+          startDate = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate());
+          endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+          break;
+        case 'month':
+        default:
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+          break;
+      }
+
+      const response = await fetch(`/api/attendance/summary?employeeId=${employee._id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAttendanceData(data);
+      } else {
+        console.error('Failed to fetch attendance data');
+        setAttendanceData(null);
+      }
+    } catch (error) {
+      console.error('Error fetching attendance data:', error);
+      setAttendanceData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return 'N/A';
+    return new Date(timeString).toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+
+  const formatHours = (hours) => {
+    if (!hours) return '0h 0m';
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return `${h}h ${m}m`;
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'present': return 'success.main';
+      case 'late': return 'warning.main';
+      case 'absent': return 'error.main';
+      case 'half-day': return 'info.main';
+      default: return 'grey.500';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'present': return '✅';
+      case 'late': return '⚠️';
+      case 'absent': return '❌';
+      case 'half-day': return '⏰';
+      default: return '❓';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <SectionCard icon="⏰" title="Time & Attendance" color="info.main">
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                Loading attendance data...
+              </Typography>
+            </Box>
+          </SectionCard>
+        </Grid>
+      </Grid>
+    );
+  }
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12}>
+        <SectionCard icon="⏰" title="Time & Attendance" color="info.main">
+          {/* Period Selector */}
+          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="subtitle1" fontWeight="600">Attendance Overview</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {['today', 'week', 'month'].map((period) => (
+                <Button
+                  key={period}
+                  variant={selectedPeriod === period ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setSelectedPeriod(period)}
+                  sx={{ 
+                    textTransform: 'capitalize',
+                    minWidth: 80,
+                    fontSize: '0.75rem'
+                  }}
+                >
+                  {period}
+                </Button>
+              ))}
+            </Box>
+          </Box>
+
+          {attendanceData ? (
+            <>
+              {/* Professional Summary Stats */}
+              <Box sx={{ mb: 4 }}>
+                <Grid container spacing={3}>
+                  <Grid item xs={6} md={3}>
+                    <Box sx={{ 
+                      p: 3, 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: 2,
+                      textAlign: 'center',
+                      bgcolor: '#fafafa'
+                    }}>
+                      <Typography variant="h4" fontWeight="700" color="text.primary">
+                        {attendanceData.presentDays || 0}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Present Days
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Box sx={{ 
+                      p: 3, 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: 2,
+                      textAlign: 'center',
+                      bgcolor: '#fafafa'
+                    }}>
+                      <Typography variant="h4" fontWeight="700" color="text.primary">
+                        {attendanceData.lateDays || 0}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Late Days
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Box sx={{ 
+                      p: 3, 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: 2,
+                      textAlign: 'center',
+                      bgcolor: '#fafafa'
+                    }}>
+                      <Typography variant="h4" fontWeight="700" color="text.primary">
+                        {attendanceData.absentDays || 0}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Absent Days
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Box sx={{ 
+                      p: 3, 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: 2,
+                      textAlign: 'center',
+                      bgcolor: '#fafafa'
+                    }}>
+                      <Typography variant="h4" fontWeight="700" color="text.primary">
+                        {formatHours(attendanceData.totalHours || 0)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Total Hours
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Professional Attendance Records Table */}
+              {attendanceData.records && attendanceData.records.length > 0 ? (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="600" sx={{ mb: 2 }}>
+                    Recent Attendance Records
+                  </Typography>
+                  <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e5e7eb' }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: '#f8f9fa' }}>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Date</TableCell>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Status</TableCell>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Check In</TableCell>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Check Out</TableCell>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Hours</TableCell>
+                          <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Notes</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {attendanceData.records.slice(0, 10).map((record, index) => (
+                          <TableRow 
+                            key={index}
+                            sx={{ 
+                              '&:hover': { bgcolor: '#f8f9fa' },
+                              '&:last-child td, &:last-child th': { border: 0 }
+                            }}
+                          >
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="500">
+                                {new Date(record.date).toLocaleDateString('en-US', { 
+                                  weekday: 'short', 
+                                  month: 'short', 
+                                  day: 'numeric' 
+                                })}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={record.status.toUpperCase()}
+                                size="small"
+                                sx={{
+                                  bgcolor: record.status === 'present' ? '#e8f5e8' : 
+                                          record.status === 'late' ? '#fff3cd' : 
+                                          record.status === 'absent' ? '#f8d7da' : '#e2e3e5',
+                                  color: record.status === 'present' ? '#155724' : 
+                                        record.status === 'late' ? '#856404' : 
+                                        record.status === 'absent' ? '#721c24' : '#6c757d',
+                                  fontWeight: 600,
+                                  fontSize: '0.75rem'
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" color="text.primary">
+                                {record.checkIn ? formatTime(record.checkIn.time) : '-'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" color="text.primary">
+                                {record.checkOut ? formatTime(record.checkOut.time) : '-'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="500">
+                                {formatHours(record.totalHours)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">
+                                {record.isLate ? `${record.lateMinutes}m late` : 
+                                 record.earlyDeparture ? `${record.earlyDepartureMinutes}m early` : 
+                                 record.status === 'present' ? 'On time' : ''}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ) : (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography variant="body1" color="text.secondary">
+                    No attendance records found for the selected period
+                  </Typography>
+                </Box>
+              )}
+            </>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                Unable to load attendance data
+              </Typography>
+              <Button 
+                variant="outlined" 
+                onClick={fetchAttendanceData}
+                sx={{ 
+                  borderColor: '#d1d5db',
+                  color: '#374151',
+                  '&:hover': {
+                    borderColor: '#9ca3af',
+                    bgcolor: '#f9fafb'
+                  }
+                }}
+              >
+                Retry
+              </Button>
+            </Box>
+          )}
+        </SectionCard>
+      </Grid>
     </Grid>
-  </Grid>
-);
+  );
+};
 
 const DocumentsSection = ({ employee }) => {
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
+  const [openBulkUploadDialog, setOpenBulkUploadDialog] = useState(false);
+  const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [documentType, setDocumentType] = useState('resume');
+  const [editingDocument, setEditingDocument] = useState(null);
+  const [deletingDocument, setDeletingDocument] = useState(null);
+  const [documentName, setDocumentName] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  
+  // Local state to track deleted documents
+  const [deletedDocuments, setDeletedDocuments] = useState(new Set());
+  const [deletedGovernmentDocs, setDeletedGovernmentDocs] = useState(new Set());
+  const [deletedBankDocs, setDeletedBankDocs] = useState(new Set());
+  
+  // Local state to track uploaded documents
+  const [uploadedDocuments, setUploadedDocuments] = useState([]);
+  const [uploadedGovernmentDocs, setUploadedGovernmentDocs] = useState({});
+  const [uploadedBankDocs, setUploadedBankDocs] = useState({});
 
   const handleUploadClick = (type) => {
     setDocumentType(type);
     setOpenUploadDialog(true);
+  };
+
+  const handleBulkUploadClick = () => {
+    setOpenBulkUploadDialog(true);
   };
 
   const handleFileUpload = (event) => {
@@ -833,98 +1169,964 @@ const DocumentsSection = ({ employee }) => {
     }
   };
 
+  const handleBulkFileUpload = (event) => {
+    const files = Array.from(event.target.files);
+    setSelectedFiles(files);
+  };
+
+  const handleBulkUpload = async () => {
+    console.log('🔍 Bulk upload function called with files:', selectedFiles);
+    if (selectedFiles.length === 0) {
+      console.log('❌ No files selected');
+      return;
+    }
+    
+    setUploading(true);
+    try {
+      // Process each file and categorize it
+      const newDocuments = [];
+      const newGovernmentDocs = {};
+      const newBankDocs = {};
+      
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        console.log(`Uploading file ${i + 1}/${selectedFiles.length}:`, file.name);
+        
+        // Create a mock document object
+        const documentData = {
+          id: `bulk_${Date.now()}_${i}`,
+          name: file.name,
+          type: 'bulk_upload',
+          url: URL.createObjectURL(file),
+          filePath: file.name,
+          uploadedAt: new Date().toISOString(),
+          size: file.size
+        };
+        
+        // Categorize documents based on filename
+        const fileName = file.name.toLowerCase();
+        if (fileName.includes('aadhaar') || fileName.includes('aadhar')) {
+          newGovernmentDocs.aadhaarImage = documentData;
+        } else if (fileName.includes('pan')) {
+          newGovernmentDocs.panImage = documentData;
+        } else if (fileName.includes('cheque') || fileName.includes('check')) {
+          newBankDocs.cancelledCheque = documentData;
+        } else if (fileName.includes('passbook')) {
+          newBankDocs.passbook = documentData;
+        } else if (fileName.includes('statement') || fileName.includes('bank')) {
+          newBankDocs.bankStatement = documentData;
+        } else if (fileName.includes('mark') || fileName.includes('degree') || fileName.includes('certificate')) {
+          // Education documents
+          newDocuments.push({
+            ...documentData,
+            type: 'education',
+            category: 'Education'
+          });
+        } else if (fileName.includes('exp') || fileName.includes('experience') || fileName.includes('offer')) {
+          // Work experience documents
+          newDocuments.push({
+            ...documentData,
+            type: 'work_experience',
+            category: 'Work Experience'
+          });
+        } else {
+          // Other documents
+          newDocuments.push({
+            ...documentData,
+            type: 'other',
+            category: 'Other'
+          });
+        }
+        
+        // Add delay to simulate upload
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      // Update the local state with new documents
+      if (newDocuments.length > 0) {
+        setUploadedDocuments(prev => [...prev, ...newDocuments]);
+      }
+      if (Object.keys(newGovernmentDocs).length > 0) {
+        setUploadedGovernmentDocs(prev => ({ ...prev, ...newGovernmentDocs }));
+      }
+      if (Object.keys(newBankDocs).length > 0) {
+        setUploadedBankDocs(prev => ({ ...prev, ...newBankDocs }));
+      }
+      
+      console.log('📄 New documents added to state:', newDocuments);
+      console.log('🆔 New government docs added:', newGovernmentDocs);
+      console.log('🏦 New bank docs added:', newBankDocs);
+      
+      alert(`${selectedFiles.length} documents uploaded successfully! They will appear in the document section.`);
+      setOpenBulkUploadDialog(false);
+      setSelectedFiles([]);
+    } catch (error) {
+      console.error('Bulk upload error:', error);
+      alert('Error uploading documents. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleEditDocument = (doc) => {
+    setEditingDocument(doc);
+    setDocumentName(doc.name || '');
+    setOpenEditDialog(true);
+  };
+
+  const handleDownloadDocument = async (doc) => {
+    console.log('🔍 Download function called with:', doc);
+    console.log('🚀 Using NEW download method - v2.0');
+    setDownloading(true);
+    try {
+      // Check if the document has a valid URL
+      const fileUrl = doc.url || doc.filePath;
+      if (!fileUrl) {
+        throw new Error('No file URL available');
+      }
+      
+      console.log('🔗 Attempting to download:', fileUrl);
+      console.log('🔧 Using improved download method');
+      
+      // For blob URLs (uploaded files), use direct download
+      if (fileUrl.startsWith('blob:')) {
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = doc.name || 'document';
+        link.style.display = 'none';
+        
+        document.body.appendChild(link);
+        
+        // Use setTimeout to prevent blocking the main thread
+        setTimeout(() => {
+          try {
+            link.click();
+            console.log('✅ Download triggered successfully');
+          } catch (clickError) {
+            console.error('Click error:', clickError);
+            // Fallback: try opening in new tab
+            window.open(fileUrl, '_blank');
+          }
+          document.body.removeChild(link);
+        }, 0);
+        
+        console.log('📥 Downloaded blob document:', doc.name);
+        alert(`Downloaded: ${doc.name}`);
+      } else {
+        // For server URLs, try to fetch and create blob
+        try {
+          const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = doc.name || 'document';
+          link.style.display = 'none';
+          
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          // Clean up the blob URL
+          URL.revokeObjectURL(blobUrl);
+          
+          console.log('📥 Downloaded server document:', doc.name);
+          alert(`Downloaded: ${doc.name}`);
+        } catch (fetchError) {
+          console.error('Fetch error:', fetchError);
+          // Fallback: try direct link
+          window.open(fileUrl, '_blank');
+          alert(`Opening document in new tab: ${doc.name}`);
+        }
+      }
+      
+      // Force download method - fetch and create blob for guaranteed download
+      console.log('🔄 Fetching file and creating download blob...');
+      
+      try {
+        // Fetch the file and create a blob
+        const response = await fetch(fileUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Create download link with blob URL
+        const downloadLink = document.createElement('a');
+        downloadLink.href = blobUrl;
+        downloadLink.download = doc.name || 'document';
+        downloadLink.style.display = 'none';
+        
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        
+        // Clean up blob URL
+        URL.revokeObjectURL(blobUrl);
+        
+        console.log('✅ File downloaded successfully');
+        alert(`Downloaded: ${doc.name}`);
+        
+      } catch (fetchError) {
+        console.error('Fetch failed, trying direct download:', fetchError);
+        
+        // Fallback: try direct download link
+        const downloadLink = document.createElement('a');
+        downloadLink.href = fileUrl;
+        downloadLink.download = doc.name || 'document';
+        downloadLink.style.display = 'none';
+        
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        
+        console.log('✅ Direct download attempted');
+        alert(`Download attempted: ${doc.name}`);
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      alert(`Error downloading document: ${error.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    console.log('🔍 Bulk download function called');
+    console.log('🚀 Using NEW bulk download method - v2.0');
+    setBulkDownloading(true);
+    try {
+      // Collect all available documents
+      const allDocuments = [];
+      
+      // Add government documents
+      Object.entries(governmentDocs).forEach(([key, doc]) => {
+        if (doc && !deletedGovernmentDocs.has(key)) {
+          allDocuments.push({ ...doc, category: 'Government' });
+        }
+      });
+      
+      // Add bank documents
+      Object.entries(bankDocs).forEach(([key, doc]) => {
+        if (doc && !deletedBankDocs.has(key)) {
+          allDocuments.push({ ...doc, category: 'Bank' });
+        }
+      });
+      
+      // Add education documents
+      educationDocs.forEach(doc => {
+        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
+          allDocuments.push({ ...doc, category: 'Education' });
+        }
+      });
+      
+      // Add work experience documents
+      workExpDocs.forEach(doc => {
+        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
+          allDocuments.push({ ...doc, category: 'Work Experience' });
+        }
+      });
+      
+      // Add other documents
+      documents.forEach(doc => {
+        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
+          allDocuments.push({ ...doc, category: 'Other' });
+        }
+      });
+      
+      if (allDocuments.length === 0) {
+        alert('No documents available for download.');
+        return;
+      }
+      
+      console.log(`📦 Starting bulk download of ${allDocuments.length} documents`);
+      
+      // Download each document with a small delay
+      for (let i = 0; i < allDocuments.length; i++) {
+        const doc = allDocuments[i];
+        console.log(`Downloading ${i + 1}/${allDocuments.length}: ${doc.name} (${doc.category})`);
+        
+        // Force download using blob method (same as individual download)
+        const fileUrl = doc.url || doc.filePath;
+        if (fileUrl) {
+          try {
+            console.log(`🔄 Fetching ${doc.name} for download...`);
+            console.log(`🔗 File URL: ${fileUrl}`);
+            
+            // Fetch the file and create a blob
+            const response = await fetch(fileUrl, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+              },
+            });
+            
+            console.log(`📡 Response status: ${response.status}`);
+            console.log(`📡 Response headers:`, response.headers);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            
+            // Create download link with blob URL
+            const downloadLink = document.createElement('a');
+            downloadLink.href = blobUrl;
+            downloadLink.download = `${doc.category}_${doc.name}`;
+            downloadLink.style.display = 'none';
+            
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            // Clean up blob URL
+            URL.revokeObjectURL(blobUrl);
+            
+            console.log(`✅ Downloaded: ${doc.name}`);
+            
+          } catch (fetchError) {
+            console.error(`Download failed for ${doc.name}:`, fetchError);
+            
+            // Fallback: try direct download link
+            const fallbackLink = document.createElement('a');
+            fallbackLink.href = fileUrl;
+            fallbackLink.download = `${doc.category}_${doc.name}`;
+            fallbackLink.style.display = 'none';
+            
+            document.body.appendChild(fallbackLink);
+            fallbackLink.click();
+            document.body.removeChild(fallbackLink);
+            
+            console.log(`⚠️ Fallback download attempted for: ${doc.name}`);
+          }
+        }
+        
+        // Small delay between downloads
+        if (i < allDocuments.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      alert(`Successfully downloaded ${allDocuments.length} documents!`);
+    } catch (error) {
+      console.error('Bulk download error:', error);
+      alert('Error downloading documents. Please try again.');
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
+  const handleSaveDocumentName = () => {
+    if (editingDocument && documentName.trim()) {
+      console.log('Saving document name:', documentName);
+      // Here you would typically save to the server
+      alert('Document name updated successfully!');
+      setOpenEditDialog(false);
+      setEditingDocument(null);
+      setDocumentName('');
+    }
+  };
+
+  const handleDeleteDocument = (doc) => {
+    console.log('🔍 Delete function called with:', doc);
+    setDeletingDocument(doc);
+    setOpenDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingDocument) return;
+    
+    setDeleting(true);
+    try {
+      // Simulate delete process
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Use the key directly for government and bank docs, or ID for others
+      if (deletingDocument.type === 'government') {
+        setDeletedGovernmentDocs(prev => new Set([...prev, deletingDocument.key]));
+        // Also remove from uploaded government docs if it exists there
+        if (uploadedGovernmentDocs[deletingDocument.key]) {
+          setUploadedGovernmentDocs(prev => {
+            const newDocs = { ...prev };
+            delete newDocs[deletingDocument.key];
+            return newDocs;
+          });
+        }
+      } else if (deletingDocument.type === 'bank') {
+        setDeletedBankDocs(prev => new Set([...prev, deletingDocument.key]));
+        // Also remove from uploaded bank docs if it exists there
+        if (uploadedBankDocs[deletingDocument.key]) {
+          setUploadedBankDocs(prev => {
+            const newDocs = { ...prev };
+            delete newDocs[deletingDocument.key];
+            return newDocs;
+          });
+        }
+      } else {
+        const docId = deletingDocument.id || deletingDocument._id || deletingDocument.name;
+        setDeletedDocuments(prev => new Set([...prev, docId]));
+        // Also remove from uploaded documents if it exists there
+        setUploadedDocuments(prev => prev.filter(doc => 
+          (doc.id || doc._id || doc.name) !== docId
+        ));
+      }
+      alert('Document deleted successfully!');
+      setOpenDeleteDialog(false);
+      setDeletingDocument(null);
+    } catch (error) {
+      console.error('❌ Delete error:', error);
+      alert('Error deleting document. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Get documents from employee data and merge with uploaded documents
+  const originalDocuments = employee?.documents || [];
+  const additionalInfo = employee?.additionalInfo || {};
+  const originalGovernmentDocs = additionalInfo.governmentDocuments || {};
+  const originalBankDocs = additionalInfo.bankDocuments || {};
+  const originalEducationDocs = additionalInfo.educationDocuments || [];
+  const originalWorkExpDocs = additionalInfo.workExperienceDocuments || [];
+  
+  // Merge original documents with uploaded documents
+  const documents = [...originalDocuments, ...uploadedDocuments];
+  const governmentDocs = { ...originalGovernmentDocs, ...uploadedGovernmentDocs };
+  const bankDocs = { ...originalBankDocs, ...uploadedBankDocs };
+  const educationDocs = originalEducationDocs; // These are handled separately
+  const workExpDocs = originalWorkExpDocs; // These are handled separately
+
+
+  const renderDocumentItem = (doc, type, icon) => (
+    <Box key={doc._id || doc.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <span>{icon}</span>
+        <Box>
+          <Typography variant="body1">{doc.name || 'Document'}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {type} • {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : 'Unknown date'}
+          </Typography>
+        </Box>
+      </Box>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button 
+          size="small" 
+          variant="outlined" 
+          onClick={() => handleEditDocument(doc)}
+          sx={{ minWidth: 'auto', px: 1 }}
+        >
+          Edit
+        </Button>
+        <Button 
+          size="small" 
+          variant="outlined" 
+          onClick={() => window.open(doc.url || doc.filePath, '_blank')}
+          sx={{ minWidth: 'auto', px: 1 }}
+        >
+          View
+        </Button>
+        <Button 
+          size="small" 
+          variant="outlined" 
+          color="success"
+          onClick={() => handleDownloadDocument(doc)}
+          disabled={downloading}
+          sx={{ minWidth: 'auto', px: 1 }}
+        >
+          {downloading ? '⏳' : '📥'}
+        </Button>
+        <Button 
+          size="small" 
+          variant="outlined" 
+          color="error"
+          onClick={() => handleDeleteDocument({...doc, type: type.toLowerCase(), key: doc.id || doc._id || doc.name})}
+          sx={{ minWidth: 'auto', px: 1 }}
+        >
+          Delete
+        </Button>
+      </Box>
+    </Box>
+  );
+
   return (
     <Grid container spacing={3}>
       <Grid item xs={12}>
         <SectionCard icon="📄" title="Documents" color="warning.main">
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>📄</span>
-                <Typography variant="body1">Resume/CV</Typography>
-              </Box>
-              <Button 
-                size="small" 
-                variant="outlined" 
-                onClick={() => handleUploadClick('resume')}
+          {/* Header with Bulk Upload Button */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Typography variant="subtitle1" fontWeight="600">Employee Documents</Typography>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Button
+                variant="outlined"
+                onClick={handleBulkDownload}
+                disabled={bulkDownloading}
+                sx={{ 
+                  borderColor: 'success.main',
+                  color: 'success.main',
+                  '&:hover': { 
+                    borderColor: 'success.dark',
+                    bgcolor: 'success.light',
+                    color: 'success.dark'
+                  }
+                }}
               >
-                Upload
+                {bulkDownloading ? '📦 Downloading...' : '📦 Bulk Download'}
               </Button>
-            </Box>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>🆔</span>
-                <Typography variant="body1">ID Proof</Typography>
-              </Box>
-              <Button 
-                size="small" 
-                variant="outlined" 
-                onClick={() => handleUploadClick('id_proof')}
+              <Button
+                variant="contained"
+                onClick={handleBulkUploadClick}
+                sx={{ 
+                  bgcolor: 'primary.main',
+                  '&:hover': { bgcolor: 'primary.dark' }
+                }}
               >
-                Upload
-              </Button>
-            </Box>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>🏠</span>
-                <Typography variant="body1">Address Proof</Typography>
-              </Box>
-              <Button 
-                size="small" 
-                variant="outlined" 
-                onClick={() => handleUploadClick('address_proof')}
-              >
-                Upload
-              </Button>
-            </Box>
-            
-            <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Button 
-                variant="contained" 
-                size="small"
-                onClick={() => handleUploadClick('other')}
-              >
-                Add Document
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small"
-              >
-                View All
+                📁 Bulk Upload
               </Button>
             </Box>
           </Box>
 
-          <Dialog open={openUploadDialog} onClose={() => setOpenUploadDialog(false)} maxWidth="sm" fullWidth>
-            <DialogTitle>Upload Document</DialogTitle>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {/* Government Documents */}
+            {governmentDocs.aadhaarImage && !deletedGovernmentDocs.has('aadhaarImage') && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>🆔</span>
+                  <Box>
+                    <Typography variant="body1">Aadhaar Card</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {governmentDocs.aadhaarImage.name}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => handleEditDocument(governmentDocs.aadhaarImage)}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => window.open(governmentDocs.aadhaarImage.url, '_blank')}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    View
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="success"
+                    onClick={() => handleDownloadDocument(governmentDocs.aadhaarImage)}
+                    disabled={downloading}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    {downloading ? '⏳' : '📥'}
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="error"
+                    onClick={() => handleDeleteDocument({...governmentDocs.aadhaarImage, type: 'government', key: 'aadhaarImage'})}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Delete
+                  </Button>
+                </Box>
+              </Box>
+            )}
+
+            {governmentDocs.panImage && !deletedGovernmentDocs.has('panImage') && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>📋</span>
+                  <Box>
+                    <Typography variant="body1">PAN Card</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {governmentDocs.panImage.name}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => handleEditDocument(governmentDocs.panImage)}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => window.open(governmentDocs.panImage.url, '_blank')}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    View
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="success"
+                    onClick={() => handleDownloadDocument(governmentDocs.panImage)}
+                    disabled={downloading}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    {downloading ? '⏳' : '📥'}
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="error"
+                    onClick={() => handleDeleteDocument({...governmentDocs.panImage, type: 'government', key: 'panImage'})}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Delete
+                  </Button>
+                </Box>
+              </Box>
+            )}
+
+            {/* Bank Documents */}
+            {bankDocs.cancelledCheque && !deletedBankDocs.has('cancelledCheque') && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>🏦</span>
+                  <Box>
+                    <Typography variant="body1">Cancelled Cheque</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {bankDocs.cancelledCheque.name}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => handleEditDocument(bankDocs.cancelledCheque)}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => window.open(bankDocs.cancelledCheque.url, '_blank')}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    View
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="success"
+                    onClick={() => handleDownloadDocument(bankDocs.cancelledCheque)}
+                    disabled={downloading}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    {downloading ? '⏳' : '📥'}
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="error"
+                    onClick={() => handleDeleteDocument({...bankDocs.cancelledCheque, type: 'bank', key: 'cancelledCheque'})}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Delete
+                  </Button>
+                </Box>
+              </Box>
+            )}
+
+            {bankDocs.passbook && !deletedBankDocs.has('passbook') && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>📖</span>
+                  <Box>
+                    <Typography variant="body1">Passbook</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {bankDocs.passbook.name}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => handleEditDocument(bankDocs.passbook)}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => window.open(bankDocs.passbook.url, '_blank')}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    View
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="success"
+                    onClick={() => handleDownloadDocument(bankDocs.passbook)}
+                    disabled={downloading}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    {downloading ? '⏳' : '📥'}
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="error"
+                    onClick={() => handleDeleteDocument({...bankDocs.passbook, type: 'bank', key: 'passbook'})}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Delete
+                  </Button>
+                </Box>
+              </Box>
+            )}
+
+            {bankDocs.bankStatement && !deletedBankDocs.has('bankStatement') && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>📊</span>
+                  <Box>
+                    <Typography variant="body1">Bank Statement</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {bankDocs.bankStatement.name}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => handleEditDocument(bankDocs.bankStatement)}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    onClick={() => window.open(bankDocs.bankStatement.url, '_blank')}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    View
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="success"
+                    onClick={() => handleDownloadDocument(bankDocs.bankStatement)}
+                    disabled={downloading}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    {downloading ? '⏳' : '📥'}
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    color="error"
+                    onClick={() => handleDeleteDocument({...bankDocs.bankStatement, type: 'bank', key: 'bankStatement'})}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    Delete
+                  </Button>
+                </Box>
+              </Box>
+            )}
+
+            {/* Education Documents */}
+            {educationDocs
+              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
+              .map((doc) => renderDocumentItem(doc, 'Education', '🎓'))}
+
+            {/* Work Experience Documents */}
+            {workExpDocs
+              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
+              .map((doc) => renderDocumentItem(doc, 'Work Experience', '💼'))}
+
+            {/* Other Documents */}
+            {documents
+              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
+              .map((doc) => renderDocumentItem(doc, doc.type || 'Other', '📄'))}
+
+            {/* Show message if no documents */}
+            {documents.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && 
+             Object.keys(governmentDocs).filter(key => !deletedGovernmentDocs.has(key)).length === 0 && 
+             Object.keys(bankDocs).filter(key => !deletedBankDocs.has(key)).length === 0 && 
+             educationDocs.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && 
+             workExpDocs.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && (
+              <Box sx={{ textAlign: 'center', py: 3 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No documents uploaded yet
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          {/* Bulk Upload Dialog */}
+          <Dialog open={openBulkUploadDialog} onClose={() => setOpenBulkUploadDialog(false)} maxWidth="sm" fullWidth>
+            <DialogTitle>Bulk Upload Documents</DialogTitle>
             <DialogContent>
-              <Box sx={{ mt: 2 }}>
+              <Box sx={{ py: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select multiple files to upload at once. Supported formats: PDF, DOC, DOCX, JPG, PNG
+                </Typography>
                 <input
                   type="file"
+                  multiple
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  onChange={handleFileUpload}
+                  onChange={handleBulkFileUpload}
                   style={{ display: 'none' }}
-                  id="document-upload-input"
+                  id="bulk-file-input"
                 />
-                <label htmlFor="document-upload-input">
+                <label htmlFor="bulk-file-input">
                   <Button
                     variant="outlined"
                     component="span"
                     fullWidth
-                    sx={{ py: 3, borderStyle: 'dashed' }}
+                    sx={{ 
+                      py: 2, 
+                      border: '2px dashed #ccc',
+                      '&:hover': { border: '2px dashed #999' }
+                    }}
                   >
-                    Choose File to Upload
+                    📁 Choose Files ({selectedFiles.length} selected)
                   </Button>
                 </label>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  Supported: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
-                </Typography>
+                
+                {selectedFiles.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Selected Files:</Typography>
+                    <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {selectedFiles.map((file, index) => (
+                        <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid #eee' }}>
+                          <Typography variant="body2">{file.name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {(file.size / 1024 / 1024).toFixed(2)} MB
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
               </Box>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setOpenUploadDialog(false)}>Cancel</Button>
+              <Button onClick={() => setOpenBulkUploadDialog(false)}>Cancel</Button>
+              <Button 
+                onClick={handleBulkUpload} 
+                variant="contained" 
+                disabled={selectedFiles.length === 0 || uploading}
+              >
+                {uploading ? 'Uploading...' : `Upload ${selectedFiles.length} Files`}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Edit Document Name Dialog */}
+          <Dialog open={openEditDialog} onClose={() => setOpenEditDialog(false)} maxWidth="sm" fullWidth>
+            <DialogTitle>Edit Document Name</DialogTitle>
+            <DialogContent>
+              <Box sx={{ py: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Current file: {editingDocument?.name || 'Unknown'}
+                </Typography>
+                <TextField
+                  fullWidth
+                  label="Document Name"
+                  value={documentName}
+                  onChange={(e) => setDocumentName(e.target.value)}
+                  placeholder="Enter document name"
+                  variant="outlined"
+                />
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setOpenEditDialog(false)}>Cancel</Button>
+              <Button 
+                onClick={handleSaveDocumentName} 
+                variant="contained"
+                disabled={!documentName.trim()}
+              >
+                Save Changes
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Delete Document Confirmation Dialog */}
+          <Dialog 
+            open={openDeleteDialog} 
+            onClose={() => !deleting && setOpenDeleteDialog(false)} 
+            maxWidth="sm" 
+            fullWidth
+            disableEscapeKeyDown={deleting}
+          >
+            <DialogTitle sx={{ color: 'error.main' }}>Delete Document</DialogTitle>
+            <DialogContent>
+              <Box sx={{ py: 2 }}>
+                <Typography variant="body1" sx={{ mb: 2 }}>
+                  Are you sure you want to delete this document?
+                </Typography>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f5f5f5', 
+                  borderRadius: 1, 
+                  border: '1px solid #e0e0e0' 
+                }}>
+                  <Typography variant="body2" fontWeight="600">
+                    {deletingDocument?.name || 'Unknown Document'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    This action cannot be undone.
+                  </Typography>
+                </Box>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button 
+                onClick={() => {
+                  if (!deleting) {
+                    setOpenDeleteDialog(false);
+                    setDeletingDocument(null);
+                  }
+                }}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmDelete} 
+                variant="contained"
+                color="error"
+                disabled={deleting}
+                autoFocus={false}
+              >
+                {deleting ? 'Deleting...' : 'Delete Document'}
+              </Button>
             </DialogActions>
           </Dialog>
         </SectionCard>
@@ -945,17 +2147,70 @@ const AssetsSection = ({ employee }) => (
   </Grid>
 );
 
-const FinancesSection = ({ employee }) => (
-  <Grid container spacing={3}>
-    <Grid item xs={12}>
-      <SectionCard icon="💰" title="Finances" color="success.main">
-        <FieldDisplay label="Salary" value="Coming Soon" />
-        <FieldDisplay label="Bank Details" value="Coming Soon" />
-        <FieldDisplay label="Tax Information" value="Coming Soon" />
-      </SectionCard>
+const FinancesSection = ({ employee }) => {
+  const salaryInfo = employee?.salaryInfo || {};
+  const currentSalary = salaryInfo.currentSalary || {};
+  const bankDetails = salaryInfo.bankDetails || {};
+  const taxInfo = salaryInfo.taxInfo || {};
+
+  const formatCurrency = (amount) => {
+    if (!amount) return 'Not provided';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const maskAccountNumber = (accountNumber) => {
+    if (!accountNumber) return 'Not provided';
+    return `****${accountNumber.slice(-4)}`;
+  };
+
+  const maskPanNumber = (panNumber) => {
+    if (!panNumber) return 'Not provided';
+    return `****${panNumber.slice(-4)}`;
+  };
+
+  const maskAadharNumber = (aadharNumber) => {
+    if (!aadharNumber) return 'Not provided';
+    return `****${aadharNumber.slice(-4)}`;
+  };
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12} md={4}>
+        <SectionCard icon="💰" title="Salary Information" color="success.main">
+          <FieldDisplay label="Basic Salary" value={formatCurrency(currentSalary.basic)} />
+          <FieldDisplay label="HRA" value={formatCurrency(currentSalary.hra)} />
+          <FieldDisplay label="Allowances" value={formatCurrency(currentSalary.allowances)} />
+          <FieldDisplay label="Gross Salary" value={formatCurrency(currentSalary.grossSalary)} />
+          <FieldDisplay label="CTC" value={formatCurrency(currentSalary.ctc)} />
+        </SectionCard>
+      </Grid>
+      
+      <Grid item xs={12} md={4}>
+        <SectionCard icon="🏦" title="Bank Details" color="primary.main">
+          <FieldDisplay label="Account Holder" value={bankDetails.accountHolderName || 'Not provided'} />
+          <FieldDisplay label="Account Number" value={maskAccountNumber(bankDetails.accountNumber)} />
+          <FieldDisplay label="Bank Name" value={bankDetails.bankName || 'Not provided'} />
+          <FieldDisplay label="IFSC Code" value={bankDetails.ifscCode || 'Not provided'} />
+        </SectionCard>
+      </Grid>
+      
+      <Grid item xs={12} md={4}>
+        <SectionCard icon="📋" title="Tax Information" color="warning.main">
+          <FieldDisplay label="PAN Number" value={maskPanNumber(taxInfo.panNumber)} />
+          <FieldDisplay label="Aadhaar Number" value={maskAadharNumber(taxInfo.aadharNumber)} />
+          <FieldDisplay label="PF Number" value={taxInfo.pfNumber || 'Not provided'} />
+          <FieldDisplay label="ESI Number" value={taxInfo.esiNumber || 'Not provided'} />
+          <FieldDisplay label="UAN Number" value={taxInfo.uanNumber || 'Not provided'} />
+        </SectionCard>
+      </Grid>
     </Grid>
-  </Grid>
-);
+  );
+};
 
 const ExpensesSection = ({ employee }) => (
   <Grid container spacing={3}>

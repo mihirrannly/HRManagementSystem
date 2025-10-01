@@ -26,12 +26,24 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
   const lastActivityRef = useRef(Date.now());
 
   // Configuration
-  const IDLE_TIME = 60 * 60 * 1000; // 60 minutes in milliseconds
-  const WARNING_TIME = 5 * 60 * 1000; // 5 minutes warning before auto logout
-  const COUNTDOWN_TIME = 10 * 60 * 1000; // 10 minutes total warning time
+  const IDLE_TIME = 30 * 60 * 1000; // 30 minutes in milliseconds
+  const WARNING_TIME = 2 * 60 * 1000; // 2 minutes warning before auto checkout
+  const COUNTDOWN_TIME = 5 * 60 * 1000; // 5 minutes total warning time
 
   // Events to track for activity
   const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+
+  // Helper function to check if it's lunch time (2 PM to 3 PM)
+  const isLunchTime = useCallback(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTimeInMinutes = currentHour * 60 + currentMinute;
+    const lunchStartMinutes = 14 * 60; // 2 PM = 14:00
+    const lunchEndMinutes = 15 * 60;   // 3 PM = 15:00
+    
+    return currentTimeInMinutes >= lunchStartMinutes && currentTimeInMinutes < lunchEndMinutes;
+  }, []);
 
   const resetTimer = useCallback(() => {
     if (!isActive) return;
@@ -92,16 +104,58 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
   }, []);
 
   const handleAutoLogout = useCallback(async () => {
-    console.log('Auto logout triggered');
+    console.log('Auto checkout triggered');
+    
+    // Check if it's lunch time (2 PM to 3 PM) - don't auto checkout during lunch
+    if (isLunchTime()) {
+      console.log('Lunch time detected, skipping auto checkout');
+      toast.info('Lunch time detected (2 PM - 3 PM). Auto checkout skipped.');
+      
+      // Reset timer to check again after lunch time
+      resetTimer();
+      return;
+    }
     
     // Clear all timers
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
     if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-    // Record idle session with auto logout
-    if (idleStartTime) {
-      await recordIdleSession(idleStartTime, new Date(), 'auto_logout', true, true);
+    try {
+      // Perform automatic checkout
+      const response = await axios.post('/api/attendance/auto-checkout');
+      
+      if (response.data.success) {
+        // Record idle session with auto checkout
+        if (idleStartTime) {
+          await recordIdleSession(idleStartTime, new Date(), 'auto_checkout', true, true);
+        }
+
+        // Show success notification
+        toast.success('You have been automatically checked out due to inactivity');
+        
+        // Trigger callback if provided
+        if (onIdleSession) {
+          onIdleSession({
+            type: 'auto_checkout',
+            startTime: idleStartTime,
+            endTime: new Date(),
+            duration: Math.floor((Date.now() - idleStartTime.getTime()) / 1000 / 60), // minutes
+            checkoutTime: response.data.checkOutTime,
+            totalHours: response.data.totalHours
+          });
+        }
+      } else {
+        // If auto checkout failed, show error and reset timer
+        toast.error(response.data.message || 'Auto checkout failed');
+        resetTimer();
+        return;
+      }
+    } catch (error) {
+      console.error('Auto checkout failed:', error);
+      toast.error('Auto checkout failed. Please check out manually.');
+      resetTimer();
+      return;
     }
 
     // Reset states
@@ -110,22 +164,7 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
     setCountdown(0);
     setIdleStartTime(null);
 
-    // Show notification
-    toast.warning('You have been automatically logged out due to inactivity');
-    
-    // Trigger callback if provided
-    if (onIdleSession) {
-      onIdleSession({
-        type: 'auto_logout',
-        startTime: idleStartTime,
-        endTime: new Date(),
-        duration: Math.floor((Date.now() - idleStartTime.getTime()) / 1000 / 60) // minutes
-      });
-    }
-
-    // Optionally redirect to login or show logout confirmation
-    // window.location.href = '/login';
-  }, [idleStartTime, onIdleSession]);
+  }, [idleStartTime, onIdleSession, resetTimer, isLunchTime]);
 
   const recordIdleSession = async (startTime, endTime, reason, wasWarned = false, autoLogout = false) => {
     try {
@@ -144,6 +183,11 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
   const handleStillWorking = () => {
     console.log('User confirmed still working');
     
+    // Check if it's lunch time (2 PM to 3 PM)
+    if (isLunchTime()) {
+      toast.info('Lunch time detected (2 PM - 3 PM). Auto checkout is disabled during this time.');
+    }
+    
     // Record the idle session as resolved
     if (idleStartTime) {
       recordIdleSession(idleStartTime, new Date(), 'user_confirmed_working', true, false);
@@ -155,6 +199,11 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
 
   const handleTakeBreak = () => {
     console.log('User taking a break');
+    
+    // Check if it's lunch time (2 PM to 3 PM)
+    if (isLunchTime()) {
+      toast.info('Lunch time detected (2 PM - 3 PM). Enjoy your lunch!');
+    }
     
     // Record the idle session as intentional break
     if (idleStartTime) {
@@ -232,11 +281,11 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
         
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            You've been idle for over an hour. Please confirm you're still working.
+            You've been idle for over 30 minutes. Please confirm you're still working.
           </Alert>
           
           <Typography variant="body1" gutterBottom>
-            You will be automatically logged out in:
+            You will be automatically checked out in:
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2 }}>
@@ -254,6 +303,8 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
           
           <Typography variant="body2" color="text.secondary">
             Your idle time will be recorded for attendance tracking purposes.
+            <br />
+            <strong>Note:</strong> Auto checkout is disabled during lunch time (2 PM - 3 PM).
           </Typography>
         </DialogContent>
         
@@ -296,6 +347,7 @@ const IdleDetector = ({ isActive = true, onIdleSession }) => {
           <div>Is Idle: {isIdle ? 'Yes' : 'No'}</div>
           <div>Show Warning: {showWarning ? 'Yes' : 'No'}</div>
           {countdown > 0 && <div>Countdown: {formatTime(countdown)}</div>}
+          <div>Timeout: 30 min</div>
         </Box>
       )}
     </>

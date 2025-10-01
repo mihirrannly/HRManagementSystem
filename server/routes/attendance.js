@@ -700,6 +700,154 @@ router.post('/idle-session', [
   }
 });
 
+// @route   POST /api/attendance/auto-checkout
+// @desc    Automatic checkout due to inactivity
+// @access  Private
+router.post('/auto-checkout', authenticate, async (req, res) => {
+  try {
+    console.log('🔄 Auto checkout request received');
+
+    const employee = await Employee.findOne({ user: req.user._id });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee profile not found' });
+    }
+
+    const officeTime = getOfficeTime();
+    const today = officeTime.clone().startOf('day').toDate();
+    
+    // Check if today is a working day (Monday to Friday)
+    const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    
+    if (!isWorkingDay) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Auto checkout is only allowed on working days (Monday to Friday)',
+        dayOfWeek: officeTime.format('dddd')
+      });
+    }
+
+    // Check if it's lunch time (2 PM to 3 PM) - don't auto checkout during lunch
+    const currentHour = officeTime.hour();
+    const currentMinute = officeTime.minute();
+    const currentTimeInMinutes = currentHour * 60 + currentMinute;
+    const lunchStartMinutes = 14 * 60; // 2 PM = 14:00
+    const lunchEndMinutes = 15 * 60;   // 3 PM = 15:00
+    
+    if (currentTimeInMinutes >= lunchStartMinutes && currentTimeInMinutes < lunchEndMinutes) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Auto checkout is not allowed during lunch time (2 PM to 3 PM)',
+        currentTime: officeTime.format('HH:mm'),
+        lunchTime: '14:00 - 15:00'
+      });
+    }
+    
+    // Find today's attendance record
+    const attendance = await Attendance.findOne({
+      employee: employee._id,
+      date: today
+    });
+
+    if (!attendance || !attendance.checkIn?.time) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'No check-in found for today. Cannot perform auto checkout.' 
+      });
+    }
+
+    if (attendance.checkOut?.time) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Already checked out today',
+        checkOutTime: moment(attendance.checkOut.time).tz(OFFICE_CONFIG.timezone).format('HH:mm')
+      });
+    }
+
+    // Get client IP (handle proxy/forwarded cases)
+    const clientIP = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || req.connection.remoteAddress;
+    const actualIP = clientIP.includes(',') ? clientIP.split(',')[0].trim() : clientIP;
+
+    // Get checkout time in office timezone
+    const checkOutTime = officeTime.toDate();
+    
+    // Use flexible end time if available, otherwise use standard 7 PM
+    const workEnd = attendance.flexibleEndTime 
+      ? moment(attendance.flexibleEndTime).tz(OFFICE_CONFIG.timezone)
+      : moment.tz(officeTime.format('YYYY-MM-DD') + ' ' + OFFICE_CONFIG.workingHours.end, OFFICE_CONFIG.timezone);
+    
+    const isEarlyDeparture = officeTime.isBefore(workEnd);
+    const earlyMinutes = isEarlyDeparture ? Math.ceil(workEnd.diff(officeTime, 'minutes')) : 0;
+
+    // Update attendance record with auto checkout
+    attendance.checkOut = {
+      time: checkOutTime,
+      location: { 
+        address: 'Office Location (Auto Checkout)', 
+        ipAddress: actualIP,
+        method: 'auto-checkout'
+      },
+      method: 'auto-checkout',
+      deviceInfo: { 
+        userAgent: req.headers['user-agent'],
+        ip: actualIP
+      },
+      ipAddress: actualIP,
+      earlyLeaveReason: 'Automatic checkout due to inactivity (30+ minutes)',
+      isValidLocation: true,
+      isEarlyDeparture: isEarlyDeparture,
+      earlyMinutes: earlyMinutes,
+      isAutoCheckout: true
+    };
+
+    // Calculate total hours (in office timezone)
+    const checkInMoment = moment(attendance.checkIn.time).tz(OFFICE_CONFIG.timezone);
+    const checkOutMoment = officeTime;
+    const totalHours = checkOutMoment.diff(checkInMoment, 'minutes') / 60; // Convert minutes to hours
+    attendance.totalHours = Math.round(totalHours * 100) / 100; // Round to 2 decimal places
+    
+    // Store early departure information
+    attendance.earlyDeparture = isEarlyDeparture;
+    attendance.earlyDepartureMinutes = earlyMinutes;
+    attendance.isAutoCheckout = true;
+
+    await attendance.save();
+
+    console.log('✅ Auto checkout successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'));
+
+    const flexibleEndTimeStr = attendance.flexibleEndTime 
+      ? moment(attendance.flexibleEndTime).tz(OFFICE_CONFIG.timezone).format('HH:mm')
+      : '19:00';
+
+    res.json({
+      success: true,
+      message: `Automatic checkout completed at ${officeTime.format('HH:mm')} due to inactivity${isEarlyDeparture ? ` (${Math.floor(earlyMinutes / 60)}h ${earlyMinutes % 60}m before ${flexibleEndTimeStr})` : ''}`,
+      isEarlyDeparture: isEarlyDeparture,
+      earlyMinutes: earlyMinutes,
+      flexibleEndTime: flexibleEndTimeStr,
+      checkOutTime: officeTime.format('HH:mm'),
+      totalHours: attendance.totalHours,
+      workingHours: `${Math.floor(attendance.totalHours)}h ${Math.round((attendance.totalHours % 1) * 60)}m`,
+      isAutoCheckout: true,
+      attendance: {
+        checkIn: attendance.checkIn,
+        checkOut: attendance.checkOut,
+        totalHours: attendance.totalHours,
+        isEarlyDeparture: isEarlyDeparture,
+        earlyMinutes: earlyMinutes
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error in auto checkout:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Failed to perform auto checkout',
+      details: error.stack
+    });
+  }
+});
+
 // @route   GET /api/attendance/today-status
 // @desc    Get today's attendance status for current employee
 // @access  Private

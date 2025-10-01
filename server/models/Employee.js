@@ -37,6 +37,7 @@ const employeeSchema = new mongoose.Schema({
       enum: ['single', 'married', 'divorced', 'widowed']
     },
     nationality: String,
+    bloodGroup: String,
     profilePicture: String
   },
   contactInfo: {

@@ -139,6 +139,10 @@ const attendanceSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  isAutoCheckout: {
+    type: Boolean,
+    default: false
+  },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
