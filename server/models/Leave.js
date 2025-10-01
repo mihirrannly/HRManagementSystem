@@ -215,6 +215,54 @@ leaveRequestSchema.pre('save', function(next) {
   next();
 });
 
+// Virtual to check if all required approvals are complete
+leaveRequestSchema.virtual('isFullyApproved').get(function() {
+  if (!this.approvalFlow || this.approvalFlow.length === 0) return false;
+  
+  // Check if all approvals in the flow are approved
+  return this.approvalFlow.every(approval => approval.status === 'approved');
+});
+
+// Virtual to get pending approvers
+leaveRequestSchema.virtual('pendingApprovers').get(function() {
+  if (!this.approvalFlow) return [];
+  
+  return this.approvalFlow
+    .filter(approval => approval.status === 'pending')
+    .map(approval => ({
+      type: approval.approverType,
+      approver: approval.approver,
+      level: approval.level
+    }));
+});
+
+// Method to check if a specific user can approve this request
+leaveRequestSchema.methods.canUserApprove = function(userId) {
+  if (!this.approvalFlow || !userId) return false;
+  
+  // Find if user is in the approval flow and their approval is pending
+  return this.approvalFlow.some(approval => 
+    approval.approver.toString() === userId.toString() && 
+    approval.status === 'pending'
+  );
+};
+
+// Method to get approval workflow type
+leaveRequestSchema.methods.getApprovalWorkflowType = function() {
+  if (!this.approvalFlow || this.approvalFlow.length === 0) return 'none';
+  
+  if (this.approvalFlow.length === 1) {
+    const approverType = this.approvalFlow[0].approverType;
+    if (approverType === 'hr') return 'hr_only'; // Co-founders
+    if (approverType === 'manager') return 'manager_only'; // HR employees
+    return 'single_approval';
+  } else if (this.approvalFlow.length === 2) {
+    return 'dual_approval'; // Regular employees
+  }
+  
+  return 'custom';
+};
+
 const holidaySchema = new mongoose.Schema({
   name: {
     type: String,

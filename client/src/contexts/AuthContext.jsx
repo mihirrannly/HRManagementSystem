@@ -56,19 +56,36 @@ export const AuthProvider = ({ children }) => {
     const initAuth = async () => {
       const token = localStorage.getItem('token');
       const savedUser = localStorage.getItem('user');
+      const savedEmployee = localStorage.getItem('employee');
 
       if (token && savedUser) {
+        // Check if we have recent cached data (less than 5 minutes old)
+        const lastFetch = localStorage.getItem('lastAuthFetch');
+        const now = Date.now();
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (lastFetch && (now - parseInt(lastFetch)) < fiveMinutes && savedEmployee) {
+          // Use cached data if it's fresh
+          console.log('🔄 Using cached auth data');
+          setUser(JSON.parse(savedUser));
+          setEmployee(JSON.parse(savedEmployee));
+          setLoading(false);
+          setInitialized(true);
+          return;
+        }
+
         try {
-          // Always fetch fresh user data from server instead of using cached localStorage
+          // Fetch fresh user data from server
           const response = await axios.get('/auth/me');
           console.log('🔍 /auth/me response:', response.data);
           
           const freshUserData = response.data.user;
           const freshEmployeeData = response.data.employee;
           
-          // Update localStorage with fresh data
+          // Update localStorage with fresh data and timestamp
           localStorage.setItem('user', JSON.stringify(freshUserData));
           localStorage.setItem('employee', JSON.stringify(freshEmployeeData));
+          localStorage.setItem('lastAuthFetch', now.toString());
           setUser(freshUserData);
           setEmployee(freshEmployeeData);
           
@@ -81,11 +98,16 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             localStorage.removeItem('employee');
+            localStorage.removeItem('lastAuthFetch');
             setUser(null);
             setEmployee(null);
           } else {
-            // For network errors (ECONNREFUSED, etc), keep the user logged in
-            console.warn('Network error during token verification, keeping user logged in:', error.message);
+            // For network errors, use cached data if available
+            console.warn('Network error during token verification, using cached data:', error.message);
+            if (savedEmployee) {
+              setUser(JSON.parse(savedUser));
+              setEmployee(JSON.parse(savedEmployee));
+            }
           }
         }
       }
@@ -100,13 +122,14 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       const response = await axios.post('/auth/login', { email, password });
-      const { token, user: userData } = response.data;
+      const { token, user: userData, employee: employeeData } = response.data;
 
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
-      if (userData.employee) {
-        localStorage.setItem('employee', JSON.stringify(userData.employee));
-        setEmployee(userData.employee);
+      localStorage.setItem('lastAuthFetch', Date.now().toString());
+      if (employeeData) {
+        localStorage.setItem('employee', JSON.stringify(employeeData));
+        setEmployee(employeeData);
       }
       setUser(userData);
 
@@ -130,6 +153,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('employee');
+      localStorage.removeItem('lastAuthFetch');
       setUser(null);
       setEmployee(null);
       toast.info('Logged out successfully');
@@ -142,6 +166,26 @@ export const AuthProvider = ({ children }) => {
     setEmployee(null);
     setLoading(false);
     window.location.reload();
+  };
+
+  const refreshAuthData = async () => {
+    try {
+      const response = await axios.get('/auth/me');
+      const freshUserData = response.data.user;
+      const freshEmployeeData = response.data.employee;
+      
+      localStorage.setItem('user', JSON.stringify(freshUserData));
+      localStorage.setItem('employee', JSON.stringify(freshEmployeeData));
+      localStorage.setItem('lastAuthFetch', Date.now().toString());
+      setUser(freshUserData);
+      setEmployee(freshEmployeeData);
+      
+      console.log('🔄 Auth data refreshed');
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to refresh auth data:', error);
+      return { success: false, error };
+    }
   };
 
   const register = async (userData) => {
@@ -205,6 +249,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     forceLogout,
+    refreshAuthData,
     register,
     updateProfile,
     changePassword,

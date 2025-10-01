@@ -23,6 +23,7 @@ const eSignatureRoutes = require('./routes/eSignature');
 const permissionRoutes = require('./routes/permissions');
 const assetRoutes = require('./routes/assets');
 const shiftRoutes = require('./routes/shifts');
+const testRoutes = require('./routes/test');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -50,9 +51,12 @@ app.use(limiter);
 app.use(cors({
   origin: [
     process.env.CLIENT_URL || 'http://localhost:5173',
-    'http://localhost:5174'
+    'http://localhost:5174',
+    'http://localhost:3000'
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Body parsing middleware
@@ -101,6 +105,7 @@ app.use('/api/esignature', eSignatureRoutes);
 app.use('/api/permissions', permissionRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/shifts', shiftRoutes);
+app.use('/api/test', testRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

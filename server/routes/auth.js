@@ -165,10 +165,11 @@ router.post('/login', async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
-    // Get employee info if exists
+    // Get employee info if exists - return complete data like /auth/me
     const employee = await Employee.findOne({ user: user._id })
       .populate('employmentInfo.department', 'name code')
-      .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.designation');
+      .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
+      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo');
 
     console.log('🔍 Final user object before token generation:', {
       _id: user._id,
@@ -196,15 +197,9 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         isActive: user.isActive,
-        lastLogin: user.lastLogin,
-        employee: employee ? {
-          id: employee._id,
-          employeeId: employee.employeeId,
-          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
-          designation: employee.employmentInfo.designation,
-          department: employee.employmentInfo.department
-        } : null
-      }
+        lastLogin: user.lastLogin
+      },
+      employee: employee || null
     });
   } catch (error) {
     console.error('Login error:', error);

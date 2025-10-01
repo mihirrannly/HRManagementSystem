@@ -32,6 +32,7 @@ import {
   Favorite as FavoriteIcon,
   Computer as ComputerIcon,
   Settings as SettingsIcon,
+  SupervisorAccount as SupervisorAccountIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -44,6 +45,13 @@ const menuItems = [
     icon: <DashboardIcon />,
     path: '/dashboard',
     roles: ['admin', 'hr', 'manager', 'employee']
+  },
+  {
+    text: 'Reportee',
+    icon: <SupervisorAccountIcon />,
+    path: '/reportee',
+    roles: ['admin', 'hr', 'manager', 'employee'],
+    specialAccess: ['prajwal@rannkly.com', 'prajwal.shinde@rannkly.com']
   },
   {
     text: 'Organization',
@@ -109,9 +117,15 @@ const Layout = () => {
     }
   };
 
-  const filteredMenuItems = menuItems.filter(item => 
-    item.roles.includes(user?.role)
-  );
+  const filteredMenuItems = menuItems.filter(item => {
+    // Check if user has the required role
+    const hasRole = item.roles.includes(user?.role);
+    
+    // Check if user has special access (like Prajwal)
+    const hasSpecialAccess = item.specialAccess && item.specialAccess.includes(user?.email?.toLowerCase());
+    
+    return hasRole || hasSpecialAccess;
+  });
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

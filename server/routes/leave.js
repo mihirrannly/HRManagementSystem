@@ -365,57 +365,99 @@ router.post('/request', [
       handoverTo
     });
 
-    // Set up dual approval flow (Manager + HR)
+    // Set up approval flow based on new requirements
     const approvalFlow = [];
     
-    // Add reporting manager to approval flow
-    if (employee.employmentInfo.reportingManager) {
-      approvalFlow.push({
-        approver: employee.employmentInfo.reportingManager._id,
-        approverType: 'manager',
-        level: 1,
-        status: 'pending'
-      });
-    }
+    // Get the user's email to check for special cases
+    const userEmail = await Employee.findById(employee._id).populate('user', 'email');
+    const applicantEmail = userEmail.user?.email;
     
-    // Find HR employees to add to approval flow (only HR, not admins)
-    // Exclude the employee who is applying for leave to prevent self-approval
-    const hrEmployees = await Employee.find({
-      user: { $exists: true },
-      _id: { $ne: employee._id } // Exclude the current employee
-    }).populate('user', 'role').exec();
+    // Check if applicant is Mihir, Vishnu, or Shobhit (co-founders)
+    const isCoFounder = ['mihir@rannkly.com', 'vishnu@rannkly.com', 'shobhit@rannkly.com'].includes(applicantEmail);
     
-    // Find HR employee (only HR role, not admins, and not the person applying)
-    const hrEmployee = hrEmployees.find(emp => emp.user && emp.user.role === 'hr');
+    // Check if applicant is HR
+    const isHREmployee = userEmail.user?.role === 'hr';
     
-    if (hrEmployee) {
-      approvalFlow.push({
-        approver: hrEmployee._id,
-        approverType: 'hr',
-        level: 2,
-        status: 'pending'
-      });
-    } else {
-      console.log('⚠️ Warning: No HR employee found for approval flow (excluding self). Looking for admin as fallback...');
+    console.log(`🔍 Leave approval setup for ${employee.personalInfo?.firstName} ${employee.personalInfo?.lastName}:`, {
+      email: applicantEmail,
+      isCoFounder,
+      isHREmployee,
+      hasReportingManager: !!employee.employmentInfo.reportingManager
+    });
+    
+    if (isCoFounder) {
+      // Co-founders (Mihir, Vishnu, Shobhit) - HR approval only
+      console.log('👑 Co-founder detected - HR approval only');
       
-      // Fallback: If no other HR employee is available, find an admin
-      const adminEmployees = await Employee.find({
+      // Find HR employees (exclude self if they are HR)
+      const hrEmployees = await Employee.find({
         user: { $exists: true },
         _id: { $ne: employee._id } // Exclude the current employee
       }).populate('user', 'role').exec();
       
-      const adminEmployee = adminEmployees.find(emp => emp.user && emp.user.role === 'admin');
+      const hrEmployee = hrEmployees.find(emp => emp.user && emp.user.role === 'hr');
       
-      if (adminEmployee) {
+      if (hrEmployee) {
         approvalFlow.push({
-          approver: adminEmployee._id,
-          approverType: 'admin',
+          approver: hrEmployee._id,
+          approverType: 'hr',
+          level: 1,
+          status: 'pending'
+        });
+        console.log('✅ Added HR approver for co-founder leave request');
+      } else {
+        console.log('❌ Error: No HR employee found for co-founder leave approval');
+      }
+    } else if (isHREmployee) {
+      // HR employees - Manager approval only (even if manager is admin)
+      console.log('🏢 HR employee detected - Manager approval only');
+      
+      if (employee.employmentInfo.reportingManager) {
+        approvalFlow.push({
+          approver: employee.employmentInfo.reportingManager._id,
+          approverType: 'manager',
+          level: 1,
+          status: 'pending'
+        });
+        console.log('✅ Added manager approver for HR employee leave request');
+      } else {
+        console.log('❌ Error: HR employee has no reporting manager assigned');
+      }
+    } else {
+      // Regular employees - Dual approval (Manager + HR)
+      console.log('👤 Regular employee detected - Dual approval (Manager + HR)');
+      
+      // Add reporting manager to approval flow
+      if (employee.employmentInfo.reportingManager) {
+        approvalFlow.push({
+          approver: employee.employmentInfo.reportingManager._id,
+          approverType: 'manager',
+          level: 1,
+          status: 'pending'
+        });
+        console.log('✅ Added manager approver for regular employee');
+      } else {
+        console.log('⚠️ Warning: Regular employee has no reporting manager assigned');
+      }
+      
+      // Find HR employees to add to approval flow
+      const hrEmployees = await Employee.find({
+        user: { $exists: true },
+        _id: { $ne: employee._id } // Exclude the current employee
+      }).populate('user', 'role').exec();
+      
+      const hrEmployee = hrEmployees.find(emp => emp.user && emp.user.role === 'hr');
+      
+      if (hrEmployee) {
+        approvalFlow.push({
+          approver: hrEmployee._id,
+          approverType: 'hr',
           level: 2,
           status: 'pending'
         });
-        console.log('✅ Added admin as fallback approver for HR leave request');
+        console.log('✅ Added HR approver for regular employee');
       } else {
-        console.log('❌ Error: No HR or admin employee found for approval flow. Leave request may not be approvable.');
+        console.log('❌ Error: No HR employee found for regular employee leave approval');
       }
     }
     
@@ -611,7 +653,13 @@ router.put('/requests/:id/approve', [
     const { action, comments } = req.body;
 
     const leaveRequest = await LeaveRequest.findById(req.params.id)
-      .populate('employee', 'employmentInfo.reportingManager personalInfo.firstName personalInfo.lastName');
+      .populate({
+        path: 'employee',
+        populate: {
+          path: 'employmentInfo.reportingManager',
+          select: 'employeeId personalInfo.firstName personalInfo.lastName'
+        }
+      });
 
     if (!leaveRequest) {
       return res.status(404).json({ message: 'Leave request not found' });
@@ -639,19 +687,15 @@ router.put('/requests/:id/approve', [
       }))
     };
     
-    // TEMPORARY FIX: Allow Mihir (Global Admin) to approve any leave request
-    if (req.user.role === 'admin' && req.user.email === 'mihir@rannkly.com') {
-      console.log('🚀 BACKEND OVERRIDE: Mihir (Global Admin) can approve any leave request');
-      // Create a dummy approval to bypass the authorization check
-      userApproval = { status: 'pending' };
-    } else {
+    // Check authorization based on approval flow
     
     // Check if user is the SPECIFIC reporting manager (not just any manager)
-    const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?.toString() === approverEmployee._id.toString();
+    const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?._id?.toString() === approverEmployee._id.toString();
     
-    if (req.user.role === 'manager' && isReportingManager) {
+    // Allow both 'manager' role and 'admin' role users to approve as managers if they are the reporting manager
+    if ((req.user.role === 'manager' || req.user.role === 'admin') && isReportingManager) {
       userApproval = leaveRequest.approvalFlow.find(
-        approval => approval.approverType === 'manager' && approval.approver.toString() === approverEmployee._id.toString()
+        approval => approval.approverType === 'manager' && approval.approver._id.toString() === approverEmployee._id.toString()
       );
       
       if (!userApproval) {
@@ -660,20 +704,26 @@ router.put('/requests/:id/approve', [
           reason: 'Reporting manager not found in approval flow',
           isReportingManager: true
         });
+      } else {
+        console.log('✅ Manager authorization successful:', {
+          ...authorizationDetails,
+          reason: `${req.user.role} user is the reporting manager and can approve`,
+          isReportingManager: true
+        });
       }
-    } else if (req.user.role === 'manager' && !isReportingManager) {
+    } else if ((req.user.role === 'manager' || req.user.role === 'admin') && !isReportingManager) {
       console.log('🚫 Manager authorization failed:', {
         ...authorizationDetails,
         reason: 'Not the reporting manager for this employee',
         isReportingManager: false,
-        actualReportingManager: leaveRequest.employee.employmentInfo.reportingManager?.toString()
+        actualReportingManager: leaveRequest.employee.employmentInfo.reportingManager?._id?.toString()
       });
     }
     
     // Check if user is HR (only HR can approve, not admins)
     if (req.user.role === 'hr') {
       userApproval = leaveRequest.approvalFlow.find(
-        approval => approval.approverType === 'hr' && approval.approver.toString() === approverEmployee._id.toString()
+        approval => approval.approverType === 'hr' && approval.approver._id.toString() === approverEmployee._id.toString()
       );
       
       if (!userApproval) {
@@ -683,29 +733,33 @@ router.put('/requests/:id/approve', [
         });
       }
     } else if (req.user.role === 'admin') {
-      // Check if admin is specifically added to approval flow (as fallback for HR leave requests)
+      // Admin users can approve if they are in the approval flow as managers (for their direct reports) or as admins (fallback)
       userApproval = leaveRequest.approvalFlow.find(
-        approval => approval.approverType === 'admin' && approval.approver.toString() === approverEmployee._id.toString()
+        approval => (approval.approverType === 'manager' || approval.approverType === 'admin') && 
+                   approval.approver._id.toString() === approverEmployee._id.toString()
       );
       
       if (userApproval) {
-        console.log('✅ Admin authorized as fallback approver for HR leave request');
+        console.log('✅ Admin authorized to approve:', {
+          ...authorizationDetails,
+          reason: `Admin can approve as ${userApproval.approverType}`,
+          approverType: userApproval.approverType
+        });
       } else {
         // Admins can VIEW all requests but cannot APPROVE them unless specifically in approval flow
         console.log('🚫 Admin authorization failed:', {
           ...authorizationDetails,
-          reason: 'Admin not found in approval flow. Admins can only approve when specifically assigned (e.g., for HR leave requests).'
+          reason: 'Admin not found in approval flow as manager or admin. Admins can only approve when they are the reporting manager or specifically assigned.'
         });
       }
     }
     
-    } // End of authorization check else block
 
     if (!userApproval) {
       let detailedMessage = `You are not authorized to approve this leave request. `;
       
-      if (req.user.role === 'manager') {
-        const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?.toString() === approverEmployee._id.toString();
+      if (req.user.role === 'manager' || req.user.role === 'admin') {
+        const isReportingManager = leaveRequest.employee.employmentInfo.reportingManager?._id?.toString() === approverEmployee._id.toString();
         if (!isReportingManager) {
           detailedMessage += `You are not the reporting manager for ${authorizationDetails.requestEmployee}. Only the direct reporting manager can approve this leave request. `;
         } else {
@@ -713,8 +767,6 @@ router.put('/requests/:id/approve', [
         }
       } else if (req.user.role === 'hr') {
         detailedMessage += `You are not listed as the HR approver in the approval flow for this request. `;
-      } else if (req.user.role === 'admin') {
-        detailedMessage += `Admins can view all leave requests but cannot approve them. Only the reporting manager and HR can approve leave requests. `;
       } else {
         detailedMessage += `Your role (${req.user.role}) does not have approval permissions. Only reporting managers and HR can approve leave requests. `;
       }
@@ -745,18 +797,42 @@ router.put('/requests/:id/approve', [
     userApproval.actionDate = new Date();
 
     if (action === 'approve') {
-      // Check if both manager and HR have approved
+      // Get all approvals in the flow
       const managerApproval = leaveRequest.approvalFlow.find(approval => approval.approverType === 'manager');
       const hrApproval = leaveRequest.approvalFlow.find(approval => approval.approverType === 'hr');
       
       const managerApproved = managerApproval && managerApproval.status === 'approved';
       const hrApproved = hrApproval && hrApproval.status === 'approved';
       
-      if (managerApproved && hrApproved) {
-        // Both have approved - final approval
+      // Determine if leave should be fully approved based on approval flow requirements
+      let shouldBeFullyApproved = false;
+      
+      if (leaveRequest.approvalFlow.length === 1) {
+        // Single approval required (co-founders or HR employees)
+        const singleApproval = leaveRequest.approvalFlow[0];
+        shouldBeFullyApproved = singleApproval.status === 'approved';
+        console.log('📋 Single approval workflow:', {
+          approverType: singleApproval.approverType,
+          status: singleApproval.status,
+          shouldBeFullyApproved
+        });
+      } else if (leaveRequest.approvalFlow.length === 2) {
+        // Dual approval required (regular employees)
+        shouldBeFullyApproved = managerApproved && hrApproved;
+        console.log('📋 Dual approval workflow:', {
+          managerApproved,
+          hrApproved,
+          shouldBeFullyApproved
+        });
+      }
+      
+      if (shouldBeFullyApproved) {
+        // All required approvals completed - final approval
         leaveRequest.status = 'approved';
         leaveRequest.finalApprover = approverEmployee._id;
         leaveRequest.finalApprovalDate = new Date();
+
+        console.log('✅ Leave request fully approved');
 
         // Update leave balance
         const balance = await LeaveBalance.findOne({
@@ -796,11 +872,12 @@ router.put('/requests/:id/approve', [
 
           await balance.save();
         }
-      } else if (managerApproved || hrApproved) {
-        // One has approved - partial approval
+      } else if (leaveRequest.approvalFlow.length === 2 && (managerApproved || hrApproved)) {
+        // Dual approval workflow - one has approved, waiting for the other
         leaveRequest.status = 'partially_approved';
+        console.log('⏳ Leave request partially approved - waiting for second approval');
       }
-      // If neither has approved yet, status remains 'pending'
+      // If no approvals yet or single approval not complete, status remains 'pending'
     } else {
       // Rejected by either manager or HR
       leaveRequest.status = 'rejected';

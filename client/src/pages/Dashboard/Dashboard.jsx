@@ -50,6 +50,7 @@ import { toast } from 'react-toastify';
 
 import { useAuth } from '../../contexts/AuthContext';
 import EmployeeDashboard from './EmployeeDashboard';
+import TeamDashboard from './TeamDashboard';
 
 // Sample data for charts (replace with real API data)
 const attendanceData = [
@@ -132,8 +133,16 @@ const Dashboard = () => {
   const showEmployeeDashboard = user?.role === 'employee' || 
     ['mihir@rannkly.com', 'vishnu@rannkly.com', 'shobhit@rannkly.com', 'hr@rannkly.com', 'prajwal@rannkly.com', 'prajwal.shinde@rannkly.com'].includes(user?.email?.toLowerCase());
   
+  // Show team dashboard for managers or users with team members
+  const showTeamDashboard = user?.role === 'manager' || 
+    (user?.email?.toLowerCase().includes('prajwal') && user?.role !== 'employee');
+  
   if (showEmployeeDashboard) {
     return <EmployeeDashboard />;
+  }
+  
+  if (showTeamDashboard) {
+    return <TeamDashboard />;
   }
 
   const [dashboardData, setDashboardData] = useState({
@@ -390,6 +399,17 @@ const Dashboard = () => {
               icon={<BusinessIcon />}
               color="secondary"
               onClick={() => navigate('/organization')}
+            />
+          </Grid>
+        )}
+        {(user?.role === 'admin' || user?.role === 'hr') && (
+          <Grid item xs={12} sm={6} md={2.4}>
+            <StatCard
+              title="Team"
+              value="Management"
+              icon={<PeopleIcon />}
+              color="info"
+              onClick={() => navigate('/employees')}
             />
           </Grid>
         )}

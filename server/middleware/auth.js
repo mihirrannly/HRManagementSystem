@@ -98,10 +98,49 @@ const canAccessEmployee = async (req, res, next) => {
   }
 };
 
+// Check if user can access employee data with data filtering
+const canAccessEmployeeWithFilter = async (req, res, next) => {
+  try {
+    const { employeeId } = req.params;
+    const Employee = require('../models/Employee');
+    
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found.' });
+    }
+
+    // Admin and HR can access all employee data without filtering
+    if (['admin', 'hr'].includes(req.user.role)) {
+      req.accessLevel = 'full';
+      return next();
+    }
+
+    // Managers can access their team members' data with filtering
+    if (req.user.role === 'manager') {
+      const userEmployee = await Employee.findOne({ user: req.user._id });
+      if (employee.employmentInfo.reportingManager?.toString() === userEmployee._id.toString()) {
+        req.accessLevel = 'manager';
+        return next();
+      }
+    }
+
+    // Employees can only access their own data
+    if (employee.user.toString() === req.user._id.toString()) {
+      req.accessLevel = 'self';
+      return next();
+    }
+
+    res.status(403).json({ message: 'Access denied to this employee data.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error checking employee access permissions.' });
+  }
+};
+
 module.exports = {
   authenticate,
   authorize,
   checkPermission,
-  canAccessEmployee
+  canAccessEmployee,
+  canAccessEmployeeWithFilter
 };
 

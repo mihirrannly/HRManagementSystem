@@ -39,6 +39,7 @@ import CandidatePortal from './pages/CandidatePortal/CandidatePortal';
 import SubmissionSuccess from './pages/CandidatePortal/SubmissionSuccess';
 import CandidateReview from './pages/CandidateReview';
 import DocumentSigning from './pages/DocumentSigning';
+import Reportee from './pages/Reportee/Reportee';
 
 // Theme configuration
 const theme = createTheme({
@@ -211,6 +212,7 @@ function App() {
               >
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
+                <Route path="reportee" element={<Reportee />} />
                 <Route path="organization" element={<OrganizationAdvanced />} />
                 <Route path="candidate-review/:candidateId" element={<CandidateReview />} />
                 <Route path="attendance" element={<Attendance />} />

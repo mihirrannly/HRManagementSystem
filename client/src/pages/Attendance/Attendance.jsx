@@ -81,6 +81,8 @@ const Attendance = () => {
     startDate: moment().format('YYYY-MM-DD'),
     endDate: moment().format('YYYY-MM-DD')
   });
+  // Employee month selector
+  const [selectedMonth, setSelectedMonth] = useState(moment());
   // Location and checkout dialog states removed - functionality moved to dashboard only
   
   // Edit attendance states
@@ -117,6 +119,12 @@ const Attendance = () => {
       fetchTeamSummary(selectedPeriod, customDateRange);
     }
   }, [selectedPeriod, customDateRange, tabValue]);
+
+  useEffect(() => {
+    if (isEmployee) {
+      fetchAttendanceRecords();
+    }
+  }, [selectedMonth, isEmployee]);
 
   useEffect(() => {
     // Refresh data every 5 minutes
@@ -204,10 +212,25 @@ const Attendance = () => {
       console.log('🔍 Fetching attendance records...');
       console.log('🔐 Token in localStorage:', !!localStorage.getItem('token'));
       setLoading(true);
-      const response = await axios.get('/attendance/summary');
+      
+      // For employees, use the selected month; for managers, use default behavior
+      let url = '/attendance/summary';
+      if (isEmployee) {
+        const startDate = selectedMonth.clone().startOf('month').format('YYYY-MM-DD');
+        const endDate = selectedMonth.clone().endOf('month').format('YYYY-MM-DD');
+        url = `/attendance?startDate=${startDate}&endDate=${endDate}&limit=100`;
+      }
+      
+      const response = await axios.get(url);
       console.log('✅ Attendance records response:', response.data);
-      setAttendanceRecords(response.data.records || []);
-      setStats(response.data.stats || stats);
+      
+      if (isEmployee) {
+        setAttendanceRecords(response.data.attendance || []);
+        setStats(response.data.stats || stats);
+      } else {
+        setAttendanceRecords(response.data.records || []);
+        setStats(response.data.stats || stats);
+      }
     } catch (error) {
       console.error('❌ Error fetching attendance records:', error.response?.status, error.response?.data);
       toast.error('Failed to fetch attendance records');
@@ -686,6 +709,59 @@ const Attendance = () => {
         </Paper>
       )}
 
+      {/* Month Selector for Employees */}
+      {isEmployee && (
+        <Paper sx={{ p: 3, mb: 3, border: '1px solid #e0e0e0' }}>
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+            📅 Select Month to View
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Select Month"
+                type="month"
+                size="small"
+                fullWidth
+                value={selectedMonth.format('YYYY-MM')}
+                onChange={(e) => setSelectedMonth(moment(e.target.value))}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setSelectedMonth(moment().subtract(1, 'month'))}
+                >
+                  ← Previous Month
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setSelectedMonth(moment())}
+                >
+                  Current Month
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setSelectedMonth(moment().add(1, 'month'))}
+                  disabled={selectedMonth.isSameOrAfter(moment(), 'month')}
+                >
+                  Next Month →
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+          <Box sx={{ mt: 2, p: 2, bgcolor: '#f8f9fa', borderRadius: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              📊 Showing attendance for <strong>{selectedMonth.format('MMMM YYYY')}</strong>
+            </Typography>
+          </Box>
+        </Paper>
+      )}
+
       {/* Enhanced Attendance Records Table */}
       {(isEmployee || tabValue === 0) && (
         <Paper sx={{ width: '100%', overflow: 'hidden', border: '1px solid #e0e0e0' }}>
@@ -701,7 +777,7 @@ const Attendance = () => {
               My Attendance Records
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-              {attendanceRecords.length} records • Current month
+              {attendanceRecords.length} records • {isEmployee ? selectedMonth.format('MMMM YYYY') : 'Current month'}
             </Typography>
           </Box>
           <TableContainer sx={{ maxHeight: 600 }}>

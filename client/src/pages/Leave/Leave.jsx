@@ -62,6 +62,7 @@ const Leave = () => {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [leaveBalances, setLeaveBalances] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [requestFilter, setRequestFilter] = useState('all'); // 'all', 'own', 'others'
   const [openDialog, setOpenDialog] = useState(false);
   const [formData, setFormData] = useState({
     leaveType: '',
@@ -195,11 +196,7 @@ const Leave = () => {
       }))
     });
     
-    // TEMPORARY FIX: Allow Mihir (Global Admin) to approve any pending leave request
-    if (user?.role === 'admin' && user?.email === 'mihir@rannkly.com') {
-      console.log('🚀 OVERRIDE: Mihir (Global Admin) can approve any leave request');
-      return true;
-    }
+    // Check if user can approve based on the new approval workflow
     
     // Check if request is still pending or partially approved
     if (request.status !== 'pending' && request.status !== 'partially_approved') {
@@ -234,7 +231,7 @@ const Leave = () => {
       return canApprove;
     }
     
-    // Admin users can approve if they are specifically in the approval flow (fallback for HR leaves)
+    // Admin users can approve if they are in the approval flow as managers or admins
     if (user?.role === 'admin') {
       console.log('🔍 Detailed admin check:', {
         employeeId: employee?._id,
@@ -247,12 +244,13 @@ const Leave = () => {
         }))
       });
       
+      // Admin can approve as manager (for their direct reports) or as admin (fallback for HR leaves)
       const canApprove = request.approvalFlow?.some(approval => 
-        approval.approverType === 'admin' && 
+        (approval.approverType === 'manager' || approval.approverType === 'admin') && 
         approval.status === 'pending' &&
         approval.approver?._id === employee?._id
       );
-      console.log('✅ Admin can approve (fallback):', canApprove);
+      console.log('✅ Admin can approve (manager or admin):', canApprove);
       return canApprove;
     }
     
@@ -276,7 +274,7 @@ const Leave = () => {
     
     const userApproval = request.approvalFlow.find(approval => {
       if (isHR && approval.approverType === 'hr' && approval.approver._id === employee?._id) return true;
-      if (isAdmin && approval.approverType === 'admin' && approval.approver._id === employee?._id) return true;
+      if (isAdmin && (approval.approverType === 'admin' || approval.approverType === 'manager') && approval.approver._id === employee?._id) return true;
       if (isManager && approval.approverType === 'manager' && approval.approver._id === employee?._id) return true;
       return false;
     });
@@ -374,9 +372,65 @@ const Leave = () => {
 
         {/* Leave Requests Table */}
         <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-          <Typography variant="h6" sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
-            Leave Requests
-          </Typography>
+          <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Leave Requests
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#1976d2'
+                  }}
+                />
+                <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
+                  Your Requests: {leaveRequests.filter(req => req.employee?._id === employee?._id).length}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#757575'
+                  }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Other Employees: {leaveRequests.filter(req => req.employee?._id !== employee?._id).length}
+                </Typography>
+              </Box>
+              <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant={requestFilter === 'all' ? 'contained' : 'outlined'}
+                  onClick={() => setRequestFilter('all')}
+                  sx={{ minWidth: 60 }}
+                >
+                  All
+                </Button>
+                <Button
+                  size="small"
+                  variant={requestFilter === 'own' ? 'contained' : 'outlined'}
+                  onClick={() => setRequestFilter('own')}
+                  sx={{ minWidth: 60 }}
+                >
+                  Yours
+                </Button>
+                <Button
+                  size="small"
+                  variant={requestFilter === 'others' ? 'contained' : 'outlined'}
+                  onClick={() => setRequestFilter('others')}
+                  sx={{ minWidth: 60 }}
+                >
+                  Others
+                </Button>
+              </Box>
+            </Box>
+          </Box>
           <TableContainer sx={{ maxHeight: 600 }}>
             <Table stickyHeader>
               <TableHead>
@@ -393,11 +447,80 @@ const Leave = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {leaveRequests.map((request) => (
-                  <TableRow key={request._id} hover>
-                    <TableCell>
-                      {request.employee?.personalInfo?.firstName} {request.employee?.personalInfo?.lastName}
-                    </TableCell>
+                {leaveRequests
+                  .filter((request) => {
+                    const isOwnRequest = request.employee?._id === employee?._id;
+                    if (requestFilter === 'own') return isOwnRequest;
+                    if (requestFilter === 'others') return !isOwnRequest;
+                    return true; // 'all'
+                  })
+                  .map((request) => {
+                    const isOwnRequest = request.employee?._id === employee?._id;
+                  return (
+                    <TableRow 
+                      key={request._id} 
+                      hover
+                      sx={{
+                        backgroundColor: isOwnRequest ? '#f8f9fa' : 'inherit',
+                        '&:hover': {
+                          backgroundColor: isOwnRequest ? '#e9ecef' : 'rgba(0, 0, 0, 0.04)'
+                        }
+                      }}
+                    >
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {isOwnRequest ? (
+                            <>
+                              <Box
+                                sx={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  backgroundColor: '#1976d2',
+                                  flexShrink: 0
+                                }}
+                              />
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontWeight: 'bold',
+                                  color: '#1976d2'
+                                }}
+                              >
+                                {request.employee?.personalInfo?.firstName} {request.employee?.personalInfo?.lastName}
+                              </Typography>
+                              <Chip
+                                label="You"
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                sx={{ 
+                                  fontSize: '0.7rem',
+                                  height: 20,
+                                  '& .MuiChip-label': {
+                                    px: 1
+                                  }
+                                }}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <Box
+                                sx={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  backgroundColor: '#757575',
+                                  flexShrink: 0
+                                }}
+                              />
+                              <Typography variant="body2">
+                                {request.employee?.personalInfo?.firstName} {request.employee?.personalInfo?.lastName}
+                              </Typography>
+                            </>
+                          )}
+                        </Box>
+                      </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <Box 
@@ -443,11 +566,28 @@ const Leave = () => {
                     </TableCell>
                     <TableCell>
                       <Box>
-                        <Chip
-                          label={getStatusLabel(request.status)}
-                          color={getStatusColor(request.status)}
-                          size="small"
-                        />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Chip
+                            label={getStatusLabel(request.status)}
+                            color={getStatusColor(request.status)}
+                            size="small"
+                          />
+                          {isOwnRequest && (
+                            <Chip
+                              label="Your Request"
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              sx={{ 
+                                fontSize: '0.7rem',
+                                height: 20,
+                                '& .MuiChip-label': {
+                                  px: 1
+                                }
+                              }}
+                            />
+                          )}
+                        </Box>
                         {request.status === 'partially_approved' && request.approvalFlow && (
                           <Box sx={{ mt: 1 }}>
                             {request.approvalFlow.map((approval, index) => (
@@ -492,7 +632,7 @@ const Leave = () => {
                           </Box>
                         )}
                         {user?.role === 'admin' && (request.status === 'pending' || request.status === 'partially_approved') && !canApproveReject(request) && (
-                          <Tooltip title="Admins can view all leave requests. They can only approve when specifically assigned (e.g., for HR leave requests).">
+                          <Tooltip title="Admins can view all leave requests. They can only approve when they are the reporting manager for HR employees.">
                             <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                               👁️ View Only
                             </Typography>
@@ -511,11 +651,20 @@ const Leave = () => {
                       </TableCell>
                     )}
                   </TableRow>
-                ))}
-                {leaveRequests.length === 0 && !loading && (
+                  );
+                })}
+                {leaveRequests
+                  .filter((request) => {
+                    const isOwnRequest = request.employee?._id === employee?._id;
+                    if (requestFilter === 'own') return isOwnRequest;
+                    if (requestFilter === 'others') return !isOwnRequest;
+                    return true; // 'all'
+                  }).length === 0 && !loading && (
                   <TableRow>
                     <TableCell colSpan={9} align="center">
-                      No leave requests found
+                      {requestFilter === 'own' ? 'No leave requests found for you' :
+                       requestFilter === 'others' ? 'No leave requests found for other employees' :
+                       'No leave requests found'}
                     </TableCell>
                   </TableRow>
                 )}
