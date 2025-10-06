@@ -24,6 +24,8 @@ const permissionRoutes = require('./routes/permissions');
 const assetRoutes = require('./routes/assets');
 const shiftRoutes = require('./routes/shifts');
 const testRoutes = require('./routes/test');
+const faceDetectionRoutes = require('./routes/faceDetection');
+const exitManagementRoutes = require('./routes/exitManagement');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -106,6 +108,8 @@ app.use('/api/permissions', permissionRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/face-detection', faceDetectionRoutes);
+app.use('/api/exit-management', exitManagementRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

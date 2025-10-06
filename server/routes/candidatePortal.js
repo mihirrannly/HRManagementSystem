@@ -1540,6 +1540,127 @@ router.get('/:candidateId/document/:documentId/:filename', async (req, res) => {
   }
 });
 
+// Update document name
+router.put('/:candidateId/document/:documentId/name', async (req, res) => {
+  try {
+    const { candidateId, documentId } = req.params;
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document name is required'
+      });
+    }
+
+    const onboarding = await Onboarding.findOne({ employeeId: candidateId });
+    if (!onboarding) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    let documentUpdated = false;
+    let updatePath = null;
+    let updateObject = {};
+
+    // Update document name in candidatePortal data
+    if (onboarding.candidatePortal) {
+      // Check profile photo
+      if (onboarding.candidatePortal.personalInfo?.profilePhoto?.id === documentId) {
+        updatePath = 'candidatePortal.personalInfo.profilePhoto';
+        updateObject[`${updatePath}.name`] = name.trim();
+        documentUpdated = true;
+      }
+
+      // Check government documents
+      if (onboarding.candidatePortal.governmentDocuments) {
+        ['aadhaarImage', 'panImage'].forEach(docType => {
+          if (onboarding.candidatePortal.governmentDocuments[docType]?.id === documentId) {
+            updatePath = `candidatePortal.governmentDocuments.${docType}`;
+            updateObject[`${updatePath}.name`] = name.trim();
+            documentUpdated = true;
+          }
+        });
+      }
+
+      // Check bank documents
+      if (onboarding.candidatePortal.bankDocuments) {
+        ['cancelledCheque', 'passbook', 'bankStatement'].forEach(docType => {
+          if (onboarding.candidatePortal.bankDocuments[docType]?.id === documentId) {
+            updatePath = `candidatePortal.bankDocuments.${docType}`;
+            updateObject[`${updatePath}.name`] = name.trim();
+            documentUpdated = true;
+          }
+        });
+      }
+
+      // Check education documents
+      if (onboarding.candidatePortal.educationDocuments) {
+        const docIndex = onboarding.candidatePortal.educationDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.educationDocuments.${docIndex}`;
+          updateObject[`${updatePath}.name`] = name.trim();
+          documentUpdated = true;
+        }
+      }
+
+      // Check work experience documents
+      if (onboarding.candidatePortal.workExperienceDocuments) {
+        const docIndex = onboarding.candidatePortal.workExperienceDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.workExperienceDocuments.${docIndex}`;
+          updateObject[`${updatePath}.name`] = name.trim();
+          documentUpdated = true;
+        }
+      }
+
+      // Check uploaded documents
+      if (onboarding.candidatePortal.uploadedDocuments) {
+        const docIndex = onboarding.candidatePortal.uploadedDocuments.findIndex(doc => doc.id === documentId);
+        if (docIndex !== -1) {
+          updatePath = `candidatePortal.uploadedDocuments.${docIndex}`;
+          updateObject[`${updatePath}.name`] = name.trim();
+          documentUpdated = true;
+        }
+      }
+    }
+
+    if (!documentUpdated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    // Use $set to update the specific document name
+    await Onboarding.findOneAndUpdate(
+      { employeeId: candidateId },
+      { $set: updateObject },
+      { new: true }
+    );
+
+    console.log(`📋 Document ${documentId} name updated to: ${name.trim()} for candidate ${candidateId}`);
+
+    res.json({
+      success: true,
+      message: 'Document name updated successfully',
+      document: {
+        id: documentId,
+        name: name.trim()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Update document name error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 // Document management endpoints for HR
 router.put('/:candidateId/document/:documentId/status', async (req, res) => {
   try {

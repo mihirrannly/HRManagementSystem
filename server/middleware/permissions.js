@@ -106,6 +106,13 @@ const checkPermissions = (requiredModule, requiredAction) => {
             [ACTIONS.UPDATE]: ['admin', 'hr', 'manager'],
             [ACTIONS.APPROVE]: ['admin', 'hr']
           },
+          [MODULES.EXIT_MANAGEMENT]: {
+            [ACTIONS.READ]: ['admin', 'hr', 'manager'],
+            [ACTIONS.CREATE]: ['admin', 'hr'],
+            [ACTIONS.UPDATE]: ['admin', 'hr', 'manager'],
+            [ACTIONS.APPROVE]: ['admin', 'hr'],
+            [ACTIONS.EXPORT]: ['admin', 'hr']
+          },
           [MODULES.ASSETS]: {
             [ACTIONS.READ]: ['admin', 'hr', 'manager'],
             [ACTIONS.CREATE]: ['admin', 'hr'],

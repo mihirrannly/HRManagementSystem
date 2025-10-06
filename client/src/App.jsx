@@ -31,6 +31,7 @@ import PermissionsDebug from './pages/Permissions/PermissionsDebug';
 import PermissionsFixed from './pages/Permissions/PermissionsFixed';
 import AuthTest from './pages/Permissions/AuthTest';
 import AssetManagement from './pages/Assets/AssetManagement';
+import ExitManagement from './pages/ExitManagement/ExitManagement';
 import Settings from './pages/Settings/Settings';
 import OfferAcceptance from './pages/OfferAcceptance';
 import CandidateDocuments from './pages/CandidateDocuments';
@@ -220,6 +221,7 @@ function App() {
                 <Route path="reports" element={<Reports />} />
                 <Route path="permissions" element={<PermissionsFixed />} />
                 <Route path="assets" element={<AssetManagement />} />
+                <Route path="exit-management" element={<ExitManagement />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
 

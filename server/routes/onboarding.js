@@ -106,6 +106,7 @@ async function createEmployeeFromOnboarding(onboarding) {
         maritalStatus: candidatePersonalInfo.maritalStatus || onboarding.maritalStatus,
         nationality: candidatePersonalInfo.nationality || onboarding.nationality || 'Indian',
         bloodGroup: candidatePersonalInfo.bloodGroup,
+        profilePicture: candidatePersonalInfo.profilePhoto?.url || null,
         currentAddress: onboarding.currentAddress || {},
         permanentAddress: onboarding.permanentAddress || {},
         emergencyContact: onboarding.emergencyContacts?.[0] ? {

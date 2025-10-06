@@ -46,7 +46,13 @@ import {
   Alert,
   FormControlLabel,
   Checkbox,
-  CardActionArea
+  CardActionArea,
+  CircularProgress,
+  Tabs,
+  Tab,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -58,7 +64,6 @@ import {
   ArrowBack as ArrowBackIcon,
   ChevronRight as ChevronRightIcon,
   Folder as DirectoryIcon,
-  ExitToApp as LoginIcon,
   Group as GroupIcon,
   History as HistoryIcon,
   Lock as LockIcon,
@@ -66,8 +71,6 @@ import {
   Settings as SettingsIcon,
   Refresh as RefreshIcon,
   Business as BusinessIcon,
-  CloudUpload as CloudUploadIcon,
-  Download as DownloadIcon,
   FileUpload as FileUploadIcon,
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
@@ -80,11 +83,9 @@ import {
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import moment from 'moment';
-import Papa from 'papaparse';
-import OnboardingsModuleFull from './OnboardingsModule';
 
 // Full-Screen Employee Details View
-const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmployee }) => {
+const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmployee, onEmployeeUpdate }) => {
   const [activeTab, setActiveTab] = useState('ABOUT');
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedEmployee, setEditedEmployee] = useState(employee);
@@ -93,6 +94,8 @@ const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmploye
     { id: 'ABOUT', label: 'ABOUT', icon: '👤' },
     { id: 'PROFILE', label: 'PROFILE', icon: '📋' },
     { id: 'JOB', label: 'JOB', icon: '💼' },
+    { id: 'EDUCATION', label: 'EDUCATION', icon: '🎓' },
+    { id: 'EXPERIENCE', label: 'EXPERIENCE', icon: '💼' },
     { id: 'TIME', label: 'TIME', icon: '⏰' },
     { id: 'DOCUMENTS', label: 'DOCUMENTS', icon: '📄' },
     { id: 'ASSETS', label: 'ASSETS', icon: '🏢' },
@@ -186,7 +189,13 @@ const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmploye
         
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <Avatar 
-            src={employee.profileImage || ''}
+            src={employee.profilePicture?.url ? 
+                 (employee.profilePicture.url.startsWith('http') ? employee.profilePicture.url : `http://localhost:5001${employee.profilePicture.url}`) :
+                 employee.additionalInfo?.candidatePortalData?.personalInfo?.profilePhoto?.url || 
+                 employee.additionalInfo?.profilePhoto?.url || 
+                 employee.profileImage || 
+                 employee.personalInfo?.profilePicture || 
+                 ''}
             sx={{ 
               width: 80, 
               height: 80,
@@ -195,7 +204,11 @@ const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmploye
               fontWeight: 600
             }}
           >
-            {!employee.profileImage && (
+            {!(employee.profilePicture?.url || 
+               employee.additionalInfo?.candidatePortalData?.personalInfo?.profilePhoto?.url || 
+               employee.additionalInfo?.profilePhoto?.url || 
+               employee.profileImage || 
+               employee.personalInfo?.profilePicture) && (
               <>
                 {employee.personalInfo?.firstName?.charAt(0) || 'N'}
                 {employee.personalInfo?.lastName?.charAt(0) || 'A'}
@@ -380,8 +393,10 @@ const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmploye
         {activeTab === 'ABOUT' && <AboutSection employee={employee} isEditable={isEditMode} editedEmployee={editedEmployee} onFieldChange={handleFieldChange} />}
         {activeTab === 'PROFILE' && <ProfileSection employee={employee} />}
         {activeTab === 'JOB' && <JobSection employee={employee} isEditable={isEditMode} editedEmployee={editedEmployee} onFieldChange={handleFieldChange} />}
+        {activeTab === 'EDUCATION' && <EducationSection employee={employee} />}
+        {activeTab === 'EXPERIENCE' && <ExperienceSection employee={employee} />}
         {activeTab === 'TIME' && <TimeSection employee={employee} />}
-        {activeTab === 'DOCUMENTS' && <DocumentsSection employee={employee} />}
+        {activeTab === 'DOCUMENTS' && <DocumentsSection employee={employee} onEmployeeUpdate={onEmployeeUpdate} />}
         {activeTab === 'ASSETS' && <AssetsSection employee={employee} />}
         {activeTab === 'FINANCES' && <FinancesSection employee={employee} />}
         {activeTab === 'EXPENSES' && <ExpensesSection employee={employee} />}
@@ -489,106 +504,273 @@ const AboutSection = ({ employee, isEditable = false, editedEmployee, onFieldCha
     {/* Primary Details */}
     <Grid item xs={12} md={6}>
       <SectionCard icon="👤" title="Primary Details" color="primary.main">
-        <FieldDisplay 
-          label="First Name" 
-          value={isEditable ? editedEmployee?.personalInfo?.firstName : employee.personalInfo?.firstName}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="firstName"
-          section="personalInfo"
-        />
-        <FieldDisplay 
-          label="Last Name" 
-          value={isEditable ? editedEmployee?.personalInfo?.lastName : employee.personalInfo?.lastName}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="lastName"
-          section="personalInfo"
-        />
-        <FieldDisplay 
-          label="Employee ID" 
-          value={employee.employeeId || 'No ID'} 
-        />
-        <FieldDisplay 
-          label="Date of Birth" 
-          value={isEditable 
-            ? (editedEmployee?.personalInfo?.dateOfBirth ? moment(editedEmployee.personalInfo.dateOfBirth).format('YYYY-MM-DD') : '')
-            : (employee.personalInfo?.dateOfBirth 
-              ? moment(employee.personalInfo.dateOfBirth).format('DD MMM YYYY')
-              : employee.additionalInfo?.['Date Of Birth'])
-          }
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="dateOfBirth"
-          section="personalInfo"
-          type="date"
-        />
-        <FieldDisplay 
-          label="Gender" 
-          value={isEditable ? editedEmployee?.personalInfo?.gender : employee.personalInfo?.gender || employee.additionalInfo?.Gender}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="gender"
-          section="personalInfo"
-        />
-        <FieldDisplay 
-          label="Marital Status" 
-          value={isEditable ? editedEmployee?.personalInfo?.maritalStatus : employee.personalInfo?.maritalStatus || employee.additionalInfo?.['Marital Status']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="maritalStatus"
-          section="personalInfo"
-        />
-        <FieldDisplay 
-          label="Nationality" 
-          value={isEditable ? editedEmployee?.personalInfo?.nationality : employee.personalInfo?.nationality || employee.additionalInfo?.Nationality}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="nationality"
-          section="personalInfo"
-        />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <Box sx={{ 
+            p: 2.5, 
+            bgcolor: '#f8fafc', 
+            borderRadius: 2,
+            border: '1px solid #e2e8f0'
+          }}>
+            <Typography variant="caption" sx={{ 
+              color: '#64748b', 
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              fontSize: '0.75rem',
+              mb: 1,
+              display: 'block'
+            }}>
+              Full Name
+            </Typography>
+            <Typography variant="h6" sx={{ 
+              color: '#1e293b', 
+              fontWeight: 600,
+              fontSize: '1.1rem',
+              mb: 0.5
+            }}>
+              {isEditable ? editedEmployee?.personalInfo?.firstName : employee.personalInfo?.firstName} {isEditable ? editedEmployee?.personalInfo?.lastName : employee.personalInfo?.lastName}
+            </Typography>
+            <Typography variant="body2" sx={{ 
+              color: '#64748b',
+              fontSize: '0.875rem'
+            }}>
+              Employee ID: {employee.employeeId || 'Not assigned'}
+            </Typography>
+          </Box>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Date of Birth
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable 
+                    ? (editedEmployee?.personalInfo?.dateOfBirth ? moment(editedEmployee.personalInfo.dateOfBirth).format('YYYY-MM-DD') : '')
+                    : (employee.personalInfo?.dateOfBirth 
+                      ? moment(employee.personalInfo.dateOfBirth).format('DD MMM YYYY')
+                      : employee.additionalInfo?.['Date Of Birth'] || 'Not provided')
+                  }
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Gender
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.gender : employee.personalInfo?.gender || employee.additionalInfo?.Gender || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Marital Status
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.maritalStatus : employee.personalInfo?.maritalStatus || employee.additionalInfo?.['Marital Status'] || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Nationality
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.nationality : employee.personalInfo?.nationality || employee.additionalInfo?.Nationality || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
       </SectionCard>
     </Grid>
 
     {/* Contact Details */}
     <Grid item xs={12} md={6}>
       <SectionCard icon="📞" title="Contact Details" color="info.main">
-        <FieldDisplay 
-          label="Work Email" 
-          value={isEditable ? editedEmployee?.personalInfo?.email : employee.personalInfo?.email || employee.user?.email || employee.additionalInfo?.['Work Email']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="email"
-          section="personalInfo"
-          type="email"
-        />
-        <FieldDisplay 
-          label="Personal Email" 
-          value={isEditable ? editedEmployee?.personalInfo?.personalEmailId : employee.additionalInfo?.['Personal Email'] || employee.contactInfo?.personalEmail}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="personalEmailId"
-          section="personalInfo"
-          type="email"
-        />
-        <FieldDisplay 
-          label="Mobile Phone" 
-          value={isEditable ? editedEmployee?.personalInfo?.phone : employee.personalInfo?.phone || employee.contactInfo?.phone || employee.additionalInfo?.['Mobile Phone']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="phone"
-          section="personalInfo"
-          type="tel"
-        />
-        <FieldDisplay 
-          label="Alternate Phone" 
-          value={isEditable ? editedEmployee?.personalInfo?.alternatePhone : employee.personalInfo?.alternatePhone || employee.additionalInfo?.['Work Phone']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="alternatePhone"
-          section="personalInfo"
-          type="tel"
-        />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box sx={{ 
+            p: 2, 
+            bgcolor: '#f8fafc', 
+            borderRadius: 2,
+            border: '1px solid #e2e8f0'
+          }}>
+            <Typography variant="caption" sx={{ 
+              color: '#64748b', 
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              fontSize: '0.75rem',
+              mb: 1,
+              display: 'block'
+            }}>
+              Work Email
+            </Typography>
+            <Typography variant="body1" sx={{ 
+              color: '#1e293b', 
+              fontWeight: 500,
+              fontSize: '0.95rem'
+            }}>
+              {isEditable ? editedEmployee?.personalInfo?.email : employee.personalInfo?.email || employee.user?.email || employee.additionalInfo?.['Work Email'] || 'Not provided'}
+            </Typography>
+          </Box>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Mobile Phone
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.phone : employee.personalInfo?.phone || employee.contactInfo?.phone || employee.additionalInfo?.['Mobile Phone'] || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Alternate Phone
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.alternatePhone : employee.personalInfo?.alternatePhone || employee.additionalInfo?.['Work Phone'] || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: '#f8fafc', 
+                borderRadius: 2,
+                border: '1px solid #e2e8f0'
+              }}>
+                <Typography variant="caption" sx={{ 
+                  color: '#64748b', 
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  fontSize: '0.75rem',
+                  mb: 1,
+                  display: 'block'
+                }}>
+                  Personal Email
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  color: '#1e293b', 
+                  fontWeight: 500,
+                  fontSize: '0.95rem'
+                }}>
+                  {isEditable ? editedEmployee?.personalInfo?.personalEmailId : employee.additionalInfo?.['Personal Email'] || employee.contactInfo?.personalEmail || 'Not provided'}
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
       </SectionCard>
     </Grid>
 
@@ -671,136 +853,406 @@ const AboutSection = ({ employee, isEditable = false, editedEmployee, onFieldCha
 );
 
 // Profile Section Component
-const ProfileSection = ({ employee }) => (
-  <Grid container spacing={3}>
-    <Grid item xs={12} md={6}>
-      <SectionCard icon="📄" title="Government & Legal" color="warning.main">
-        <FieldDisplay 
-          label="PAN Number" 
-          value={employee.additionalInfo?.['PAN Number'] || employee.salaryInfo?.taxInfo?.panNumber} 
-        />
-        <FieldDisplay 
-          label="Aadhaar Number" 
-          value={employee.additionalInfo?.['Aadhaar Number'] || employee.salaryInfo?.taxInfo?.aadharNumber} 
-        />
-        <FieldDisplay 
-          label="PF Number" 
-          value={employee.additionalInfo?.['PF Number'] || employee.salaryInfo?.taxInfo?.pfNumber} 
-        />
-        <FieldDisplay 
-          label="UAN Number" 
-          value={employee.additionalInfo?.['UAN Number'] || employee.salaryInfo?.taxInfo?.uanNumber} 
-        />
-      </SectionCard>
+const ProfileSection = ({ employee }) => {
+  const maskSensitiveData = (value) => {
+    if (!value) return 'Not provided';
+    if (value.length <= 4) return value;
+    return `****${value.slice(-4)}`;
+  };
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12} md={6}>
+        <SectionCard icon="📄" title="Government & Legal" color="warning.main">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    PAN Number
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem',
+                    fontFamily: 'monospace'
+                  }}>
+                    {maskSensitiveData(employee.additionalInfo?.['PAN Number'] || employee.salaryInfo?.taxInfo?.panNumber)}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Aadhaar Number
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem',
+                    fontFamily: 'monospace'
+                  }}>
+                    {maskSensitiveData(employee.additionalInfo?.['Aadhaar Number'] || employee.salaryInfo?.taxInfo?.aadharNumber)}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    PF Number
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem',
+                    fontFamily: 'monospace'
+                  }}>
+                    {employee.additionalInfo?.['PF Number'] || employee.salaryInfo?.taxInfo?.pfNumber || 'Not provided'}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    UAN Number
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem',
+                    fontFamily: 'monospace'
+                  }}>
+                    {employee.additionalInfo?.['UAN Number'] || employee.salaryInfo?.taxInfo?.uanNumber || 'Not provided'}
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+        </SectionCard>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <SectionCard icon="📋" title="Additional Information" color="grey.600">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {employee.additionalInfo && Object.entries(employee.additionalInfo)
+              .filter(([key, value]) => {
+                // Filter out already displayed fields
+                const excludedKeys = [
+                  'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 
+                  'Marital Status', 'Personal Email', 'Mobile Phone', 'Work Phone', 'Current Address Line 1', 
+                  'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Location', 'Location Country',
+                  'Department', 'Job Title', 'Date Joined', 'Employment Status', 'Worker Type', 'Reporting To',
+                  'PAN Number', 'Aadhaar Number', 'PF Number', 'UAN Number', 'Blood Group', 'Physically Handicapped',
+                  'Nationality'
+                ];
+                
+                // Filter out complex objects from onboarding migration
+                const complexObjectKeys = [
+                  'onboardingId', 'candidatePortalData', 'itSetupData', 'hrSetupData', 'allEmergencyContacts',
+                  'offerLetterData', 'orientationData', 'onboardingTasks', 'stepProgress', 'educationQualifications',
+                  'workExperience', 'governmentDocuments', 'bankDocuments', 'educationDocuments', 
+                  'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt'
+                ];
+                
+                // Only show simple string/number/boolean values
+                return !excludedKeys.includes(key) && 
+                       !complexObjectKeys.includes(key) &&
+                       (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') &&
+                       value !== null && value !== undefined && value !== '';
+              })
+              .slice(0, 6)
+              .map(([key, value]) => (
+                <Box key={key} sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem'
+                  }}>
+                    {value}
+                  </Typography>
+                </Box>
+              ))
+            }
+            {(!employee.additionalInfo || Object.entries(employee.additionalInfo).filter(([key, value]) => {
+              const excludedKeys = [
+                'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 
+                'Marital Status', 'Personal Email', 'Mobile Phone', 'Work Phone', 'Current Address Line 1', 
+                'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Location', 'Location Country',
+                'Department', 'Job Title', 'Date Joined', 'Employment Status', 'Worker Type', 'Reporting To',
+                'PAN Number', 'Aadhaar Number', 'PF Number', 'UAN Number', 'Blood Group', 'Physically Handicapped',
+                'Nationality'
+              ];
+              const complexObjectKeys = [
+                'onboardingId', 'candidatePortalData', 'itSetupData', 'hrSetupData', 'allEmergencyContacts',
+                'offerLetterData', 'orientationData', 'onboardingTasks', 'stepProgress', 'educationQualifications',
+                'workExperience', 'governmentDocuments', 'bankDocuments', 'educationDocuments', 
+                'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt'
+              ];
+              return !excludedKeys.includes(key) && 
+                     !complexObjectKeys.includes(key) &&
+                     (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') &&
+                     value !== null && value !== undefined && value !== '';
+            }).length === 0) && (
+              <Box sx={{ 
+                textAlign: 'center', 
+                py: 4,
+                px: 3
+              }}>
+                <Typography variant="body2" sx={{ 
+                  color: '#9ca3af'
+                }}>
+                  No additional information available
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        </SectionCard>
+      </Grid>
     </Grid>
-    <Grid item xs={12} md={6}>
-      <SectionCard icon="📋" title="Additional Information" color="grey.600">
-        {employee.additionalInfo && Object.entries(employee.additionalInfo)
-          .filter(([key, value]) => {
-            // Filter out already displayed fields
-            const excludedKeys = [
-              'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 
-              'Marital Status', 'Personal Email', 'Mobile Phone', 'Work Phone', 'Current Address Line 1', 
-              'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Location', 'Location Country',
-              'Department', 'Job Title', 'Date Joined', 'Employment Status', 'Worker Type', 'Reporting To',
-              'PAN Number', 'Aadhaar Number', 'PF Number', 'UAN Number', 'Blood Group', 'Physically Handicapped',
-              'Nationality'
-            ];
-            
-            // Filter out complex objects from onboarding migration
-            const complexObjectKeys = [
-              'onboardingId', 'candidatePortalData', 'itSetupData', 'hrSetupData', 'allEmergencyContacts',
-              'offerLetterData', 'orientationData', 'onboardingTasks', 'stepProgress', 'educationQualifications',
-              'workExperience', 'governmentDocuments', 'bankDocuments', 'educationDocuments', 
-              'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt'
-            ];
-            
-            // Only show simple string/number/boolean values
-            return !excludedKeys.includes(key) && 
-                   !complexObjectKeys.includes(key) &&
-                   (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') &&
-                   value !== null && value !== undefined && value !== '';
-          })
-          .slice(0, 6)
-          .map(([key, value]) => (
-            <FieldDisplay key={key} label={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} value={value} />
-          ))
-        }
-      </SectionCard>
-    </Grid>
-  </Grid>
-);
+  );
+};
 
 // Job Section Component
-const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChange }) => (
-  <Grid container spacing={3}>
-    <Grid item xs={12} md={6}>
-      <SectionCard icon="💼" title="Employment Information" color="success.main">
-        <FieldDisplay 
-          label="Department" 
-          value={isEditable ? editedEmployee?.employmentInfo?.department : employee.employmentInfo?.department?.name || employee.additionalInfo?.Department}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="department"
-          section="employmentInfo"
-        />
-        <FieldDisplay 
-          label="Job Title" 
-          value={isEditable ? editedEmployee?.employmentInfo?.designation : employee.employmentInfo?.designation || employee.additionalInfo?.['Job Title']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="designation"
-          section="employmentInfo"
-        />
-        <FieldDisplay 
-          label="Date of Joining" 
-          value={isEditable 
-            ? (editedEmployee?.employmentInfo?.dateOfJoining ? moment(editedEmployee.employmentInfo.dateOfJoining).format('YYYY-MM-DD') : '')
-            : (employee.employmentInfo?.dateOfJoining 
-              ? moment(employee.employmentInfo.dateOfJoining).format('DD MMM YYYY')
-              : employee.additionalInfo?.['Date Joined'])
-          }
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="dateOfJoining"
-          section="employmentInfo"
-          type="date"
-        />
-        <FieldDisplay 
-          label="Employment Status" 
-          value={isEditable ? editedEmployee?.employmentInfo?.employmentStatus : employee.employmentInfo?.employmentStatus || employee.additionalInfo?.['Employment Status']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="employmentStatus"
-          section="employmentInfo"
-        />
-        <FieldDisplay 
-          label="Worker Type" 
-          value={isEditable ? editedEmployee?.employmentInfo?.employeeType : employee.employmentInfo?.employeeType || employee.additionalInfo?.['Worker Type']}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="employeeType"
-          section="employmentInfo"
-        />
-        <FieldDisplay 
-          label="Work Location" 
-          value={isEditable ? editedEmployee?.employmentInfo?.workLocation : employee.employmentInfo?.workLocation || employee.additionalInfo?.Location}
-          isEditable={isEditable}
-          onEdit={onFieldChange}
-          fieldKey="workLocation"
-          section="employmentInfo"
-        />
-        <FieldDisplay 
-          label="Reporting Manager" 
-          value={employee.employmentInfo?.reportingManager ? 
-            `${employee.employmentInfo.reportingManager.personalInfo?.firstName || ''} ${employee.employmentInfo.reportingManager.personalInfo?.lastName || ''}`.trim() :
-            employee.additionalInfo?.reporting_to || 
-            employee.additionalInfo?.['Reporting To']} 
-        />
-      </SectionCard>
+const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChange }) => {
+  const getEmploymentStatusColor = (status) => {
+    switch (status?.toLowerCase()) {
+      case 'active': return '#10b981';
+      case 'probation': return '#f59e0b';
+      case 'inactive': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const getEmploymentStatusChip = (status) => {
+    if (!status) return null;
+    return (
+      <Chip 
+        label={status}
+        size="small"
+        sx={{ 
+          bgcolor: getEmploymentStatusColor(status) + '20',
+          color: getEmploymentStatusColor(status),
+          fontWeight: 600,
+          fontSize: '0.7rem',
+          height: 20
+        }}
+      />
+    );
+  };
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12} md={6}>
+        <SectionCard icon="💼" title="Employment Information" color="success.main">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+            <Box sx={{ 
+              p: 2.5, 
+              bgcolor: '#f8fafc', 
+              borderRadius: 2,
+              border: '1px solid #e2e8f0'
+            }}>
+              <Typography variant="caption" sx={{ 
+                color: '#64748b', 
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                fontSize: '0.75rem',
+                mb: 1,
+                display: 'block'
+              }}>
+                Current Position
+              </Typography>
+              <Typography variant="h6" sx={{ 
+                color: '#1e293b', 
+                fontWeight: 600,
+                fontSize: '1.1rem',
+                mb: 0.5
+              }}>
+                {isEditable ? editedEmployee?.employmentInfo?.designation : employee.employmentInfo?.designation || employee.additionalInfo?.['Job Title'] || 'Not specified'}
+              </Typography>
+              <Typography variant="body2" sx={{ 
+                color: '#64748b',
+                fontSize: '0.875rem',
+                mb: 1
+              }}>
+                {isEditable ? editedEmployee?.employmentInfo?.department : employee.employmentInfo?.department?.name || employee.additionalInfo?.Department || 'Department not specified'}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {getEmploymentStatusChip(isEditable ? editedEmployee?.employmentInfo?.employmentStatus : employee.employmentInfo?.employmentStatus || employee.additionalInfo?.['Employment Status'])}
+                <Typography variant="caption" sx={{ 
+                  color: '#9ca3af',
+                  fontSize: '0.75rem'
+                }}>
+                  Joined: {isEditable 
+                    ? (editedEmployee?.employmentInfo?.dateOfJoining ? moment(editedEmployee.employmentInfo.dateOfJoining).format('MMM YYYY') : '')
+                    : (employee.employmentInfo?.dateOfJoining 
+                      ? moment(employee.employmentInfo.dateOfJoining).format('MMM YYYY')
+                      : employee.additionalInfo?.['Date Joined'] || 'Not specified')
+                  }
+                </Typography>
+              </Box>
+            </Box>
+
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Worker Type
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem'
+                  }}>
+                    {isEditable ? editedEmployee?.employmentInfo?.employeeType : employee.employmentInfo?.employeeType || employee.additionalInfo?.['Worker Type'] || 'Not specified'}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f8fafc', 
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Work Location
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#1e293b', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem'
+                  }}>
+                    {isEditable ? editedEmployee?.employmentInfo?.workLocation : employee.employmentInfo?.workLocation || employee.additionalInfo?.Location || 'Not specified'}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#f0f9ff', 
+                  borderRadius: 2,
+                  border: '1px solid #e0f2fe'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#0369a1', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Reporting Manager
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#0c4a6e', 
+                    fontWeight: 500,
+                    fontSize: '0.95rem'
+                  }}>
+                    {employee.employmentInfo?.reportingManager ? 
+                      `${employee.employmentInfo.reportingManager.personalInfo?.firstName || ''} ${employee.employmentInfo.reportingManager.personalInfo?.lastName || ''}`.trim() || 'Not specified' :
+                      employee.additionalInfo?.reporting_to || 
+                      employee.additionalInfo?.['Reporting To'] || 'Not specified'
+                    }
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+        </SectionCard>
+      </Grid>
     </Grid>
-  </Grid>
-);
+  );
+};
 
 // Time & Attendance Section Component
 const TimeSection = ({ employee }) => {
@@ -1126,7 +1578,7 @@ const TimeSection = ({ employee }) => {
   );
 };
 
-const DocumentsSection = ({ employee }) => {
+const DocumentsSection = ({ employee, onEmployeeUpdate }) => {
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
   const [openBulkUploadDialog, setOpenBulkUploadDialog] = useState(false);
   const [openEditDialog, setOpenEditDialog] = useState(false);
@@ -1140,11 +1592,35 @@ const DocumentsSection = ({ employee }) => {
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [isMounted, setIsMounted] = useState(true);
+
   
-  // Local state to track deleted documents
-  const [deletedDocuments, setDeletedDocuments] = useState(new Set());
-  const [deletedGovernmentDocs, setDeletedGovernmentDocs] = useState(new Set());
-  const [deletedBankDocs, setDeletedBankDocs] = useState(new Set());
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
+
+  // Function to refresh employee data from server
+  const refreshEmployeeData = async () => {
+    console.log('🔍 refreshEmployeeData called, employee ID:', employee?._id, 'onEmployeeUpdate:', !!onEmployeeUpdate);
+    if (!employee?._id || !onEmployeeUpdate) return;
+    
+    try {
+      console.log('🔍 Fetching updated employee data from server...');
+      const response = await axios.get(`/employees/${employee._id}`);
+      if (response.data) {
+        console.log('🔍 Updated employee data received:', response.data);
+        console.log('🔍 Profile picture in updated data:', response.data.profilePicture);
+        onEmployeeUpdate(response.data);
+      }
+    } catch (error) {
+      console.error('Error refreshing employee data:', error);
+    }
+  };
+  
   
   // Local state to track uploaded documents
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
@@ -1160,12 +1636,78 @@ const DocumentsSection = ({ employee }) => {
     setOpenBulkUploadDialog(true);
   };
 
-  const handleFileUpload = (event) => {
+  const handleSyncDocuments = async () => {
+    if (!employee?.employeeId) {
+      toast.error('Employee ID not found');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      console.log(`🔄 Syncing documents for employee: ${employee.employeeId}`);
+      
+      const response = await axios.post('/employees/sync-documents', {
+        employeeId: employee.employeeId
+      });
+
+      if (response.data.success) {
+        const { newDocumentsAdded, totalDocuments, candidatePortalDocuments } = response.data.data;
+        
+        toast.success(`Documents synced successfully! ${newDocumentsAdded} new documents added. Total: ${totalDocuments}`);
+        
+        // Refresh the page to show updated documents
+        window.location.reload();
+      } else {
+        toast.error(response.data.message || 'Failed to sync documents');
+      }
+    } catch (error) {
+      console.error('❌ Sync documents error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to sync documents from candidate portal';
+      toast.error(errorMessage);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
-    if (file) {
+    if (!file) return;
+
+    if (!employee?._id) {
+      toast.error('Employee ID not found');
+      return;
+    }
+
+    try {
       console.log(`Uploading ${documentType}:`, file.name);
-      alert(`${documentType} uploaded successfully!`);
-      setOpenUploadDialog(false);
+      
+      const formData = new FormData();
+      formData.append('document', file);
+      formData.append('type', documentType);
+      formData.append('name', file.name);
+
+      const response = await axios.post(`/employees/${employee._id}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.message === 'Document uploaded successfully') {
+        toast.success(`${documentType} uploaded successfully!`);
+        
+        // Close dialog with a small delay to prevent focus issues
+        setTimeout(() => {
+          setOpenUploadDialog(false);
+        }, 100);
+        
+        // Refresh employee data to get the updated documents from server
+        await refreshEmployeeData();
+      } else {
+        toast.error('Failed to upload document');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error(error.response?.data?.message || 'Failed to upload document');
     }
   };
 
@@ -1180,91 +1722,105 @@ const DocumentsSection = ({ employee }) => {
       console.log('❌ No files selected');
       return;
     }
+
+    if (!employee?._id) {
+      toast.error('Employee ID not found');
+      return;
+    }
     
     setUploading(true);
     try {
-      // Process each file and categorize it
-      const newDocuments = [];
-      const newGovernmentDocs = {};
-      const newBankDocs = {};
+      let successCount = 0;
+      let errorCount = 0;
       
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
         console.log(`Uploading file ${i + 1}/${selectedFiles.length}:`, file.name);
         
-        // Create a mock document object
-        const documentData = {
-          id: `bulk_${Date.now()}_${i}`,
-          name: file.name,
-          type: 'bulk_upload',
-          url: URL.createObjectURL(file),
-          filePath: file.name,
-          uploadedAt: new Date().toISOString(),
-          size: file.size
-        };
-        
-        // Categorize documents based on filename
-        const fileName = file.name.toLowerCase();
-        if (fileName.includes('aadhaar') || fileName.includes('aadhar')) {
-          newGovernmentDocs.aadhaarImage = documentData;
-        } else if (fileName.includes('pan')) {
-          newGovernmentDocs.panImage = documentData;
-        } else if (fileName.includes('cheque') || fileName.includes('check')) {
-          newBankDocs.cancelledCheque = documentData;
-        } else if (fileName.includes('passbook')) {
-          newBankDocs.passbook = documentData;
-        } else if (fileName.includes('statement') || fileName.includes('bank')) {
-          newBankDocs.bankStatement = documentData;
-        } else if (fileName.includes('mark') || fileName.includes('degree') || fileName.includes('certificate')) {
-          // Education documents
-          newDocuments.push({
-            ...documentData,
-            type: 'education',
-            category: 'Education'
+        try {
+          // Determine document type based on filename
+          const fileName = file.name.toLowerCase();
+          let documentType = 'other';
+          
+          if (fileName.includes('aadhaar') || fileName.includes('aadhar')) {
+            documentType = 'aadhaar';
+          } else if (fileName.includes('pan')) {
+            documentType = 'pan';
+          } else if (fileName.includes('cheque') || fileName.includes('check')) {
+            documentType = 'cancelled_cheque';
+          } else if (fileName.includes('passbook')) {
+            documentType = 'passbook';
+          } else if (fileName.includes('statement') || fileName.includes('bank')) {
+            documentType = 'bank_statement';
+          } else if (fileName.includes('mark') || fileName.includes('degree') || fileName.includes('certificate')) {
+            documentType = 'education';
+          } else if (fileName.includes('exp') || fileName.includes('experience') || fileName.includes('offer')) {
+            documentType = 'work_experience';
+          }
+          
+          const formData = new FormData();
+          formData.append('document', file);
+          formData.append('type', documentType);
+          formData.append('name', file.name);
+
+          const response = await axios.post(`/employees/${employee._id}/upload`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
           });
-        } else if (fileName.includes('exp') || fileName.includes('experience') || fileName.includes('offer')) {
-          // Work experience documents
-          newDocuments.push({
-            ...documentData,
-            type: 'work_experience',
-            category: 'Work Experience'
-          });
-        } else {
-          // Other documents
-          newDocuments.push({
-            ...documentData,
-            type: 'other',
-            category: 'Other'
-          });
+
+          if (response.data.message === 'Document uploaded successfully') {
+            successCount++;
+            console.log(`✅ Successfully uploaded: ${file.name}`);
+            
+            // Document uploaded successfully - will refresh all data at the end
+          } else {
+            errorCount++;
+            console.error(`❌ Failed to upload: ${file.name}`);
+          }
+        } catch (error) {
+          errorCount++;
+          console.error(`❌ Error uploading ${file.name}:`, error);
+          // Continue with next file instead of crashing
         }
         
-        // Add delay to simulate upload
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Add small delay between uploads
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
-      // Update the local state with new documents
-      if (newDocuments.length > 0) {
-        setUploadedDocuments(prev => [...prev, ...newDocuments]);
+      // Show summary
+      if (successCount > 0) {
+        toast.success(`Successfully uploaded ${successCount} document(s)`);
       }
-      if (Object.keys(newGovernmentDocs).length > 0) {
-        setUploadedGovernmentDocs(prev => ({ ...prev, ...newGovernmentDocs }));
-      }
-      if (Object.keys(newBankDocs).length > 0) {
-        setUploadedBankDocs(prev => ({ ...prev, ...newBankDocs }));
+      if (errorCount > 0) {
+        toast.error(`Failed to upload ${errorCount} document(s)`);
       }
       
-      console.log('📄 New documents added to state:', newDocuments);
-      console.log('🆔 New government docs added:', newGovernmentDocs);
-      console.log('🏦 New bank docs added:', newBankDocs);
+      // Close dialog and refresh data
+      if (isMounted) {
+        setTimeout(() => {
+          setOpenBulkUploadDialog(false);
+          setSelectedFiles([]);
+        }, 100);
+      }
       
-      alert(`${selectedFiles.length} documents uploaded successfully! They will appear in the document section.`);
-      setOpenBulkUploadDialog(false);
-      setSelectedFiles([]);
+      // Refresh employee data to get all updated documents from server
+      if (successCount > 0) {
+        await refreshEmployeeData();
+      }
+      
+      console.log(`📄 Upload summary: ${successCount} success, ${errorCount} errors`);
     } catch (error) {
       console.error('Bulk upload error:', error);
-      alert('Error uploading documents. Please try again.');
+      toast.error('Error uploading documents. Please try again.');
+      if (isMounted) {
+        setOpenBulkUploadDialog(false);
+        setSelectedFiles([]);
+      }
     } finally {
-      setUploading(false);
+      if (isMounted) {
+        setUploading(false);
+      }
     }
   };
 
@@ -1285,7 +1841,10 @@ const DocumentsSection = ({ employee }) => {
         throw new Error('No file URL available');
       }
       
-      console.log('🔗 Attempting to download:', fileUrl);
+      // Construct full URL if needed
+      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5001${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+      
+      console.log('🔗 Attempting to download:', fullUrl);
       console.log('🔧 Using improved download method');
       
       // For blob URLs (uploaded files), use direct download
@@ -1315,7 +1874,7 @@ const DocumentsSection = ({ employee }) => {
       } else {
         // For server URLs, try to fetch and create blob
         try {
-          const response = await fetch(fileUrl);
+          const response = await fetch(fullUrl);
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
@@ -1414,37 +1973,31 @@ const DocumentsSection = ({ employee }) => {
       
       // Add government documents
       Object.entries(governmentDocs).forEach(([key, doc]) => {
-        if (doc && !deletedGovernmentDocs.has(key)) {
+        if (doc) {
           allDocuments.push({ ...doc, category: 'Government' });
         }
       });
-      
+
       // Add bank documents
       Object.entries(bankDocs).forEach(([key, doc]) => {
-        if (doc && !deletedBankDocs.has(key)) {
+        if (doc) {
           allDocuments.push({ ...doc, category: 'Bank' });
         }
       });
-      
+
       // Add education documents
       educationDocs.forEach(doc => {
-        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
-          allDocuments.push({ ...doc, category: 'Education' });
-        }
+        allDocuments.push({ ...doc, category: 'Education' });
       });
-      
+
       // Add work experience documents
       workExpDocs.forEach(doc => {
-        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
-          allDocuments.push({ ...doc, category: 'Work Experience' });
-        }
+        allDocuments.push({ ...doc, category: 'Work Experience' });
       });
-      
+
       // Add other documents
       documents.forEach(doc => {
-        if (!deletedDocuments.has(doc.id || doc._id || doc.name)) {
-          allDocuments.push({ ...doc, category: 'Other' });
-        }
+        allDocuments.push({ ...doc, category: 'Other' });
       });
       
       if (allDocuments.length === 0) {
@@ -1531,14 +2084,48 @@ const DocumentsSection = ({ employee }) => {
     }
   };
 
-  const handleSaveDocumentName = () => {
+  const handleSaveDocumentName = async () => {
     if (editingDocument && documentName.trim()) {
-      console.log('Saving document name:', documentName);
-      // Here you would typically save to the server
-      alert('Document name updated successfully!');
-      setOpenEditDialog(false);
-      setEditingDocument(null);
-      setDocumentName('');
+      try {
+        console.log('Saving document name:', documentName);
+        
+        // Get the employee ID
+        const employeeId = employee._id;
+        if (!employeeId) {
+          alert('Error: Unable to identify employee ID');
+          return;
+        }
+
+        // Get the document ID
+        const documentId = editingDocument.id || editingDocument._id;
+        if (!documentId) {
+          alert('Error: Unable to identify document ID');
+          return;
+        }
+
+        // Call the employee API to update the document name
+        const response = await axios.put(`/employees/${employeeId}/document/${documentId}/name`, {
+          name: documentName.trim()
+        });
+
+        const result = response.data;
+
+        if (result.success) {
+          // Refresh employee data from server to get updated document name
+          await refreshEmployeeData();
+          
+          alert('Document name updated successfully!');
+          setOpenEditDialog(false);
+          setEditingDocument(null);
+          setDocumentName('');
+        } else {
+          alert(`Error: ${result.message || 'Failed to update document name'}`);
+        }
+      } catch (error) {
+        console.error('Error updating document name:', error);
+        const errorMessage = error.response?.data?.message || error.message || 'Error updating document name. Please try again.';
+        alert(errorMessage);
+      }
     }
   };
 
@@ -1553,50 +2140,98 @@ const DocumentsSection = ({ employee }) => {
     
     setDeleting(true);
     try {
-      // Simulate delete process
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Use the key directly for government and bank docs, or ID for others
-      if (deletingDocument.type === 'government') {
-        setDeletedGovernmentDocs(prev => new Set([...prev, deletingDocument.key]));
-        // Also remove from uploaded government docs if it exists there
-        if (uploadedGovernmentDocs[deletingDocument.key]) {
-          setUploadedGovernmentDocs(prev => {
-            const newDocs = { ...prev };
-            delete newDocs[deletingDocument.key];
-            return newDocs;
-          });
-        }
-      } else if (deletingDocument.type === 'bank') {
-        setDeletedBankDocs(prev => new Set([...prev, deletingDocument.key]));
-        // Also remove from uploaded bank docs if it exists there
-        if (uploadedBankDocs[deletingDocument.key]) {
-          setUploadedBankDocs(prev => {
-            const newDocs = { ...prev };
-            delete newDocs[deletingDocument.key];
-            return newDocs;
-          });
-        }
-      } else {
-        const docId = deletingDocument.id || deletingDocument._id || deletingDocument.name;
-        setDeletedDocuments(prev => new Set([...prev, docId]));
-        // Also remove from uploaded documents if it exists there
-        setUploadedDocuments(prev => prev.filter(doc => 
-          (doc.id || doc._id || doc.name) !== docId
-        ));
+      // Get the employee ID
+      const employeeId = employee._id;
+      if (!employeeId) {
+        alert('Error: Unable to identify employee ID');
+        return;
       }
-      alert('Document deleted successfully!');
-      setOpenDeleteDialog(false);
-      setDeletingDocument(null);
+
+      // Get the document ID
+      const documentId = deletingDocument.id || deletingDocument._id;
+      if (!documentId) {
+        alert('Error: Unable to identify document ID');
+        return;
+      }
+
+      // Call the employee API to delete the document
+      const response = await axios.delete(`/employees/${employeeId}/document/${documentId}`);
+      const result = response.data;
+
+      if (result.success) {
+        // Refresh employee data from server to reflect the deletion
+        await refreshEmployeeData();
+        
+        alert('Document deleted successfully!');
+        setOpenDeleteDialog(false);
+        setDeletingDocument(null);
+      } else {
+        alert(`Error: ${result.message || 'Failed to delete document'}`);
+      }
     } catch (error) {
       console.error('❌ Delete error:', error);
-      alert('Error deleting document. Please try again.');
+      const errorMessage = error.response?.data?.message || error.message || 'Error deleting document. Please try again.';
+      alert(errorMessage);
     } finally {
       setDeleting(false);
     }
   };
 
+  const handleSetAsProfilePicture = async (doc) => {
+    console.log('🔍 Set as profile picture clicked for document:', doc);
+    try {
+      // Get the employee ID
+      const employeeId = employee._id;
+      console.log('🔍 Employee ID:', employeeId);
+      if (!employeeId) {
+        alert('Error: Unable to identify employee ID');
+        return;
+      }
+
+      // Get the document ID
+      const documentId = doc.id || doc._id;
+      console.log('🔍 Document ID:', documentId);
+      if (!documentId) {
+        alert('Error: Unable to identify document ID');
+        return;
+      }
+
+      // Check if the document is an image
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+      const fileExtension = doc.name.toLowerCase().substring(doc.name.lastIndexOf('.'));
+      console.log('🔍 File extension:', fileExtension);
+      
+      if (!imageExtensions.includes(fileExtension)) {
+        alert('Only image files can be set as profile picture');
+        return;
+      }
+
+      console.log('🔍 Making API call to set profile picture...');
+      // Call the employee API to set as profile picture
+      const response = await axios.put(`/employees/${employeeId}/document/${documentId}/set-profile-picture`);
+      const result = response.data;
+      console.log('🔍 API response:', result);
+
+      if (result.success) {
+        console.log('🔍 Profile picture API success, refreshing employee data...');
+        // Refresh employee data from server to reflect the change
+        await refreshEmployeeData();
+        console.log('🔍 Employee data refreshed, checking profile picture:', employee?.profilePicture);
+        
+        alert('Profile picture updated successfully!');
+      } else {
+        alert(`Error: ${result.message || 'Failed to set profile picture'}`);
+      }
+    } catch (error) {
+      console.error('❌ Set profile picture error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Error setting profile picture. Please try again.';
+      alert(errorMessage);
+    }
+  };
+
   // Get documents from employee data and merge with uploaded documents
+  console.log('📄 Current employee data:', employee);
+  console.log('📄 Employee profile picture:', employee?.profilePicture);
   const originalDocuments = employee?.documents || [];
   const additionalInfo = employee?.additionalInfo || {};
   const originalGovernmentDocs = additionalInfo.governmentDocuments || {};
@@ -1612,12 +2247,28 @@ const DocumentsSection = ({ employee }) => {
   const workExpDocs = originalWorkExpDocs; // These are handled separately
 
 
+
   const renderDocumentItem = (doc, type, icon) => (
     <Box key={doc._id || doc.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <span>{icon}</span>
         <Box>
-          <Typography variant="body1">{doc.name || 'Document'}</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body1">{doc.name || 'Document'}</Typography>
+            {employee?.profilePicture?.documentId === (doc.id || doc._id) && (
+              <Box sx={{ 
+                bgcolor: 'primary.main', 
+                color: 'white', 
+                px: 1, 
+                py: 0.25, 
+                borderRadius: 1, 
+                fontSize: '0.7rem',
+                fontWeight: 'bold'
+              }}>
+                📸 PROFILE
+              </Box>
+            )}
+          </Box>
           <Typography variant="caption" color="text.secondary">
             {type} • {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : 'Unknown date'}
           </Typography>
@@ -1635,7 +2286,11 @@ const DocumentsSection = ({ employee }) => {
         <Button 
           size="small" 
           variant="outlined" 
-          onClick={() => window.open(doc.url || doc.filePath, '_blank')}
+          onClick={() => {
+            const fileUrl = doc.url || doc.filePath;
+            const fullUrl = fileUrl?.startsWith('http') ? fileUrl : `http://localhost:5001${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+            window.open(fullUrl, '_blank');
+          }}
           sx={{ minWidth: 'auto', px: 1 }}
         >
           View
@@ -1650,6 +2305,30 @@ const DocumentsSection = ({ employee }) => {
         >
           {downloading ? '⏳' : '📥'}
         </Button>
+        {/* Set as Profile Picture button - only show for image files */}
+        {(() => {
+          const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+          const fileExtension = doc.name.toLowerCase().substring(doc.name.lastIndexOf('.'));
+          const isImage = imageExtensions.includes(fileExtension);
+          
+          if (isImage) {
+            return (
+              <Button 
+                size="small" 
+                variant="outlined" 
+                color="primary"
+                onClick={() => {
+                  console.log('🔍 Profile picture button clicked for:', doc);
+                  handleSetAsProfilePicture(doc);
+                }}
+                sx={{ minWidth: 'auto', px: 1 }}
+              >
+                📸 Set as Profile
+              </Button>
+            );
+          }
+          return null;
+        })()}
         <Button 
           size="small" 
           variant="outlined" 
@@ -1671,6 +2350,23 @@ const DocumentsSection = ({ employee }) => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography variant="subtitle1" fontWeight="600">Employee Documents</Typography>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Button
+                variant="outlined"
+                onClick={handleSyncDocuments}
+                disabled={syncing}
+                startIcon={<SyncIcon />}
+                sx={{ 
+                  borderColor: 'info.main',
+                  color: 'info.main',
+                  '&:hover': { 
+                    borderColor: 'info.dark',
+                    bgcolor: 'info.light',
+                    color: 'info.dark'
+                  }
+                }}
+              >
+                {syncing ? 'Syncing...' : 'Sync from Portal'}
+              </Button>
               <Button
                 variant="outlined"
                 onClick={handleBulkDownload}
@@ -1702,12 +2398,27 @@ const DocumentsSection = ({ employee }) => {
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {/* Government Documents */}
-            {governmentDocs.aadhaarImage && !deletedGovernmentDocs.has('aadhaarImage') && (
+            {governmentDocs.aadhaarImage && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <span>🆔</span>
                   <Box>
-                    <Typography variant="body1">Aadhaar Card</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body1">Aadhaar Card</Typography>
+                      {employee?.profilePicture?.documentId === governmentDocs.aadhaarImage.id && (
+                        <Box sx={{ 
+                          bgcolor: 'primary.main', 
+                          color: 'white', 
+                          px: 1, 
+                          py: 0.25, 
+                          borderRadius: 1, 
+                          fontSize: '0.7rem',
+                          fontWeight: 'bold'
+                        }}>
+                          📸 PROFILE
+                        </Box>
+                      )}
+                    </Box>
                     <Typography variant="caption" color="text.secondary">
                       {governmentDocs.aadhaarImage.name}
                     </Typography>
@@ -1743,6 +2454,18 @@ const DocumentsSection = ({ employee }) => {
                   <Button 
                     size="small" 
                     variant="outlined" 
+                    color="primary"
+                    onClick={() => {
+                      console.log('🔍 Aadhaar profile picture button clicked for:', governmentDocs.aadhaarImage);
+                      handleSetAsProfilePicture(governmentDocs.aadhaarImage);
+                    }}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    📸 Set as Profile
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
                     color="error"
                     onClick={() => handleDeleteDocument({...governmentDocs.aadhaarImage, type: 'government', key: 'aadhaarImage'})}
                     sx={{ minWidth: 'auto', px: 1 }}
@@ -1753,12 +2476,27 @@ const DocumentsSection = ({ employee }) => {
               </Box>
             )}
 
-            {governmentDocs.panImage && !deletedGovernmentDocs.has('panImage') && (
+            {governmentDocs.panImage && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <span>📋</span>
                   <Box>
-                    <Typography variant="body1">PAN Card</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body1">PAN Card</Typography>
+                      {employee?.profilePicture?.documentId === governmentDocs.panImage.id && (
+                        <Box sx={{ 
+                          bgcolor: 'primary.main', 
+                          color: 'white', 
+                          px: 1, 
+                          py: 0.25, 
+                          borderRadius: 1, 
+                          fontSize: '0.7rem',
+                          fontWeight: 'bold'
+                        }}>
+                          📸 PROFILE
+                        </Box>
+                      )}
+                    </Box>
                     <Typography variant="caption" color="text.secondary">
                       {governmentDocs.panImage.name}
                     </Typography>
@@ -1794,6 +2532,18 @@ const DocumentsSection = ({ employee }) => {
                   <Button 
                     size="small" 
                     variant="outlined" 
+                    color="primary"
+                    onClick={() => {
+                      console.log('🔍 PAN profile picture button clicked for:', governmentDocs.panImage);
+                      handleSetAsProfilePicture(governmentDocs.panImage);
+                    }}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                    📸 Set as Profile
+                  </Button>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
                     color="error"
                     onClick={() => handleDeleteDocument({...governmentDocs.panImage, type: 'government', key: 'panImage'})}
                     sx={{ minWidth: 'auto', px: 1 }}
@@ -1805,7 +2555,7 @@ const DocumentsSection = ({ employee }) => {
             )}
 
             {/* Bank Documents */}
-            {bankDocs.cancelledCheque && !deletedBankDocs.has('cancelledCheque') && (
+            {bankDocs.cancelledCheque && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <span>🏦</span>
@@ -1856,7 +2606,7 @@ const DocumentsSection = ({ employee }) => {
               </Box>
             )}
 
-            {bankDocs.passbook && !deletedBankDocs.has('passbook') && (
+            {bankDocs.passbook && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <span>📖</span>
@@ -1907,7 +2657,7 @@ const DocumentsSection = ({ employee }) => {
               </Box>
             )}
 
-            {bankDocs.bankStatement && !deletedBankDocs.has('bankStatement') && (
+            {bankDocs.bankStatement && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <span>📊</span>
@@ -1959,26 +2709,20 @@ const DocumentsSection = ({ employee }) => {
             )}
 
             {/* Education Documents */}
-            {educationDocs
-              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
-              .map((doc) => renderDocumentItem(doc, 'Education', '🎓'))}
+            {educationDocs.map((doc) => renderDocumentItem(doc, 'Education', '🎓'))}
 
             {/* Work Experience Documents */}
-            {workExpDocs
-              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
-              .map((doc) => renderDocumentItem(doc, 'Work Experience', '💼'))}
+            {workExpDocs.map((doc) => renderDocumentItem(doc, 'Work Experience', '💼'))}
 
             {/* Other Documents */}
-            {documents
-              .filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name))
-              .map((doc) => renderDocumentItem(doc, doc.type || 'Other', '📄'))}
+            {documents.map((doc) => renderDocumentItem(doc, doc.type || 'Other', '📄'))}
 
             {/* Show message if no documents */}
-            {documents.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && 
-             Object.keys(governmentDocs).filter(key => !deletedGovernmentDocs.has(key)).length === 0 && 
-             Object.keys(bankDocs).filter(key => !deletedBankDocs.has(key)).length === 0 && 
-             educationDocs.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && 
-             workExpDocs.filter(doc => !deletedDocuments.has(doc.id || doc._id || doc.name)).length === 0 && (
+            {documents.length === 0 && 
+             Object.keys(governmentDocs).length === 0 && 
+             Object.keys(bankDocs).length === 0 && 
+             educationDocs.length === 0 && 
+             workExpDocs.length === 0 && (
               <Box sx={{ textAlign: 'center', py: 3 }}>
                 <Typography variant="body2" color="text.secondary">
                   No documents uploaded yet
@@ -1986,6 +2730,42 @@ const DocumentsSection = ({ employee }) => {
               </Box>
             )}
           </Box>
+
+          {/* Single File Upload Dialog */}
+          <Dialog open={openUploadDialog} onClose={() => setOpenUploadDialog(false)} maxWidth="sm" fullWidth>
+            <DialogTitle>Upload {documentType}</DialogTitle>
+            <DialogContent>
+              <Box sx={{ py: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select a file to upload. Supported formats: PDF, DOC, DOCX, JPG, PNG
+                </Typography>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                  id="single-file-input"
+                />
+                <label htmlFor="single-file-input">
+                  <Button
+                    variant="outlined"
+                    component="span"
+                    fullWidth
+                    sx={{ 
+                      py: 2, 
+                      border: '2px dashed #ccc',
+                      '&:hover': { border: '2px dashed #999' }
+                    }}
+                  >
+                    📁 Choose File
+                  </Button>
+                </label>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setOpenUploadDialog(false)}>Cancel</Button>
+            </DialogActions>
+          </Dialog>
 
           {/* Bulk Upload Dialog */}
           <Dialog open={openBulkUploadDialog} onClose={() => setOpenBulkUploadDialog(false)} maxWidth="sm" fullWidth>
@@ -2135,17 +2915,705 @@ const DocumentsSection = ({ employee }) => {
   );
 };
 
-const AssetsSection = ({ employee }) => (
-  <Grid container spacing={3}>
-    <Grid item xs={12}>
-      <SectionCard icon="🏢" title="Assets" color="secondary.main">
-        <FieldDisplay label="Laptop" value="Coming Soon" />
-        <FieldDisplay label="Mobile" value="Coming Soon" />
-        <FieldDisplay label="Other Assets" value="Coming Soon" />
-      </SectionCard>
+const AssetsSection = ({ employee }) => {
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (employee?._id) {
+      fetchEmployeeAssets();
+    }
+  }, [employee?._id]);
+
+  const fetchEmployeeAssets = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`/assets/employee/${employee._id}`);
+      setAssets(response.data.assets || []);
+    } catch (error) {
+      console.error('Error fetching employee assets:', error);
+      setError('Failed to fetch assets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getAssetCategoryIcon = (category) => {
+    const icons = {
+      'laptop': '💻',
+      'desktop': '🖥️',
+      'mobile': '📱',
+      'tablet': '📱',
+      'monitor': '🖥️',
+      'keyboard': '⌨️',
+      'mouse': '🖱️',
+      'headphones': '🎧',
+      'printer': '🖨️',
+      'scanner': '📄',
+      'projector': '📽️',
+      'camera': '📷',
+      'furniture': '🪑',
+      'software_license': '💿',
+      'other': '🔧'
+    };
+    return icons[category] || '🔧';
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      'assigned': 'success',
+      'available': 'info',
+      'maintenance': 'warning',
+      'retired': 'error',
+      'lost': 'error'
+    };
+    return colors[status] || 'default';
+  };
+
+  if (loading) {
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <SectionCard icon="🏢" title="Assets" color="secondary.main">
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <CircularProgress size={24} />
+              <Typography variant="body2" sx={{ mt: 1 }}>Loading assets...</Typography>
+            </Box>
+          </SectionCard>
+        </Grid>
+      </Grid>
+    );
+  }
+
+  if (error) {
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <SectionCard icon="🏢" title="Assets" color="secondary.main">
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+            <Button 
+              variant="outlined" 
+              size="small" 
+              onClick={fetchEmployeeAssets}
+              startIcon={<RefreshIcon />}
+            >
+              Retry
+            </Button>
+          </SectionCard>
+        </Grid>
+      </Grid>
+    );
+  }
+
+  if (assets.length === 0) {
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <SectionCard icon="🏢" title="Assets" color="secondary.main">
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                No assets assigned to this employee
+              </Typography>
+            </Box>
+          </SectionCard>
+        </Grid>
+      </Grid>
+    );
+  }
+
+  // Group assets by category
+  const assetsByCategory = assets.reduce((acc, asset) => {
+    const category = asset.category || 'other';
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(asset);
+    return acc;
+  }, {});
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12}>
+        <SectionCard icon="🏢" title="Assets" color="secondary.main">
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Assigned Assets ({assets.length})
+            </Typography>
+          </Box>
+          
+          {Object.entries(assetsByCategory).map(([category, categoryAssets]) => (
+            <Box key={category} sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
+                <Box sx={{ mr: 1, fontSize: '1.2em' }}>
+                  {getAssetCategoryIcon(category)}
+                </Box>
+                {category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} ({categoryAssets.length})
+              </Typography>
+              
+              <Grid container spacing={2}>
+                {categoryAssets.map((asset) => (
+                  <Grid item xs={12} sm={6} md={4} key={asset._id}>
+                    <Card variant="outlined" sx={{ height: '100%' }}>
+                      <CardContent sx={{ p: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                            {asset.name}
+                          </Typography>
+                          <Chip 
+                            size="small" 
+                            color={getStatusColor(asset.status)}
+                            label={asset.status}
+                          />
+                        </Box>
+                        
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          ID: {asset.assetId}
+                        </Typography>
+                        
+                        {asset.serialNumber && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Serial: {asset.serialNumber}
+                          </Typography>
+                        )}
+                        
+                        {asset.brand && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Brand: {asset.brand}
+                          </Typography>
+                        )}
+                        
+                        {asset.condition && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Condition: {asset.condition}
+                          </Typography>
+                        )}
+                        
+                        {asset.currentAssignment?.assignedDate && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Assigned: {new Date(asset.currentAssignment.assignedDate).toLocaleDateString()}
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          ))}
+          
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+            <Button 
+              variant="outlined" 
+              size="small" 
+              onClick={fetchEmployeeAssets}
+              startIcon={<RefreshIcon />}
+            >
+              Refresh Assets
+            </Button>
+          </Box>
+        </SectionCard>
+      </Grid>
     </Grid>
-  </Grid>
-);
+  );
+};
+
+// Education Section Component
+const EducationSection = ({ employee }) => {
+  // Check for education data in both new structure and legacy structure
+  const newEducationData = employee?.education || [];
+  const legacyEducationData = employee?.additionalInfo?.educationQualifications || [];
+  
+  // Debug: Log the data structures to console
+  console.log('Employee data for education:', {
+    newEducationData,
+    legacyEducationData,
+    additionalInfo: employee?.additionalInfo
+  });
+  
+  const educationData = newEducationData.length > 0 ? newEducationData : legacyEducationData;
+
+  const getDegreeIcon = (degree) => {
+    if (degree?.toLowerCase().includes('phd') || degree?.toLowerCase().includes('doctorate')) return '🎓';
+    if (degree?.toLowerCase().includes('master')) return '🎓';
+    if (degree?.toLowerCase().includes('bachelor')) return '🎓';
+    if (degree?.toLowerCase().includes('diploma')) return '📜';
+    return '🎓';
+  };
+
+  const getDegreeColor = (degree) => {
+    if (degree?.toLowerCase().includes('phd') || degree?.toLowerCase().includes('doctorate')) return '#8b5cf6';
+    if (degree?.toLowerCase().includes('master')) return '#3b82f6';
+    if (degree?.toLowerCase().includes('bachelor')) return '#10b981';
+    if (degree?.toLowerCase().includes('diploma')) return '#f59e0b';
+    return '#6b7280';
+  };
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12}>
+        <SectionCard icon="🎓" title="Educational Background" color="info.main">
+          {educationData.length > 0 ? (
+            educationData.map((edu, index) => (
+              <Card 
+                key={index} 
+                sx={{ 
+                  mb: 3, 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 3,
+                  boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                    transform: 'translateY(-1px)'
+                  }
+                }}
+              >
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                    <Box sx={{ 
+                      width: 48, 
+                      height: 48, 
+                      borderRadius: 2, 
+                      bgcolor: getDegreeColor(edu.degree),
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      mr: 2,
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                      <Typography sx={{ fontSize: '1.5rem' }}>
+                        {getDegreeIcon(edu.degree)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h6" sx={{ 
+                        color: '#1f2937', 
+                        fontWeight: 600,
+                        mb: 0.5,
+                        fontSize: '1.1rem'
+                      }}>
+                        {edu.degree || 'Degree Not Specified'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        color: '#6b7280',
+                        fontWeight: 500
+                      }}>
+                        {edu.institution || 'Institution Not Specified'}
+                      </Typography>
+                    </Box>
+                    {edu.yearOfPassing && (
+                      <Chip 
+                        label={edu.yearOfPassing}
+                        size="small"
+                        sx={{ 
+                          bgcolor: '#f3f4f6',
+                          color: '#374151',
+                          fontWeight: 600,
+                          fontSize: '0.75rem'
+                        }}
+                      />
+                    )}
+                  </Box>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ 
+                        p: 2, 
+                        bgcolor: '#f9fafb', 
+                        borderRadius: 2,
+                        border: '1px solid #f3f4f6'
+                      }}>
+                        <Typography variant="caption" sx={{ 
+                          color: '#6b7280', 
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          fontSize: '0.7rem'
+                        }}>
+                          Year of Passing
+                        </Typography>
+                        <Typography variant="body2" sx={{ 
+                          color: '#1f2937', 
+                          fontWeight: 500,
+                          mt: 0.5
+                        }}>
+                          {edu.yearOfPassing || 'Not provided'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ 
+                        p: 2, 
+                        bgcolor: '#f9fafb', 
+                        borderRadius: 2,
+                        border: '1px solid #f3f4f6'
+                      }}>
+                        <Typography variant="caption" sx={{ 
+                          color: '#6b7280', 
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          fontSize: '0.7rem'
+                        }}>
+                          Performance
+                        </Typography>
+                        <Typography variant="body2" sx={{ 
+                          color: '#1f2937', 
+                          fontWeight: 500,
+                          mt: 0.5
+                        }}>
+                          {edu.percentage || 'Not provided'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    {edu.specialization && (
+                      <Grid item xs={12}>
+                        <Box sx={{ 
+                          p: 2, 
+                          bgcolor: '#f0f9ff', 
+                          borderRadius: 2,
+                          border: '1px solid #e0f2fe'
+                        }}>
+                          <Typography variant="caption" sx={{ 
+                            color: '#0369a1', 
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            fontSize: '0.7rem'
+                          }}>
+                            Specialization
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            color: '#0c4a6e', 
+                            fontWeight: 500,
+                            mt: 0.5
+                          }}>
+                            {edu.specialization}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    )}
+                  </Grid>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Box sx={{ 
+              textAlign: 'center', 
+              py: 6,
+              px: 3
+            }}>
+              <Box sx={{ 
+                width: 64, 
+                height: 64, 
+                borderRadius: '50%', 
+                bgcolor: '#f3f4f6', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 2
+              }}>
+                <Typography sx={{ fontSize: '2rem' }}>🎓</Typography>
+              </Box>
+              <Typography variant="h6" sx={{ 
+                color: '#6b7280', 
+                fontWeight: 500,
+                mb: 1
+              }}>
+                No Education Information
+              </Typography>
+              <Typography variant="body2" sx={{ 
+                color: '#9ca3af',
+                maxWidth: 300,
+                mx: 'auto'
+              }}>
+                Educational background information has not been added for this employee yet.
+              </Typography>
+            </Box>
+          )}
+        </SectionCard>
+      </Grid>
+    </Grid>
+  );
+};
+
+// Experience Section Component
+const ExperienceSection = ({ employee }) => {
+  // Check for experience data in multiple possible structures
+  const newExperienceData = employee?.experience || [];
+  const legacyExperienceData = employee?.additionalInfo?.workExperience || [];
+  const onboardingExperienceData = employee?.additionalInfo?.experience || [];
+  const candidatePortalExperienceData = employee?.additionalInfo?.candidatePortalData?.workExperience?.experienceDetails || [];
+  
+  // Debug: Log the data structures to console
+  console.log('Employee data for experience:', {
+    newExperienceData,
+    legacyExperienceData,
+    onboardingExperienceData,
+    candidatePortalExperienceData,
+    additionalInfo: employee?.additionalInfo
+  });
+  
+  // Try different data sources in order of preference
+  const experienceData = newExperienceData.length > 0 ? newExperienceData : 
+                        legacyExperienceData.length > 0 ? legacyExperienceData :
+                        onboardingExperienceData.length > 0 ? onboardingExperienceData :
+                        candidatePortalExperienceData.length > 0 ? candidatePortalExperienceData : [];
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Not provided';
+    return moment(dateString).format('MMM YYYY');
+  };
+
+  const formatCurrency = (amount) => {
+    if (!amount) return 'Not provided';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const getExperienceDuration = (startDate, endDate) => {
+    if (!startDate) return 'Duration not specified';
+    
+    const start = moment(startDate);
+    const end = endDate ? moment(endDate) : moment();
+    const duration = moment.duration(end.diff(start));
+    
+    const years = Math.floor(duration.asYears());
+    const months = Math.floor(duration.asMonths()) % 12;
+    
+    if (years > 0 && months > 0) {
+      return `${years} year${years > 1 ? 's' : ''} ${months} month${months > 1 ? 's' : ''}`;
+    } else if (years > 0) {
+      return `${years} year${years > 1 ? 's' : ''}`;
+    } else if (months > 0) {
+      return `${months} month${months > 1 ? 's' : ''}`;
+    } else {
+      return 'Less than a month';
+    }
+  };
+
+  const isCurrentJob = (endDate) => {
+    return !endDate || endDate === '' || endDate === null;
+  };
+
+  return (
+    <Grid container spacing={3}>
+      <Grid item xs={12}>
+        <SectionCard icon="💼" title="Work Experience" color="success.main">
+          {experienceData.length > 0 ? (
+            experienceData.map((exp, index) => (
+              <Card 
+                key={index} 
+                sx={{ 
+                  mb: 3, 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 3,
+                  boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                    transform: 'translateY(-1px)'
+                  }
+                }}
+              >
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 3 }}>
+                    <Box sx={{ 
+                      width: 48, 
+                      height: 48, 
+                      borderRadius: 2, 
+                      bgcolor: isCurrentJob(exp.endDate || exp.toDate || exp.endingDate) ? '#10b981' : '#6b7280',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      mr: 2,
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                      <Typography sx={{ fontSize: '1.5rem' }}>
+                        💼
+                      </Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="h6" sx={{ 
+                          color: '#1f2937', 
+                          fontWeight: 600,
+                          fontSize: '1.1rem',
+                          mr: 1
+                        }}>
+                          {exp.position || exp.jobTitle || exp.role || 'Position Not Specified'}
+                        </Typography>
+                        {isCurrentJob(exp.endDate || exp.toDate || exp.endingDate) && (
+                          <Chip 
+                            label="Current"
+                            size="small"
+                            sx={{ 
+                              bgcolor: '#dcfce7',
+                              color: '#166534',
+                              fontWeight: 600,
+                              fontSize: '0.7rem',
+                              height: 20
+                            }}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="body2" sx={{ 
+                        color: '#6b7280',
+                        fontWeight: 500,
+                        mb: 1
+                      }}>
+                        {exp.company || exp.companyName || exp.organization || 'Company Not Specified'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                        <Typography variant="caption" sx={{ 
+                          color: '#9ca3af',
+                          fontSize: '0.75rem'
+                        }}>
+                          {formatDate(exp.startDate || exp.fromDate || exp.startingDate)} - {isCurrentJob(exp.endDate || exp.toDate || exp.endingDate) ? 'Present' : formatDate(exp.endDate || exp.toDate || exp.endingDate)}
+                        </Typography>
+                        <Typography variant="caption" sx={{ 
+                          color: '#6b7280',
+                          fontSize: '0.75rem',
+                          fontWeight: 500
+                        }}>
+                          • {getExperienceDuration(exp.startDate || exp.fromDate || exp.startingDate, exp.endDate || exp.toDate || exp.endingDate)}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                  
+                  <Grid container spacing={2}>
+                    {(exp.salary || exp.lastSalary || exp.ctc) && (
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ 
+                          p: 2, 
+                          bgcolor: '#f0fdf4', 
+                          borderRadius: 2,
+                          border: '1px solid #dcfce7'
+                        }}>
+                          <Typography variant="caption" sx={{ 
+                            color: '#166534', 
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            fontSize: '0.7rem'
+                          }}>
+                            Last Salary
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            color: '#15803d', 
+                            fontWeight: 600,
+                            mt: 0.5
+                          }}>
+                            {formatCurrency(exp.salary || exp.lastSalary || exp.ctc)}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    )}
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ 
+                        p: 2, 
+                        bgcolor: '#f9fafb', 
+                        borderRadius: 2,
+                        border: '1px solid #f3f4f6'
+                      }}>
+                        <Typography variant="caption" sx={{ 
+                          color: '#6b7280', 
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          fontSize: '0.7rem'
+                        }}>
+                          Duration
+                        </Typography>
+                        <Typography variant="body2" sx={{ 
+                          color: '#1f2937', 
+                          fontWeight: 500,
+                          mt: 0.5
+                        }}>
+                          {getExperienceDuration(exp.startDate || exp.fromDate || exp.startingDate, exp.endDate || exp.toDate || exp.endingDate)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    {(exp.reasonForLeaving || exp.reason || exp.description) && (
+                      <Grid item xs={12}>
+                        <Box sx={{ 
+                          p: 2, 
+                          bgcolor: '#fef3c7', 
+                          borderRadius: 2,
+                          border: '1px solid #fde68a'
+                        }}>
+                          <Typography variant="caption" sx={{ 
+                            color: '#92400e', 
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            fontSize: '0.7rem'
+                          }}>
+                            Reason for Leaving
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            color: '#b45309', 
+                            fontWeight: 500,
+                            mt: 0.5
+                          }}>
+                            {exp.reasonForLeaving || exp.reason || exp.description}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    )}
+                  </Grid>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Box sx={{ 
+              textAlign: 'center', 
+              py: 6,
+              px: 3
+            }}>
+              <Box sx={{ 
+                width: 64, 
+                height: 64, 
+                borderRadius: '50%', 
+                bgcolor: '#f3f4f6', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 2
+              }}>
+                <Typography sx={{ fontSize: '2rem' }}>💼</Typography>
+              </Box>
+              <Typography variant="h6" sx={{ 
+                color: '#6b7280', 
+                fontWeight: 500,
+                mb: 1
+              }}>
+                No Work Experience
+              </Typography>
+              <Typography variant="body2" sx={{ 
+                color: '#9ca3af',
+                maxWidth: 300,
+                mx: 'auto'
+              }}>
+                Work experience information has not been added for this employee yet.
+              </Typography>
+            </Box>
+          )}
+        </SectionCard>
+      </Grid>
+    </Grid>
+  );
+};
 
 const FinancesSection = ({ employee }) => {
   const salaryInfo = employee?.salaryInfo || {};
@@ -2263,34 +3731,119 @@ const EmployeeDirectoryModule = () => {
       lastName: '',
       email: '',
       phone: '',
+      personalEmail: '',
+      alternatePhone: '',
       dateOfBirth: '',
       gender: '',
-      maritalStatus: ''
+      maritalStatus: '',
+      nationality: '',
+      bloodGroup: '',
+      fatherName: '',
+      spouseName: '',
+      currentAddress: {
+        street: '',
+        city: '',
+        state: '',
+        pincode: '',
+        country: 'India'
+      },
+      permanentAddress: {
+        street: '',
+        city: '',
+        state: '',
+        pincode: '',
+        country: 'India'
+      }
     },
     employmentInfo: {
       employeeId: '',
       designation: '',
       department: '',
+      subDepartment: '',
       dateOfJoining: '',
       employmentStatus: 'active',
       workLocation: '',
-      reportingManager: ''
-    }
+      reportingManager: '',
+      reportingManagerEmpNo: '',
+      reportingManagerName: '',
+      dottedLineManager: '',
+      legalEntity: '',
+      businessUnit: '',
+      secondaryJobTitle: '',
+      attendanceNumber: '',
+      locationCountry: '',
+      leavePlan: '',
+      band: '',
+      payGrade: '',
+      timeType: '',
+      workerType: '',
+      shiftPolicy: '',
+      weeklyOffPolicy: '',
+      attendancePolicy: '',
+      attendanceCaptureScheme: '',
+      holidayList: '',
+      expensePolicy: '',
+      noticePeriod: '',
+      pfNumber: '',
+      uanNumber: '',
+      exitDate: '',
+      exitStatus: '',
+      terminationType: '',
+      terminationReason: '',
+      resignationNote: '',
+      costCenter: '',
+      comments: ''
+    },
+    identityInfo: {
+      panNumber: '',
+      aadhaarNumber: '',
+      passportNumber: '',
+      drivingLicense: ''
+    },
+    financialInfo: {
+      currentSalary: {
+        basic: '',
+        hra: '',
+        allowances: '',
+        gross: '',
+        ctc: ''
+      },
+      bankDetails: {
+        accountNumber: '',
+        bankName: '',
+        ifscCode: '',
+        accountHolderName: '',
+        branchName: ''
+      },
+      taxInfo: {
+        taxDeduction: '',
+        tds: '',
+        taxSlab: ''
+      }
+    },
+    education: [{
+      degree: '',
+      institution: '',
+      yearOfPassing: '',
+      percentage: '',
+      specialization: ''
+    }],
+    experience: [{
+      company: '',
+      position: '',
+      startDate: '',
+      endDate: '',
+      salary: '',
+      reasonForLeaving: ''
+    }]
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeFormTab, setActiveFormTab] = useState(0);
   
   // Delete All Dialog State
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
-  // Import Dialog State
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importFile, setImportFile] = useState(null);
-  const [importData, setImportData] = useState([]);
-  const [importHeaders, setImportHeaders] = useState([]);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
-  const [importResults, setImportResults] = useState(null);
 
   useEffect(() => {
     fetchEmployees();
@@ -2398,14 +3951,38 @@ const EmployeeDirectoryModule = () => {
     return <Chip label={config.label} color={config.color} size="small" />;
   };
 
-  const handleEmployeeClick = (employee) => {
-    setSelectedEmployee(employee);
-    setShowFullScreenView(true);
+  const handleEmployeeClick = async (employee) => {
+    try {
+      // Fetch full employee data including documents
+      const response = await axios.get(`/employees/${employee._id}`);
+      if (response.data) {
+        setSelectedEmployee(response.data);
+        setShowFullScreenView(true);
+      } else {
+        // Fallback to list data if fetch fails
+        setSelectedEmployee(employee);
+        setShowFullScreenView(true);
+      }
+    } catch (error) {
+      console.error('Error fetching employee data:', error);
+      // Fallback to list data if fetch fails
+      setSelectedEmployee(employee);
+      setShowFullScreenView(true);
+    }
   };
 
   const handleBackToDirectory = () => {
     setShowFullScreenView(false);
     setSelectedEmployee(null);
+  };
+
+  const handleEmployeeUpdate = (updatedEmployee) => {
+    setSelectedEmployee(updatedEmployee);
+    
+    // Also update the employee in the list if it exists
+    setEmployees(prev => prev.map(emp => 
+      emp._id === updatedEmployee._id ? updatedEmployee : emp
+    ));
   };
 
   const handleImageUpload = (employee, event) => {
@@ -2460,14 +4037,29 @@ const EmployeeDirectoryModule = () => {
   };
 
   // Add Employee Form Handlers
-  const handleNewEmployeeChange = (section, field, value) => {
-    setNewEmployee(prev => ({
-      ...prev,
-      [section]: {
-        ...prev[section],
-        [field]: value
+  const handleNewEmployeeChange = (section, field, value, subsection = null) => {
+    setNewEmployee(prev => {
+      if (subsection) {
+        return {
+          ...prev,
+          [section]: {
+            ...prev[section],
+            [subsection]: {
+              ...prev[section][subsection],
+              [field]: value
+            }
+          }
+        };
+      } else {
+        return {
+          ...prev,
+          [section]: {
+            ...prev[section],
+            [field]: value
+          }
+        };
       }
-    }));
+    });
   };
 
   const handleAddEmployee = async () => {
@@ -2477,22 +4069,67 @@ const EmployeeDirectoryModule = () => {
         personalInfo: {
           firstName: newEmployee.personalInfo.firstName,
           lastName: newEmployee.personalInfo.lastName,
+          email: newEmployee.personalInfo.email,
+          phone: newEmployee.personalInfo.phone,
+          personalEmail: newEmployee.personalInfo.personalEmail,
+          alternatePhone: newEmployee.personalInfo.alternatePhone,
           dateOfBirth: newEmployee.personalInfo.dateOfBirth,
           gender: newEmployee.personalInfo.gender,
-          maritalStatus: newEmployee.personalInfo.maritalStatus
-        },
-        contactInfo: {
-          phone: newEmployee.personalInfo.phone
+          maritalStatus: newEmployee.personalInfo.maritalStatus,
+          nationality: newEmployee.personalInfo.nationality,
+          bloodGroup: newEmployee.personalInfo.bloodGroup,
+          fatherName: newEmployee.personalInfo.fatherName,
+          spouseName: newEmployee.personalInfo.spouseName,
+          currentAddress: newEmployee.personalInfo.currentAddress,
+          permanentAddress: newEmployee.personalInfo.permanentAddress
         },
         employmentInfo: {
+          employeeId: newEmployee.employmentInfo.employeeId,
           designation: newEmployee.employmentInfo.designation,
           department: newEmployee.employmentInfo.department,
+          subDepartment: newEmployee.employmentInfo.subDepartment,
           dateOfJoining: newEmployee.employmentInfo.dateOfJoining,
           employmentStatus: newEmployee.employmentInfo.employmentStatus,
           workLocation: newEmployee.employmentInfo.workLocation,
-          reportingManager: newEmployee.employmentInfo.reportingManager || null
+          reportingManager: newEmployee.employmentInfo.reportingManager,
+          reportingManagerEmpNo: newEmployee.employmentInfo.reportingManagerEmpNo,
+          reportingManagerName: newEmployee.employmentInfo.reportingManagerName,
+          dottedLineManager: newEmployee.employmentInfo.dottedLineManager,
+          legalEntity: newEmployee.employmentInfo.legalEntity,
+          businessUnit: newEmployee.employmentInfo.businessUnit,
+          secondaryJobTitle: newEmployee.employmentInfo.secondaryJobTitle,
+          attendanceNumber: newEmployee.employmentInfo.attendanceNumber,
+          locationCountry: newEmployee.employmentInfo.locationCountry,
+          leavePlan: newEmployee.employmentInfo.leavePlan,
+          band: newEmployee.employmentInfo.band,
+          payGrade: newEmployee.employmentInfo.payGrade,
+          timeType: newEmployee.employmentInfo.timeType,
+          workerType: newEmployee.employmentInfo.workerType,
+          shiftPolicy: newEmployee.employmentInfo.shiftPolicy,
+          weeklyOffPolicy: newEmployee.employmentInfo.weeklyOffPolicy,
+          attendancePolicy: newEmployee.employmentInfo.attendancePolicy,
+          attendanceCaptureScheme: newEmployee.employmentInfo.attendanceCaptureScheme,
+          holidayList: newEmployee.employmentInfo.holidayList,
+          expensePolicy: newEmployee.employmentInfo.expensePolicy,
+          noticePeriod: newEmployee.employmentInfo.noticePeriod,
+          pfNumber: newEmployee.employmentInfo.pfNumber,
+          uanNumber: newEmployee.employmentInfo.uanNumber,
+          costCenter: newEmployee.employmentInfo.costCenter,
+          comments: newEmployee.employmentInfo.comments
         },
-        // Don't send employeeId - let backend generate it automatically
+        identityInfo: {
+          panNumber: newEmployee.identityInfo.panNumber,
+          aadhaarNumber: newEmployee.identityInfo.aadhaarNumber,
+          passportNumber: newEmployee.identityInfo.passportNumber,
+          drivingLicense: newEmployee.identityInfo.drivingLicense
+        },
+        financialInfo: {
+          currentSalary: newEmployee.financialInfo.currentSalary,
+          bankDetails: newEmployee.financialInfo.bankDetails,
+          taxInfo: newEmployee.financialInfo.taxInfo
+        },
+        education: newEmployee.education,
+        experience: newEmployee.experience,
         user: {
           email: newEmployee.personalInfo.email,
           role: 'employee'
@@ -2521,20 +4158,112 @@ const EmployeeDirectoryModule = () => {
         lastName: '',
         email: '',
         phone: '',
+        personalEmail: '',
+        alternatePhone: '',
         dateOfBirth: '',
         gender: '',
-        maritalStatus: ''
+        maritalStatus: '',
+        nationality: '',
+        bloodGroup: '',
+        fatherName: '',
+        spouseName: '',
+        currentAddress: {
+          street: '',
+          city: '',
+          state: '',
+          pincode: '',
+          country: 'India'
+        },
+        permanentAddress: {
+          street: '',
+          city: '',
+          state: '',
+          pincode: '',
+          country: 'India'
+        }
       },
       employmentInfo: {
         employeeId: '',
         designation: '',
         department: '',
+        subDepartment: '',
         dateOfJoining: '',
         employmentStatus: 'active',
         workLocation: '',
-        reportingManager: ''
+        reportingManager: '',
+        reportingManagerEmpNo: '',
+        reportingManagerName: '',
+        dottedLineManager: '',
+        legalEntity: '',
+        businessUnit: '',
+        secondaryJobTitle: '',
+        attendanceNumber: '',
+        locationCountry: '',
+        leavePlan: '',
+        band: '',
+        payGrade: '',
+        timeType: '',
+        workerType: '',
+        shiftPolicy: '',
+        weeklyOffPolicy: '',
+        attendancePolicy: '',
+        attendanceCaptureScheme: '',
+        holidayList: '',
+        expensePolicy: '',
+        noticePeriod: '',
+        pfNumber: '',
+        uanNumber: '',
+        exitDate: '',
+        exitStatus: '',
+        terminationType: '',
+        terminationReason: '',
+        resignationNote: '',
+        costCenter: '',
+        comments: ''
+      },
+      identityInfo: {
+        panNumber: '',
+        aadhaarNumber: '',
+        passportNumber: '',
+        drivingLicense: ''
+      },
+      financialInfo: {
+        currentSalary: {
+          basic: '',
+          hra: '',
+          allowances: '',
+          gross: '',
+          ctc: ''
+        },
+        bankDetails: {
+          accountNumber: '',
+          bankName: '',
+          ifscCode: '',
+          accountHolderName: '',
+          branchName: ''
+        },
+      taxInfo: {
+        taxDeduction: '',
+        tds: '',
+        taxSlab: ''
       }
-    });
+    },
+    education: [{
+      degree: '',
+      institution: '',
+      yearOfPassing: '',
+      percentage: '',
+      specialization: ''
+    }],
+    experience: [{
+      company: '',
+      position: '',
+      startDate: '',
+      endDate: '',
+      salary: '',
+      reasonForLeaving: ''
+    }]
+  });
   };
 
   const handleCloseAddEmployee = () => {
@@ -2558,81 +4287,7 @@ const EmployeeDirectoryModule = () => {
     }
   };
 
-  // Import Functions
-  const downloadTemplate = () => {
-    const headers = [
-      'Employee Number', 'Display Name', 'Full Name', 'Work Email', 'Date Of Birth', 'Gender', 'Marital Status',
-      'Blood Group', 'Physically Handicapped', 'Nationality', 'Mobile Phone', 'Work Phone', 'Personal Email',
-      'Current Address Line 1', 'Permanent Address Line 1', 'Father Name', 'Spouse Name', 'Attendance Number',
-      'Location', 'Location Country', 'Legal Entity', 'Business Unit', 'Department', 'Sub Department',
-      'Job Title', 'Secondary Job Title', 'Reporting To', 'Reporting Manager Employee Number',
-      'Dotted Line Manager', 'Date Joined', 'Leave Plan', 'Band', 'Pay Grade', 'Time Type', 'Worker Type',
-      'Shift Policy Name', 'Weekly Off Policy Name', 'Attendance Time Tracking Policy', 'Attendance Capture Scheme',
-      'Holiday List Name', 'Expense Policy Name', 'Notice Period', 'PAN Number', 'Aadhaar Number',
-      'PF Number', 'UAN Number', 'Employment Status', 'Exit Date', 'Comments', 'Exit Status',
-      'Termination Type', 'Termination Reason', 'Resignation Note', 'Cost Center'
-    ];
-    
-    // Create sample data row
-    const sampleData = [
-      'EMP001', 'John Doe', 'John Doe', 'john.doe@company.com', '1990-01-15', 'Male', 'Single',
-      'O+', 'No', 'Indian', '+91-9876543210', '+91-11-12345678', 'john.personal@gmail.com',
-      '123 Main Street, City', '456 Home Street, Hometown', 'Father Name', '', 'ATT001',
-      'Mumbai', 'India', 'Company Ltd', 'IT Division', 'Information Technology', 'Software Development',
-      'Software Engineer', '', 'Manager Name', 'MGR001',
-      '', '2023-01-15', 'Standard Leave Plan', 'Band A', 'Grade 1', 'Full Time', 'Permanent',
-      'Standard Shift', 'Mon-Fri', 'Standard Policy', 'Biometric',
-      'India Holidays', 'Standard Expense Policy', '30 days', 'ABCDE1234F', '1234-5678-9012',
-      'PF123456', 'UAN123456789012', 'Active', '', 'Sample employee data',
-      '', '', '', '', 'CC001'
-    ];
-    
-    const csvContent = headers.join(',') + '\n' + sampleData.join(',') + '\n';
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    
-    if (link.download !== undefined) {
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', 'employee_import_template.csv');
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-      toast.error('Please select a CSV file');
-      return;
-    }
-
-    setImportFile(file);
-    
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors.length > 0) {
-          toast.error('Error parsing CSV file');
-          console.error('CSV parse errors:', results.errors);
-          return;
-        }
-        
-        setImportData(results.data);
-        setImportHeaders(results.meta.fields || []);
-        toast.success(`Parsed ${results.data.length} rows from CSV`);
-      },
-      error: (error) => {
-        toast.error('Failed to parse CSV file');
-        console.error('CSV parse error:', error);
-      }
-    });
-  };
 
   const handleImportData = async () => {
     if (importData.length === 0) {
@@ -2808,7 +4463,7 @@ const EmployeeDirectoryModule = () => {
 
   // Show full-screen employee details if selected
   if (showFullScreenView && selectedEmployee) {
-    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} onEditProfile={handleEditProfile} onSyncEmployee={handleSyncEmployee} />;
+    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} onEditProfile={handleEditProfile} onSyncEmployee={handleSyncEmployee} onEmployeeUpdate={handleEmployeeUpdate} />;
   }
 
   return (
@@ -2856,11 +4511,11 @@ const EmployeeDirectoryModule = () => {
             sx={{
               fontSize: '0.75rem',
               fontWeight: 600,
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+              background: '#10b981',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
               '&:hover': {
-                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-                boxShadow: '0 4px 8px rgba(16, 185, 129, 0.3)',
+                background: '#059669',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                 transform: 'translateY(-1px)'
               },
               transition: 'all 0.2s ease'
@@ -2889,45 +4544,7 @@ const EmployeeDirectoryModule = () => {
             Refresh
           </Button>
           
-          <Button
-            variant="outlined"
-            startIcon={<CloudUploadIcon />}
-            onClick={() => setImportDialogOpen(true)}
-            size="small"
-            sx={{
-              fontSize: '0.75rem',
-              fontWeight: 500,
-              borderColor: '#3b82f6',
-              color: '#3b82f6',
-              '&:hover': {
-                borderColor: '#2563eb',
-                color: '#2563eb',
-                backgroundColor: '#eff6ff'
-              }
-            }}
-          >
-            Import Employees
-          </Button>
 
-          <Button
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            onClick={downloadTemplate}
-            size="small"
-            sx={{
-              fontSize: '0.75rem',
-              fontWeight: 500,
-              borderColor: '#10b981',
-              color: '#10b981',
-              '&:hover': {
-                borderColor: '#059669',
-                color: '#059669',
-                backgroundColor: '#f0fdf4'
-              }
-            }}
-          >
-            Download Template
-          </Button>
 
           <Button
             variant="outlined"
@@ -3072,68 +4689,20 @@ const EmployeeDirectoryModule = () => {
             sx={{
               position: 'relative',
               cursor: 'pointer',
-              background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 50%, #ffffff 100%)',
-              border: '1px solid transparent',
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
               borderRadius: 4,
               overflow: 'hidden',
-              transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02)',
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 4,
-                background: `linear-gradient(135deg, 
-                  ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'} 0%, 
-                  ${employee.employmentInfo?.employmentStatus === 'working' ? '#34d399' : '#8b5cf6'} 50%,
-                  ${employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5'} 100%)`,
-                transition: 'all 0.4s ease',
-                borderRadius: '4px 4px 0 0'
-              },
-              '&::after': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: `linear-gradient(135deg, 
-                  ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98105' : '#6366f105'} 0%, 
-                  transparent 50%, 
-                  ${employee.employmentInfo?.employmentStatus === 'working' ? '#05966905' : '#4f46e505'} 100%)`,
-                opacity: 0,
-                transition: 'opacity 0.4s ease',
-                pointerEvents: 'none',
-                borderRadius: 4
-              },
+              transition: 'all 0.3s ease',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
               '&:hover': {
-                transform: 'translateY(-4px) scale(1.01)',
-                boxShadow: '0 32px 64px rgba(0,0,0,0.12), 0 16px 32px rgba(0,0,0,0.08), 0 8px 16px rgba(0,0,0,0.04)',
-                borderColor: `${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98120' : '#6366f120'}`,
-                '&::before': {
-                  height: 6,
-                  boxShadow: `0 0 20px ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98130' : '#6366f130'}`
-                },
-                '&::after': {
-                  opacity: 1
-                },
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                 '& .employee-avatar': {
-                  transform: 'scale(1.08) rotate(2deg)',
-                  boxShadow: '0 12px 30px rgba(0,0,0,0.2)'
+                  transform: 'scale(1.05)'
                 },
                 '& .info-card': {
-                  transform: 'translateY(-2px) scale(1.02)',
-                  boxShadow: '0 8px 20px rgba(0,0,0,0.12)'
-                },
-                '& .status-badge': {
-                  transform: 'scale(1.05)',
-                  boxShadow: `0 4px 12px ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98130' : '#6366f130'}`
-                },
-                '& .employee-name': {
-                  color: `${employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5'}`,
-                  textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                  transform: 'translateY(-1px)'
                 }
               }
             }}
@@ -3163,44 +4732,34 @@ const EmployeeDirectoryModule = () => {
                     }}
                   />
                   
-                  <Avatar 
+                  <Avatar
                     className="employee-avatar"
-                    src={employee.profileImage || ''}
+                    src={employee.profilePicture?.url ? 
+                         (employee.profilePicture.url.startsWith('http') ? employee.profilePicture.url : `http://localhost:5001${employee.profilePicture.url}`) :
+                         employee.additionalInfo?.candidatePortalData?.personalInfo?.profilePhoto?.url || 
+                         employee.additionalInfo?.profilePhoto?.url || 
+                         employee.profileImage || 
+                         employee.personalInfo?.profilePicture || 
+                         ''}
                     sx={{ 
                       width: 72, 
                       height: 72,
-                      background: `conic-gradient(from 45deg, 
-                        ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'} 0deg, 
-                        ${employee.employmentInfo?.employmentStatus === 'working' ? '#34d399' : '#8b5cf6'} 120deg, 
-                        ${employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5'} 240deg, 
-                        ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'} 360deg)`,
+                      background: '#f3f4f6',
                       fontSize: '1.1rem',
-                      fontWeight: 800,
-                      boxShadow: '0 12px 24px rgba(0,0,0,0.15), 0 4px 8px rgba(0,0,0,0.1)',
-                      border: '4px solid white',
-                      transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                      color: 'white',
+                      fontWeight: 600,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      border: '2px solid #e5e7eb',
+                      transition: 'all 0.3s ease',
+                      color: '#6b7280',
                       position: 'relative',
-                      zIndex: 2,
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        inset: -2,
-                        borderRadius: '50%',
-                        padding: 2,
-                        background: `conic-gradient(from 0deg, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'}, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#34d399' : '#8b5cf6'}, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5'}, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'})`,
-                        mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        maskComposite: 'xor',
-                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        WebkitMaskComposite: 'xor'
-                      }
+                      zIndex: 2
                     }}
                   >
-                    {!employee.profileImage && (
+                    {!(employee.profilePicture?.url || 
+                       employee.additionalInfo?.candidatePortalData?.personalInfo?.profilePhoto?.url || 
+                       employee.additionalInfo?.profilePhoto?.url || 
+                       employee.profileImage || 
+                       employee.personalInfo?.profilePicture) && (
                       <>
                         {employee.personalInfo?.firstName?.charAt(0) || 'N'}
                         {employee.personalInfo?.lastName?.charAt(0) || 'A'}
@@ -3208,38 +4767,20 @@ const EmployeeDirectoryModule = () => {
                     )}
                   </Avatar>
                   
-                  {/* Animated Status Indicator */}
+                  {/* Simple Status Indicator */}
                   <Box
                     sx={{
                       position: 'absolute',
                       top: -3,
                       right: -3,
-                      width: 24,
-                      height: 24,
+                      width: 20,
+                      height: 20,
                       borderRadius: '50%',
-                      background: employee.employmentInfo?.employmentStatus === 'working' 
-                        ? 'conic-gradient(from 0deg, #10b981, #34d399, #059669, #10b981)'
-                        : 'conic-gradient(from 0deg, #6366f1, #8b5cf6, #4f46e5, #6366f1)',
-                      border: '4px solid white',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      animation: 'pulse 2s infinite',
-                      '@keyframes pulse': {
-                        '0%, 100%': { transform: 'scale(1)' },
-                        '50%': { transform: 'scale(1.1)' }
-                      }
+                      background: '#10b981',
+                      border: '3px solid white',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
                     }}
-                  >
-                    <Box sx={{ 
-                      width: 8, 
-                      height: 8, 
-                      borderRadius: '50%', 
-                      bgcolor: 'white',
-                      boxShadow: '0 0 4px rgba(255,255,255,0.8)'
-                    }} />
-                  </Box>
+                  />
 
                   {/* Ultra Premium Image Upload */}
                   <Box sx={{ position: 'absolute', bottom: -4, right: -4 }}>
@@ -3258,16 +4799,15 @@ const EmployeeDirectoryModule = () => {
                           width: 28,
                           height: 28,
                           bgcolor: 'white',
-                          border: '3px solid #f1f5f9',
+                          border: '2px solid #e5e7eb',
                           borderRadius: '50%',
-                          boxShadow: '0 6px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                           '&:hover': { 
                             bgcolor: '#f8fafc',
-                            borderColor: `${employee.employmentInfo?.employmentStatus === 'working' ? '#10b981' : '#6366f1'}`,
-                            boxShadow: `0 8px 24px ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98130' : '#6366f130'}, 0 4px 8px rgba(0,0,0,0.1)`,
-                            transform: 'scale(1.15) rotate(10deg)'
+                            borderColor: '#10b981',
+                            transform: 'scale(1.1)'
                           },
-                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                          transition: 'all 0.3s ease'
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -3311,12 +4851,6 @@ const EmployeeDirectoryModule = () => {
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         letterSpacing: '-0.03em',
-                        background: `linear-gradient(135deg, 
-                          #0f172a 0%, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5'} 100%)`,
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
                         transition: 'all 0.3s ease'
                       }}
                     >
@@ -3326,66 +4860,37 @@ const EmployeeDirectoryModule = () => {
                     {/* Ultra Premium Status Badge */}
                     <Box 
                       className="status-badge"
-                      sx={{ 
+                      sx={{
                         display: 'flex', 
                         alignItems: 'center', 
-                        gap: 1.5, 
-                        px: 3, 
-                        py: 1,
-                        background: employee.employmentInfo?.employmentStatus === 'working' 
-                          ? 'linear-gradient(135deg, #10b98115 0%, #34d39915 50%, #05966915 100%)'
-                          : 'linear-gradient(135deg, #6366f115 0%, #8b5cf615 50%, #4f46e515 100%)',
-                        borderRadius: 3,
-                        border: `2px solid ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98125' : '#6366f125'}`,
+                        gap: 1, 
+                        px: 2, 
+                        py: 0.5,
+                        background: '#f0f9ff',
+                        borderRadius: 2,
+                        border: '1px solid #e0f2fe',
                         flexShrink: 0,
-                        position: 'relative',
-                        overflow: 'hidden',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: '-100%',
-                          width: '100%',
-                          height: '100%',
-                          background: `linear-gradient(90deg, 
-                            transparent, 
-                            ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98120' : '#6366f120'}, 
-                            transparent)`,
-                          transition: 'left 0.5s ease',
-                        },
-                        '&:hover::before': {
-                          left: '100%'
-                        }
+                        transition: 'all 0.3s ease'
                       }}
                     >
                       <Box sx={{ 
-                        width: 8, 
-                        height: 8, 
+                        width: 6, 
+                        height: 6, 
                         borderRadius: '50%', 
-                        background: employee.employmentInfo?.employmentStatus === 'working' 
-                          ? 'conic-gradient(from 0deg, #10b981, #34d399, #059669, #10b981)'
-                          : 'conic-gradient(from 0deg, #6366f1, #8b5cf6, #4f46e5, #6366f1)',
-                        boxShadow: `0 0 8px ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98150' : '#6366f150'}`,
-                        animation: 'spin 3s linear infinite',
-                        '@keyframes spin': {
-                          '0%': { transform: 'rotate(0deg)' },
-                          '100%': { transform: 'rotate(360deg)' }
-                        }
+                        background: '#10b981'
                       }} />
                       <Typography 
                         variant="caption"
                         sx={{ 
                           fontSize: '0.7rem',
-                          fontWeight: 700,
-                          color: employee.employmentInfo?.employmentStatus === 'working' ? '#059669' : '#4f46e5',
+                          fontWeight: 600,
+                          color: '#059669',
                           textTransform: 'uppercase',
-                          letterSpacing: '0.08em',
-                          textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                          letterSpacing: '0.05em'
                         }}
                       >
-                        {employee.employmentInfo?.employmentStatus === 'working' ? '● Active' : 
-                         `● ${employee.employmentInfo?.employmentStatus || 'Active'}`}
+                        {employee.employmentInfo?.employmentStatus === 'working' ? 'Active' : 
+                         employee.employmentInfo?.employmentStatus || 'Active'}
                       </Typography>
                     </Box>
                   </Box>
@@ -3399,11 +4904,7 @@ const EmployeeDirectoryModule = () => {
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      mb: 1,
-                      background: 'linear-gradient(135deg, #475569 0%, #64748b 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text'
+                      mb: 1
                     }}
                   >
                     {employee.employmentInfo?.designation || 'N/A'}
@@ -3510,10 +5011,7 @@ const EmployeeDirectoryModule = () => {
                       sx={{ 
                         fontSize: '0.85rem',
                         fontWeight: 700,
-                        background: 'linear-gradient(135deg, #0f172a 0%, #475569 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
+                        color: '#0f172a',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap'
@@ -3529,33 +5027,12 @@ const EmployeeDirectoryModule = () => {
                     sx={{ 
                       minWidth: 220,
                       p: 2.5,
-                      background: 'linear-gradient(145deg, #fefefe 0%, #f8fafc 50%, #ffffff 100%)',
+                      background: '#ffffff',
                       borderRadius: 3,
-                      border: '2px solid transparent',
-                      backgroundClip: 'padding-box',
+                      border: '1px solid #e5e7eb',
                       position: 'relative',
-                      transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8)',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        inset: 0,
-                        borderRadius: 3,
-                        padding: 2,
-                        background: `linear-gradient(135deg, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98120' : '#6366f120'}, 
-                          transparent, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#05966920' : '#4f46e520'})`,
-                        mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        maskComposite: 'xor',
-                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        WebkitMaskComposite: 'xor',
-                        opacity: 0,
-                        transition: 'opacity 0.3s ease'
-                      },
-                      '&:hover::before': {
-                        opacity: 1
-                      }
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                     }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -3603,34 +5080,13 @@ const EmployeeDirectoryModule = () => {
                     sx={{ 
                       minWidth: 140,
                       p: 2.5,
-                      background: 'linear-gradient(145deg, #f1f5f9 0%, #ffffff 50%, #f8fafc 100%)',
+                      background: '#ffffff',
                       borderRadius: 3,
-                      border: '2px solid transparent',
-                      backgroundClip: 'padding-box',
+                      border: '1px solid #e5e7eb',
                       textAlign: 'center',
                       position: 'relative',
-                      transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8)',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        inset: 0,
-                        borderRadius: 3,
-                        padding: 2,
-                        background: `linear-gradient(135deg, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#10b98120' : '#6366f120'}, 
-                          transparent, 
-                          ${employee.employmentInfo?.employmentStatus === 'working' ? '#05966920' : '#4f46e520'})`,
-                        mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        maskComposite: 'xor',
-                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        WebkitMaskComposite: 'xor',
-                        opacity: 0,
-                        transition: 'opacity 0.3s ease'
-                      },
-                      '&:hover::before': {
-                        opacity: 1
-                      }
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                     }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
@@ -3661,10 +5117,7 @@ const EmployeeDirectoryModule = () => {
                       sx={{ 
                         fontSize: '0.85rem',
                         fontWeight: 800,
-                        background: 'linear-gradient(135deg, #0f172a 0%, #475569 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text'
+                        color: '#0f172a'
                       }}
                     >
                       {employee.employmentInfo?.dateOfJoining 
@@ -3733,17 +5186,18 @@ const EmployeeDirectoryModule = () => {
       <Dialog
         open={addEmployeeOpen}
         onClose={handleCloseAddEmployee}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+            maxHeight: '90vh'
           }
         }}
       >
         <DialogTitle sx={{ 
-          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          background: '#10b981',
           color: 'white',
           display: 'flex',
           alignItems: 'center',
@@ -3755,243 +5209,989 @@ const EmployeeDirectoryModule = () => {
           Add New Employee
         </DialogTitle>
         
-        <DialogContent sx={{ p: 3 }}>
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="h6" sx={{ mb: 2, fontSize: '1rem', fontWeight: 600, color: '#374151' }}>
-              Personal Information
-            </Typography>
-            
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="First Name"
-                  value={newEmployee.personalInfo.firstName}
-                  onChange={(e) => handleNewEmployeeChange('personalInfo', 'firstName', e.target.value)}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Last Name"
-                  value={newEmployee.personalInfo.lastName}
-                  onChange={(e) => handleNewEmployeeChange('personalInfo', 'lastName', e.target.value)}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Email"
-                  type="email"
-                  value={newEmployee.personalInfo.email}
-                  onChange={(e) => handleNewEmployeeChange('personalInfo', 'email', e.target.value)}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Phone"
-                  value={newEmployee.personalInfo.phone}
-                  onChange={(e) => handleNewEmployeeChange('personalInfo', 'phone', e.target.value)}
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Date of Birth"
-                  type="date"
-                  value={newEmployee.personalInfo.dateOfBirth}
-                  onChange={(e) => handleNewEmployeeChange('personalInfo', 'dateOfBirth', e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth size="small">
-                  <InputLabel sx={{ fontSize: '0.875rem' }}>Gender</InputLabel>
-                  <Select
-                    value={newEmployee.personalInfo.gender}
-                    label="Gender"
-                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'gender', e.target.value)}
-                    sx={{ fontSize: '0.875rem' }}
-                  >
-                    <MenuItem value="male" sx={{ fontSize: '0.875rem' }}>Male</MenuItem>
-                    <MenuItem value="female" sx={{ fontSize: '0.875rem' }}>Female</MenuItem>
-                    <MenuItem value="other" sx={{ fontSize: '0.875rem' }}>Other</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth size="small">
-                  <InputLabel sx={{ fontSize: '0.875rem' }}>Marital Status</InputLabel>
-                  <Select
-                    value={newEmployee.personalInfo.maritalStatus}
-                    label="Marital Status"
-                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'maritalStatus', e.target.value)}
-                    sx={{ fontSize: '0.875rem' }}
-                  >
-                    <MenuItem value="single" sx={{ fontSize: '0.875rem' }}>Single</MenuItem>
-                    <MenuItem value="married" sx={{ fontSize: '0.875rem' }}>Married</MenuItem>
-                    <MenuItem value="divorced" sx={{ fontSize: '0.875rem' }}>Divorced</MenuItem>
-                    <MenuItem value="widowed" sx={{ fontSize: '0.875rem' }}>Widowed</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs 
+              value={activeFormTab} 
+              onChange={(e, newValue) => setActiveFormTab(newValue)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ px: 3 }}
+            >
+              <Tab label="Personal Info" />
+              <Tab label="Employment" />
+              <Tab label="Identity" />
+              <Tab label="Financial" />
+              <Tab label="Education" />
+              <Tab label="Experience" />
+            </Tabs>
+          </Box>
 
-            <Divider sx={{ my: 3 }} />
-
-            <Typography variant="h6" sx={{ mb: 2, fontSize: '1rem', fontWeight: 600, color: '#374151' }}>
-              Employment Information
-            </Typography>
-            
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Employee ID"
-                  value={newEmployee.employmentInfo.employeeId}
-                  onChange={(e) => handleNewEmployeeChange('employmentInfo', 'employeeId', e.target.value)}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Designation"
-                  value={newEmployee.employmentInfo.designation}
-                  onChange={(e) => handleNewEmployeeChange('employmentInfo', 'designation', e.target.value)}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel sx={{ fontSize: '0.875rem' }}>Department</InputLabel>
-                  <Select
-                    value={newEmployee.employmentInfo.department}
-                    label="Department"
-                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'department', e.target.value)}
+          <Box sx={{ p: 3, maxHeight: '60vh', overflow: 'auto' }}>
+            {/* Personal Information Tab */}
+            {activeFormTab === 0 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Basic Information
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="First Name"
+                    value={newEmployee.personalInfo.firstName}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'firstName', e.target.value)}
                     required
-                    sx={{ fontSize: '0.875rem' }}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Last Name"
+                    value={newEmployee.personalInfo.lastName}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'lastName', e.target.value)}
+                    required
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Work Email"
+                    type="email"
+                    value={newEmployee.personalInfo.email}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'email', e.target.value)}
+                    required
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Personal Email"
+                    type="email"
+                    value={newEmployee.personalInfo.personalEmail}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'personalEmail', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Phone"
+                    value={newEmployee.personalInfo.phone}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'phone', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Alternate Phone"
+                    value={newEmployee.personalInfo.alternatePhone}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'alternatePhone', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Date of Birth"
+                    type="date"
+                    value={newEmployee.personalInfo.dateOfBirth}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'dateOfBirth', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Gender</InputLabel>
+                    <Select
+                      value={newEmployee.personalInfo.gender}
+                      label="Gender"
+                      onChange={(e) => handleNewEmployeeChange('personalInfo', 'gender', e.target.value)}
+                    >
+                      <MenuItem value="male">Male</MenuItem>
+                      <MenuItem value="female">Female</MenuItem>
+                      <MenuItem value="other">Other</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Marital Status</InputLabel>
+                    <Select
+                      value={newEmployee.personalInfo.maritalStatus}
+                      label="Marital Status"
+                      onChange={(e) => handleNewEmployeeChange('personalInfo', 'maritalStatus', e.target.value)}
+                    >
+                      <MenuItem value="single">Single</MenuItem>
+                      <MenuItem value="married">Married</MenuItem>
+                      <MenuItem value="divorced">Divorced</MenuItem>
+                      <MenuItem value="widowed">Widowed</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Nationality"
+                    value={newEmployee.personalInfo.nationality}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'nationality', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Blood Group</InputLabel>
+                    <Select
+                      value={newEmployee.personalInfo.bloodGroup}
+                      label="Blood Group"
+                      onChange={(e) => handleNewEmployeeChange('personalInfo', 'bloodGroup', e.target.value)}
+                    >
+                      <MenuItem value="A+">A+</MenuItem>
+                      <MenuItem value="A-">A-</MenuItem>
+                      <MenuItem value="B+">B+</MenuItem>
+                      <MenuItem value="B-">B-</MenuItem>
+                      <MenuItem value="AB+">AB+</MenuItem>
+                      <MenuItem value="AB-">AB-</MenuItem>
+                      <MenuItem value="O+">O+</MenuItem>
+                      <MenuItem value="O-">O-</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Father Name"
+                    value={newEmployee.personalInfo.fatherName}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'fatherName', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Spouse Name"
+                    value={newEmployee.personalInfo.spouseName}
+                    onChange={(e) => handleNewEmployeeChange('personalInfo', 'spouseName', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+            )}
+
+            {/* Employment Information Tab */}
+            {activeFormTab === 1 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Employment Details
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Employee ID"
+                    value={newEmployee.employmentInfo.employeeId}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'employeeId', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Designation"
+                    value={newEmployee.employmentInfo.designation}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'designation', e.target.value)}
+                    required
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Department</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.department}
+                      label="Department"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'department', e.target.value)}
+                      required
+                    >
+                      <MenuItem value="IT">IT</MenuItem>
+                      <MenuItem value="HR">HR</MenuItem>
+                      <MenuItem value="Finance">Finance</MenuItem>
+                      <MenuItem value="Marketing">Marketing</MenuItem>
+                      <MenuItem value="Sales">Sales</MenuItem>
+                      <MenuItem value="Operations">Operations</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Sub Department"
+                    value={newEmployee.employmentInfo.subDepartment}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'subDepartment', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Date of Joining"
+                    type="date"
+                    value={newEmployee.employmentInfo.dateOfJoining}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'dateOfJoining', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Employment Status</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.employmentStatus}
+                      label="Employment Status"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'employmentStatus', e.target.value)}
+                    >
+                      <MenuItem value="active">Active</MenuItem>
+                      <MenuItem value="probation">Probation</MenuItem>
+                      <MenuItem value="inactive">Inactive</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Work Location"
+                    value={newEmployee.employmentInfo.workLocation}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'workLocation', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Reporting Manager</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.reportingManager}
+                      label="Reporting Manager"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'reportingManager', e.target.value)}
+                    >
+                      <MenuItem value="">No Manager (Top Level)</MenuItem>
+                      {employees.map((manager) => (
+                        <MenuItem key={manager._id} value={manager._id}>
+                          {manager.personalInfo?.firstName} {manager.personalInfo?.lastName} - {manager.employmentInfo?.designation}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Reporting Manager Employee Number"
+                    value={newEmployee.employmentInfo.reportingManagerEmpNo}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'reportingManagerEmpNo', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Reporting Manager Name"
+                    value={newEmployee.employmentInfo.reportingManagerName}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'reportingManagerName', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Dotted Line Manager"
+                    value={newEmployee.employmentInfo.dottedLineManager}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'dottedLineManager', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Legal Entity"
+                    value={newEmployee.employmentInfo.legalEntity}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'legalEntity', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Business Unit"
+                    value={newEmployee.employmentInfo.businessUnit}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'businessUnit', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Secondary Job Title"
+                    value={newEmployee.employmentInfo.secondaryJobTitle}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'secondaryJobTitle', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Attendance Number"
+                    value={newEmployee.employmentInfo.attendanceNumber}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'attendanceNumber', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Location Country"
+                    value={newEmployee.employmentInfo.locationCountry}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'locationCountry', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Leave Plan"
+                    value={newEmployee.employmentInfo.leavePlan}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'leavePlan', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Band"
+                    value={newEmployee.employmentInfo.band}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'band', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Pay Grade"
+                    value={newEmployee.employmentInfo.payGrade}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'payGrade', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Time Type</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.timeType}
+                      label="Time Type"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'timeType', e.target.value)}
+                    >
+                      <MenuItem value="full_time">Full Time</MenuItem>
+                      <MenuItem value="part_time">Part Time</MenuItem>
+                      <MenuItem value="contract">Contract</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Worker Type</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.workerType}
+                      label="Worker Type"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'workerType', e.target.value)}
+                    >
+                      <MenuItem value="permanent">Permanent</MenuItem>
+                      <MenuItem value="temporary">Temporary</MenuItem>
+                      <MenuItem value="intern">Intern</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Shift Policy"
+                    value={newEmployee.employmentInfo.shiftPolicy}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'shiftPolicy', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Weekly Off Policy"
+                    value={newEmployee.employmentInfo.weeklyOffPolicy}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'weeklyOffPolicy', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Attendance Policy"
+                    value={newEmployee.employmentInfo.attendancePolicy}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'attendancePolicy', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Attendance Capture Scheme"
+                    value={newEmployee.employmentInfo.attendanceCaptureScheme}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'attendanceCaptureScheme', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Holiday List"
+                    value={newEmployee.employmentInfo.holidayList}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'holidayList', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Expense Policy"
+                    value={newEmployee.employmentInfo.expensePolicy}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'expensePolicy', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Notice Period"
+                    value={newEmployee.employmentInfo.noticePeriod}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'noticePeriod', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="PF Number"
+                    value={newEmployee.employmentInfo.pfNumber}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'pfNumber', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="UAN Number"
+                    value={newEmployee.employmentInfo.uanNumber}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'uanNumber', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Cost Center"
+                    value={newEmployee.employmentInfo.costCenter}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'costCenter', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Comments"
+                    multiline
+                    rows={3}
+                    value={newEmployee.employmentInfo.comments}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'comments', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+            )}
+
+            {/* Identity Information Tab */}
+            {activeFormTab === 2 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Identity Documents
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="PAN Number"
+                    value={newEmployee.identityInfo.panNumber}
+                    onChange={(e) => handleNewEmployeeChange('identityInfo', 'panNumber', e.target.value)}
+                    size="small"
+                    placeholder="ABCDE1234F"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Aadhaar Number"
+                    value={newEmployee.identityInfo.aadhaarNumber}
+                    onChange={(e) => handleNewEmployeeChange('identityInfo', 'aadhaarNumber', e.target.value)}
+                    size="small"
+                    placeholder="1234-5678-9012"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Passport Number"
+                    value={newEmployee.identityInfo.passportNumber}
+                    onChange={(e) => handleNewEmployeeChange('identityInfo', 'passportNumber', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Driving License"
+                    value={newEmployee.identityInfo.drivingLicense}
+                    onChange={(e) => handleNewEmployeeChange('identityInfo', 'drivingLicense', e.target.value)}
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+            )}
+
+            {/* Financial Information Tab */}
+            {activeFormTab === 3 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Salary Information
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Basic Salary"
+                    type="number"
+                    value={newEmployee.financialInfo.currentSalary.basic}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'basic', e.target.value, 'currentSalary')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="HRA"
+                    type="number"
+                    value={newEmployee.financialInfo.currentSalary.hra}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'hra', e.target.value, 'currentSalary')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Allowances"
+                    type="number"
+                    value={newEmployee.financialInfo.currentSalary.allowances}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'allowances', e.target.value, 'currentSalary')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Gross Salary"
+                    type="number"
+                    value={newEmployee.financialInfo.currentSalary.gross}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'gross', e.target.value, 'currentSalary')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="CTC"
+                    type="number"
+                    value={newEmployee.financialInfo.currentSalary.ctc}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'ctc', e.target.value, 'currentSalary')}
+                    size="small"
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151', mt: 2 }}>
+                    Bank Details
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Account Number"
+                    value={newEmployee.financialInfo.bankDetails.accountNumber}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'accountNumber', e.target.value, 'bankDetails')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Bank Name"
+                    value={newEmployee.financialInfo.bankDetails.bankName}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'bankName', e.target.value, 'bankDetails')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="IFSC Code"
+                    value={newEmployee.financialInfo.bankDetails.ifscCode}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'ifscCode', e.target.value, 'bankDetails')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Account Holder Name"
+                    value={newEmployee.financialInfo.bankDetails.accountHolderName}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'accountHolderName', e.target.value, 'bankDetails')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Branch Name"
+                    value={newEmployee.financialInfo.bankDetails.branchName}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'branchName', e.target.value, 'bankDetails')}
+                    size="small"
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151', mt: 2 }}>
+                    Tax Information
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Tax Deduction"
+                    type="number"
+                    value={newEmployee.financialInfo.taxInfo.taxDeduction}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'taxDeduction', e.target.value, 'taxInfo')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="TDS"
+                    type="number"
+                    value={newEmployee.financialInfo.taxInfo.tds}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'tds', e.target.value, 'taxInfo')}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Tax Slab"
+                    value={newEmployee.financialInfo.taxInfo.taxSlab}
+                    onChange={(e) => handleNewEmployeeChange('financialInfo', 'taxSlab', e.target.value, 'taxInfo')}
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+            )}
+
+            {/* Education Information Tab */}
+            {activeFormTab === 4 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Educational Background
+                  </Typography>
+                </Grid>
+                {newEmployee.education.map((edu, index) => (
+                  <Grid item xs={12} key={index}>
+                    <Card sx={{ mb: 2, border: '1px solid #e5e7eb' }}>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle1" fontWeight="600">
+                            Education {index + 1}
+                          </Typography>
+                          {newEmployee.education.length > 1 && (
+                            <IconButton
+                              color="error"
+                              onClick={() => {
+                                const updatedEducation = newEmployee.education.filter((_, i) => i !== index);
+                                setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                              }}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          )}
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Degree</InputLabel>
+                              <Select
+                                value={edu.degree}
+                                label="Degree"
+                                onChange={(e) => {
+                                  const updatedEducation = [...newEmployee.education];
+                                  updatedEducation[index] = { ...updatedEducation[index], degree: e.target.value };
+                                  setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                                }}
+                              >
+                                <MenuItem value="High School">High School</MenuItem>
+                                <MenuItem value="Diploma">Diploma</MenuItem>
+                                <MenuItem value="Bachelor's">Bachelor's</MenuItem>
+                                <MenuItem value="Master's">Master's</MenuItem>
+                                <MenuItem value="PhD">PhD</MenuItem>
+                                <MenuItem value="Other">Other</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              fullWidth
+                              label="Institution"
+                              value={edu.institution}
+                              onChange={(e) => {
+                                const updatedEducation = [...newEmployee.education];
+                                updatedEducation[index] = { ...updatedEducation[index], institution: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="Year of Passing"
+                              type="number"
+                              value={edu.yearOfPassing}
+                              onChange={(e) => {
+                                const updatedEducation = [...newEmployee.education];
+                                updatedEducation[index] = { ...updatedEducation[index], yearOfPassing: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="Percentage/CGPA"
+                              value={edu.percentage}
+                              onChange={(e) => {
+                                const updatedEducation = [...newEmployee.education];
+                                updatedEducation[index] = { ...updatedEducation[index], percentage: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="Specialization"
+                              value={edu.specialization}
+                              onChange={(e) => {
+                                const updatedEducation = [...newEmployee.education];
+                                updatedEducation[index] = { ...updatedEducation[index], specialization: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, education: updatedEducation }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+                <Grid item xs={12}>
+                  <Button
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setNewEmployee(prev => ({
+                        ...prev,
+                        education: [...prev.education, {
+                          degree: '',
+                          institution: '',
+                          yearOfPassing: '',
+                          percentage: '',
+                          specialization: ''
+                        }]
+                      }));
+                    }}
+                    variant="outlined"
+                    sx={{ mt: 1 }}
                   >
-                    <MenuItem value="IT" sx={{ fontSize: '0.875rem' }}>IT</MenuItem>
-                    <MenuItem value="HR" sx={{ fontSize: '0.875rem' }}>HR</MenuItem>
-                    <MenuItem value="Finance" sx={{ fontSize: '0.875rem' }}>Finance</MenuItem>
-                    <MenuItem value="Marketing" sx={{ fontSize: '0.875rem' }}>Marketing</MenuItem>
-                    <MenuItem value="Sales" sx={{ fontSize: '0.875rem' }}>Sales</MenuItem>
-                    <MenuItem value="Operations" sx={{ fontSize: '0.875rem' }}>Operations</MenuItem>
-                  </Select>
-                </FormControl>
+                    Add Education
+                  </Button>
+                </Grid>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Work Location"
-                  value={newEmployee.employmentInfo.workLocation}
-                  onChange={(e) => handleNewEmployeeChange('employmentInfo', 'workLocation', e.target.value)}
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Date of Joining"
-                  type="date"
-                  value={newEmployee.employmentInfo.dateOfJoining}
-                  onChange={(e) => handleNewEmployeeChange('employmentInfo', 'dateOfJoining', e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  required
-                  size="small"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel sx={{ fontSize: '0.875rem' }}>Employment Status</InputLabel>
-                  <Select
-                    value={newEmployee.employmentInfo.employmentStatus}
-                    label="Employment Status"
-                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'employmentStatus', e.target.value)}
-                    sx={{ fontSize: '0.875rem' }}
+            )}
+
+            {/* Experience Information Tab */}
+            {activeFormTab === 5 && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#374151' }}>
+                    Work Experience
+                  </Typography>
+                </Grid>
+                {newEmployee.experience.map((exp, index) => (
+                  <Grid item xs={12} key={index}>
+                    <Card sx={{ mb: 2, border: '1px solid #e5e7eb' }}>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle1" fontWeight="600">
+                            Experience {index + 1}
+                          </Typography>
+                          {newEmployee.experience.length > 1 && (
+                            <IconButton
+                              color="error"
+                              onClick={() => {
+                                const updatedExperience = newEmployee.experience.filter((_, i) => i !== index);
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          )}
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              fullWidth
+                              label="Company Name"
+                              value={exp.company}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], company: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              fullWidth
+                              label="Position"
+                              value={exp.position}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], position: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="Start Date"
+                              type="date"
+                              value={exp.startDate}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], startDate: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              InputLabelProps={{ shrink: true }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="End Date"
+                              type="date"
+                              value={exp.endDate}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], endDate: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              InputLabelProps={{ shrink: true }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              fullWidth
+                              label="Last Salary (₹)"
+                              type="number"
+                              value={exp.salary}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], salary: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              label="Reason for Leaving"
+                              multiline
+                              rows={2}
+                              value={exp.reasonForLeaving}
+                              onChange={(e) => {
+                                const updatedExperience = [...newEmployee.experience];
+                                updatedExperience[index] = { ...updatedExperience[index], reasonForLeaving: e.target.value };
+                                setNewEmployee(prev => ({ ...prev, experience: updatedExperience }));
+                              }}
+                              size="small"
+                            />
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+                <Grid item xs={12}>
+                  <Button
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setNewEmployee(prev => ({
+                        ...prev,
+                        experience: [...prev.experience, {
+                          company: '',
+                          position: '',
+                          startDate: '',
+                          endDate: '',
+                          salary: '',
+                          reasonForLeaving: ''
+                        }]
+                      }));
+                    }}
+                    variant="outlined"
+                    sx={{ mt: 1 }}
                   >
-                    <MenuItem value="active" sx={{ fontSize: '0.875rem' }}>Active</MenuItem>
-                    <MenuItem value="probation" sx={{ fontSize: '0.875rem' }}>Probation</MenuItem>
-                    <MenuItem value="inactive" sx={{ fontSize: '0.875rem' }}>Inactive</MenuItem>
-                  </Select>
-                </FormControl>
+                    Add Experience
+                  </Button>
+                </Grid>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel sx={{ fontSize: '0.875rem' }}>Reporting Manager</InputLabel>
-                  <Select
-                    value={newEmployee.employmentInfo.reportingManager}
-                    label="Reporting Manager"
-                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'reportingManager', e.target.value)}
-                    sx={{ fontSize: '0.875rem' }}
-                  >
-                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>No Manager (Top Level)</MenuItem>
-                    {employees.filter(emp => emp._id !== selectedEmployee?._id).map((manager) => (
-                      <MenuItem key={manager._id} value={manager._id} sx={{ fontSize: '0.875rem' }}>
-                        {manager.personalInfo?.firstName} {manager.personalInfo?.lastName} - {manager.employmentInfo?.designation}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            )}
           </Box>
         </DialogContent>
         
@@ -4010,13 +6210,13 @@ const EmployeeDirectoryModule = () => {
           <Button
             onClick={handleAddEmployee}
             variant="contained"
-            disabled={isSubmitting || !newEmployee.personalInfo.firstName || !newEmployee.personalInfo.email || !newEmployee.employmentInfo.employeeId}
+            disabled={isSubmitting || !newEmployee.personalInfo.firstName || !newEmployee.personalInfo.email}
             sx={{
               fontSize: '0.875rem',
               fontWeight: 600,
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: '#10b981',
               '&:hover': {
-                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)'
+                background: '#059669'
               },
               '&.Mui-disabled': {
                 background: '#d1d5db',
@@ -4029,124 +6229,6 @@ const EmployeeDirectoryModule = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Import Dialog */}
-      <Dialog
-        open={importDialogOpen}
-        onClose={() => setImportDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: { borderRadius: 3 }
-        }}
-      >
-        <DialogTitle sx={{ pb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <CloudUploadIcon color="primary" />
-            <Typography variant="h6" fontWeight="600">
-              Import Employee Data
-            </Typography>
-          </Box>
-        </DialogTitle>
-        
-        <DialogContent sx={{ pt: 2 }}>
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Upload a CSV file containing employee data. Use the template format for best results.
-            </Typography>
-            
-            {/* File Upload Area */}
-            <Paper
-              sx={{
-                border: '2px dashed #e0e0e0',
-                borderRadius: 2,
-                p: 4,
-                textAlign: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                '&:hover': {
-                  borderColor: 'primary.main',
-                  backgroundColor: 'primary.50'
-                }
-              }}
-              onClick={() => document.getElementById('employee-csv-upload').click()}
-            >
-              <input
-                id="employee-csv-upload"
-                type="file"
-                accept=".csv"
-                onChange={handleFileUpload}
-                style={{ display: 'none' }}
-              />
-              
-              <CloudUploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="h6" sx={{ mb: 1 }}>
-                {importFile ? importFile.name : 'Click to upload CSV file'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Supported format: CSV files only
-              </Typography>
-            </Paper>
-            
-            {importData.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2" color="success.main">
-                  ✓ {importData.length} rows loaded from CSV
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Headers: {importHeaders.join(', ')}
-                </Typography>
-              </Box>
-            )}
-            
-            {isImporting && (
-              <Box sx={{ mt: 2 }}>
-                <LinearProgress variant="determinate" value={importProgress} />
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  Importing employees... {importProgress}%
-                </Typography>
-              </Box>
-            )}
-            
-            {importResults && (
-              <Box sx={{ mt: 2 }}>
-                <Alert severity="success">
-                  Import completed! {importResults.success || 0} employees imported successfully.
-                  {importResults.errors && importResults.errors.length > 0 && (
-                    <Typography variant="body2" sx={{ mt: 1 }}>
-                      {importResults.errors.length} errors occurred during import.
-                    </Typography>
-                  )}
-                </Alert>
-              </Box>
-            )}
-          </Box>
-        </DialogContent>
-        
-        <DialogActions sx={{ p: 3 }}>
-          <Button
-            onClick={() => setImportDialogOpen(false)}
-            disabled={isImporting}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={downloadTemplate}
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            disabled={isImporting}
-          >
-            Download Template
-          </Button>
-          <Button
-            onClick={handleImportData}
-            variant="contained"
-            disabled={importData.length === 0 || isImporting}
-            startIcon={isImporting ? null : <CloudUploadIcon />}
-          >
-            {isImporting ? 'Importing...' : 'Import Data'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Delete All Confirmation Dialog */}
       <Dialog
@@ -4214,396 +6296,15 @@ const EmployeeDirectoryModule = () => {
 };
 
 
-// Main EmployeesModule with sub-module navigation
+// Main EmployeesModule - Employee Directory only
 const EmployeesModule = () => {
-  const theme = useTheme();
-  const [selectedSubModule, setSelectedSubModule] = useState('directory');
-  
-  const subModules = [
-    {
-      id: 'directory',
-      title: 'Employee Directory',
-      description: 'Comprehensive employee directory with search and filters',
-      icon: <DirectoryIcon />,
-      color: '#1976d2',
-      component: EmployeeDirectoryModule,
-      stats: { primary: '156', secondary: 'Employees' }
-    },
-    {
-      id: 'onboardings',
-      title: 'Onboardings',
-      description: 'Manage new employee onboarding processes',
-      icon: <LoginIcon />,
-      color: '#ed6c02',
-      component: OnboardingsModuleFull,
-      stats: { primary: '8', secondary: 'In Progress' }
-    },
-    {
-      id: 'exits',
-      title: 'Exits',
-      description: 'Handle employee exit procedures and offboarding',
-      icon: <ArrowBackIcon />,
-      color: '#d32f2f',
-      component: ExitsModule,
-      stats: { primary: '3', secondary: 'This Month' }
-    },
-    {
-      id: 'expense-travel',
-      title: 'Expense & Travel',
-      description: 'Manage employee expenses and travel requests',
-      icon: <BusinessIcon />,
-      color: '#9c27b0',
-      component: ExpenseTravelModule,
-      stats: { primary: '24', secondary: 'Pending' }
-    },
-    {
-      id: 'documents',
-      title: 'Documents',
-      description: 'Employee document management and storage',
-      icon: <FileUploadIcon />,
-      color: '#0288d1',
-      component: DocumentsModule,
-      stats: { primary: '156', secondary: 'Files' }
-    },
-    {
-      id: 'engage',
-      title: 'Engage',
-      description: 'Employee engagement and communication tools',
-      icon: <PeopleIcon />,
-      color: '#f57c00',
-      component: EngageModule,
-      stats: { primary: '89%', secondary: 'Satisfaction' }
-    },
-    {
-      id: 'assets',
-      title: 'Assets',
-      description: 'IT assets and equipment management',
-      icon: <BusinessIcon />,
-      color: '#5d4037',
-      component: AssetsModule,
-      stats: { primary: '234', secondary: 'Assets' }
-    },
-    {
-      id: 'settings',
-      title: 'Settings',
-      description: 'Organization settings and configuration',
-      icon: <SettingsIcon />,
-      color: '#607d8b',
-      component: OrganizationSettingsModule,
-      stats: { primary: 'Config', secondary: 'Settings' }
-    }
-  ];
-
-  const selectedModule = subModules.find(mod => mod.id === selectedSubModule);
-  const SelectedComponent = selectedModule?.component || EmployeeDirectoryModule;
-
   return (
     <>
-      {/* Ultra Minimal Navigation */}
-      <Box sx={{ 
-        px: 3,
-        py: 1,
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderBottom: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-      }}>
-        <Box sx={{ 
-          display: 'flex', 
-          gap: 0,
-          justifyContent: 'center',
-          alignItems: 'center',
-          overflowX: 'auto',
-          '&::-webkit-scrollbar': { display: 'none' },
-          scrollbarWidth: 'none'
-        }}>
-          {subModules.map((subModule, index) => {
-            const isActive = selectedSubModule === subModule.id;
-            return (
-              <Box
-                key={subModule.id}
-                sx={{
-                  position: 'relative',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  '&:hover .nav-text': {
-                    color: subModule.color,
-                    transform: 'translateY(-1px)'
-                  },
-                  '&:hover .nav-indicator': {
-                    width: '100%',
-                    opacity: 0.3
-                  }
-                }}
-                onClick={() => setSelectedSubModule(subModule.id)}
-              >
-                <Typography
-                  className="nav-text"
-                  variant="body2"
-                  sx={{
-                    fontSize: '0.85rem',
-                    fontWeight: isActive ? 600 : 500,
-                    color: isActive ? subModule.color : '#64748b',
-                    px: 2.5,
-                    py: 1.5,
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    whiteSpace: 'nowrap',
-                    letterSpacing: '0.025em',
-                    position: 'relative',
-                    zIndex: 1
-                  }}
-                >
-                  {subModule.title}
-                </Typography>
-                
-                {/* Active Indicator */}
-                <Box
-                  className="nav-indicator"
-                  sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: isActive ? '80%' : '0%',
-                    height: 2,
-                    backgroundColor: subModule.color,
-                    borderRadius: '2px 2px 0 0',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    opacity: isActive ? 1 : 0
-                  }}
-                />
-                
-                {/* Hover Background */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    width: isActive ? '100%' : '0%',
-                    height: isActive ? '100%' : '0%',
-                    backgroundColor: `${subModule.color}08`,
-                    borderRadius: 1,
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    zIndex: 0
-                  }}
-                />
-              </Box>
-            );
-          })}
-        </Box>
-      </Box>
-
-      {/* Render Selected Component */}
-      <SelectedComponent />
+      {/* Render Employee Directory directly */}
+      <EmployeeDirectoryModule />
     </>
   );
 };
 
-// Additional Organization Sub-Modules
-const ExitsModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>Employee Exits</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      Handle employee exit procedures and offboarding processes
-    </Typography>
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="error.main">3</Typography>
-          <Typography variant="body2">This Month</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="warning.main">2</Typography>
-          <Typography variant="body2">In Process</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="info.main">15</Typography>
-          <Typography variant="body2">This Year</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="success.main">98%</Typography>
-          <Typography variant="body2">Completion Rate</Typography>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-  </Box>
-);
-
-const ExpenseTravelModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>Expense & Travel</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      Manage employee expenses, travel requests, and reimbursements
-    </Typography>
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="warning.main">24</Typography>
-          <Typography variant="body2">Pending Approvals</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="primary.main">₹1.2L</Typography>
-          <Typography variant="body2">This Month</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="success.main">156</Typography>
-          <Typography variant="body2">Approved</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="info.main">12</Typography>
-          <Typography variant="body2">Travel Requests</Typography>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-  </Box>
-);
-
-const DocumentsModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>Documents</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      Employee document management, storage, and compliance tracking
-    </Typography>
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="primary.main">156</Typography>
-          <Typography variant="body2">Total Documents</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="warning.main">8</Typography>
-          <Typography variant="body2">Pending Review</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="error.main">3</Typography>
-          <Typography variant="body2">Expired</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="success.main">95%</Typography>
-          <Typography variant="body2">Compliance Rate</Typography>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-  </Box>
-);
-
-const EngageModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>Employee Engagement</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      Employee engagement tools, surveys, and communication platforms
-    </Typography>
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="success.main">89%</Typography>
-          <Typography variant="body2">Satisfaction Score</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="primary.main">45</Typography>
-          <Typography variant="body2">Active Surveys</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="info.main">78%</Typography>
-          <Typography variant="body2">Response Rate</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="warning.main">12</Typography>
-          <Typography variant="body2">Action Items</Typography>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-  </Box>
-);
-
-const AssetsModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>IT Assets</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      IT assets and equipment management for employees
-    </Typography>
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="primary.main">234</Typography>
-          <Typography variant="body2">Total Assets</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="success.main">189</Typography>
-          <Typography variant="body2">Assigned</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="warning.main">45</Typography>
-          <Typography variant="body2">Available</Typography>
-        </CardContent></Card>
-      </Grid>
-      <Grid item xs={12} md={3}>
-        <Card><CardContent>
-          <Typography variant="h4" color="error.main">5</Typography>
-          <Typography variant="body2">Under Repair</Typography>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-  </Box>
-);
-
-const OrganizationSettingsModule = () => (
-  <Box sx={{ p: 3 }}>
-    <Typography variant="h5" fontWeight="bold" gutterBottom>Organization Settings</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-      Configure organization-wide settings and preferences
-    </Typography>
-    <Grid container spacing={3}>
-      <Grid item xs={12} md={6}>
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>General Settings</Typography>
-          <Stack spacing={2}>
-            <Button variant="outlined" startIcon={<BusinessIcon />}>Company Profile</Button>
-            <Button variant="outlined" startIcon={<SettingsIcon />}>System Configuration</Button>
-            <Button variant="outlined" startIcon={<PeopleIcon />}>User Roles</Button>
-          </Stack>
-        </Paper>
-      </Grid>
-      <Grid item xs={12} md={6}>
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>Advanced Settings</Typography>
-          <Stack spacing={2}>
-            <Button variant="outlined" startIcon={<LockIcon />}>Security Settings</Button>
-            <Button variant="outlined" startIcon={<CloudUploadIcon />}>Data Management</Button>
-            <Button variant="outlined" startIcon={<HistoryIcon />}>Audit Logs</Button>
-          </Stack>
-        </Paper>
-      </Grid>
-    </Grid>
-  </Box>
-);
 
 export default EmployeesModule;

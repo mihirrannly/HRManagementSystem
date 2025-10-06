@@ -98,7 +98,7 @@ router.get('/', [
       .populate('employmentInfo.department', 'name code')
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
       .populate('user', 'email role isActive')
-      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo additionalInfo user createdAt updatedAt')
+      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo additionalInfo profilePicture user createdAt updatedAt')
       .sort({ 'personalInfo.firstName': 1 })
       .skip(skip)
       .limit(limit);
@@ -147,10 +147,293 @@ router.get('/me', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Employee profile not found' });
     }
 
+    // Check if we have onboarding data and sync documents if needed
+    if (employee.additionalInfo?.onboardingId) {
+      try {
+        const Onboarding = require('../models/Onboarding');
+        const onboarding = await Onboarding.findById(employee.additionalInfo.onboardingId);
+        
+        if (onboarding && onboarding.candidatePortal) {
+          console.log('🔍 Found onboarding data, checking for candidate portal documents...');
+          
+          // Collect all documents from candidate portal
+          const candidatePortalDocuments = [];
+          
+          // Add government documents
+          if (onboarding.candidatePortal.governmentDocuments) {
+            Object.entries(onboarding.candidatePortal.governmentDocuments).forEach(([type, doc]) => {
+              if (doc && doc.url) {
+                candidatePortalDocuments.push({
+                  type: type === 'aadhaarImage' ? 'id-proof' : type === 'panImage' ? 'id-proof' : 'other',
+                  name: doc.name || `${type} Document`,
+                  filePath: doc.url,
+                  uploadedAt: doc.uploadedAt || new Date(),
+                  source: 'candidate-portal'
+                });
+              }
+            });
+          }
+          
+          // Add bank documents
+          if (onboarding.candidatePortal.bankDocuments) {
+            Object.entries(onboarding.candidatePortal.bankDocuments).forEach(([type, doc]) => {
+              if (doc && doc.url) {
+                candidatePortalDocuments.push({
+                  type: 'other',
+                  name: doc.name || `${type} Document`,
+                  filePath: doc.url,
+                  uploadedAt: doc.uploadedAt || new Date(),
+                  source: 'candidate-portal'
+                });
+              }
+            });
+          }
+          
+          // Add education documents
+          if (onboarding.candidatePortal.educationDocuments) {
+            onboarding.candidatePortal.educationDocuments.forEach(doc => {
+              if (doc && doc.url) {
+                candidatePortalDocuments.push({
+                  type: 'educational',
+                  name: doc.name || 'Education Document',
+                  filePath: doc.url,
+                  uploadedAt: doc.uploadedAt || new Date(),
+                  source: 'candidate-portal'
+                });
+              }
+            });
+          }
+          
+          // Add work experience documents
+          if (onboarding.candidatePortal.workExperienceDocuments) {
+            onboarding.candidatePortal.workExperienceDocuments.forEach(doc => {
+              if (doc && doc.url) {
+                candidatePortalDocuments.push({
+                  type: 'experience',
+                  name: doc.name || 'Work Experience Document',
+                  filePath: doc.url,
+                  uploadedAt: doc.uploadedAt || new Date(),
+                  source: 'candidate-portal'
+                });
+              }
+            });
+          }
+          
+          // Add profile photo
+          if (onboarding.candidatePortal.personalInfo?.profilePhoto?.url) {
+            candidatePortalDocuments.push({
+              type: 'other',
+              name: 'Profile Photo',
+              filePath: onboarding.candidatePortal.personalInfo.profilePhoto.url,
+              uploadedAt: onboarding.candidatePortal.personalInfo.profilePhoto.uploadedAt || new Date(),
+              source: 'candidate-portal'
+            });
+            
+            // Also set the profile picture in personalInfo for easy access
+            if (!employee.personalInfo) {
+              employee.personalInfo = {};
+            }
+            employee.personalInfo.profilePicture = onboarding.candidatePortal.personalInfo.profilePhoto.url;
+          }
+          
+          console.log(`📄 Found ${candidatePortalDocuments.length} documents from candidate portal`);
+          
+          // Merge with existing employee documents, avoiding duplicates
+          const existingDocPaths = new Set(employee.documents.map(doc => doc.filePath));
+          const newDocuments = candidatePortalDocuments.filter(doc => !existingDocPaths.has(doc.filePath));
+          
+          if (newDocuments.length > 0) {
+            console.log(`📄 Adding ${newDocuments.length} new documents to employee profile`);
+            employee.documents = [...employee.documents, ...newDocuments];
+            
+            // Update additional info to track the sync
+            employee.additionalInfo = {
+              ...employee.additionalInfo,
+              lastDocumentSync: new Date(),
+              candidatePortalDocumentsCount: candidatePortalDocuments.length
+            };
+            
+            await employee.save();
+            console.log('✅ Documents synced successfully');
+          }
+        }
+      } catch (syncError) {
+        console.error('⚠️ Error syncing candidate portal documents:', syncError);
+        // Don't fail the request if sync fails
+      }
+    }
+
     res.json(employee);
   } catch (error) {
     console.error('Get my employee data error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   POST /api/employees/sync-documents
+// @desc    Manually sync candidate portal documents to employee profile
+// @access  Private (HR, Admin)
+router.post('/sync-documents', authenticate, async (req, res) => {
+  try {
+    const { employeeId } = req.body;
+    
+    if (!employeeId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Employee ID is required' 
+      });
+    }
+
+    const employee = await Employee.findOne({ employeeId })
+      .populate('user', 'email role');
+    
+    if (!employee) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Employee not found' 
+      });
+    }
+
+    if (!employee.additionalInfo?.onboardingId) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No onboarding data found for this employee' 
+      });
+    }
+
+    const Onboarding = require('../models/Onboarding');
+    const onboarding = await Onboarding.findById(employee.additionalInfo.onboardingId);
+    
+    if (!onboarding || !onboarding.candidatePortal) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No candidate portal data found' 
+      });
+    }
+
+    console.log(`🔄 Manually syncing documents for employee: ${employeeId}`);
+    
+    // Collect all documents from candidate portal
+    const candidatePortalDocuments = [];
+    
+    // Add government documents
+    if (onboarding.candidatePortal.governmentDocuments) {
+      Object.entries(onboarding.candidatePortal.governmentDocuments).forEach(([type, doc]) => {
+        if (doc && doc.url) {
+          candidatePortalDocuments.push({
+            type: type === 'aadhaarImage' ? 'id-proof' : type === 'panImage' ? 'id-proof' : 'other',
+            name: doc.name || `${type} Document`,
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt || new Date(),
+            source: 'candidate-portal'
+          });
+        }
+      });
+    }
+    
+    // Add bank documents
+    if (onboarding.candidatePortal.bankDocuments) {
+      Object.entries(onboarding.candidatePortal.bankDocuments).forEach(([type, doc]) => {
+        if (doc && doc.url) {
+          candidatePortalDocuments.push({
+            type: 'other',
+            name: doc.name || `${type} Document`,
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt || new Date(),
+            source: 'candidate-portal'
+          });
+        }
+      });
+    }
+    
+    // Add education documents
+    if (onboarding.candidatePortal.educationDocuments) {
+      onboarding.candidatePortal.educationDocuments.forEach(doc => {
+        if (doc && doc.url) {
+          candidatePortalDocuments.push({
+            type: 'educational',
+            name: doc.name || 'Education Document',
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt || new Date(),
+            source: 'candidate-portal'
+          });
+        }
+      });
+    }
+    
+    // Add work experience documents
+    if (onboarding.candidatePortal.workExperienceDocuments) {
+      onboarding.candidatePortal.workExperienceDocuments.forEach(doc => {
+        if (doc && doc.url) {
+          candidatePortalDocuments.push({
+            type: 'experience',
+            name: doc.name || 'Work Experience Document',
+            filePath: doc.url,
+            uploadedAt: doc.uploadedAt || new Date(),
+            source: 'candidate-portal'
+          });
+        }
+      });
+    }
+    
+    // Add profile photo
+    if (onboarding.candidatePortal.personalInfo?.profilePhoto?.url) {
+      candidatePortalDocuments.push({
+        type: 'other',
+        name: 'Profile Photo',
+        filePath: onboarding.candidatePortal.personalInfo.profilePhoto.url,
+        uploadedAt: onboarding.candidatePortal.personalInfo.profilePhoto.uploadedAt || new Date(),
+        source: 'candidate-portal'
+      });
+      
+      // Also set the profile picture in personalInfo for easy access
+      if (!employee.personalInfo) {
+        employee.personalInfo = {};
+      }
+      employee.personalInfo.profilePicture = onboarding.candidatePortal.personalInfo.profilePhoto.url;
+    }
+    
+    console.log(`📄 Found ${candidatePortalDocuments.length} documents from candidate portal`);
+    
+    // Merge with existing employee documents, avoiding duplicates
+    const existingDocPaths = new Set(employee.documents.map(doc => doc.filePath));
+    const newDocuments = candidatePortalDocuments.filter(doc => !existingDocPaths.has(doc.filePath));
+    
+    if (newDocuments.length > 0) {
+      console.log(`📄 Adding ${newDocuments.length} new documents to employee profile`);
+      employee.documents = [...employee.documents, ...newDocuments];
+      
+      // Update additional info to track the sync
+      employee.additionalInfo = {
+        ...employee.additionalInfo,
+        lastDocumentSync: new Date(),
+        candidatePortalDocumentsCount: candidatePortalDocuments.length,
+        lastSyncBy: req.user._id
+      };
+      
+      await employee.save();
+      console.log('✅ Documents synced successfully');
+    }
+
+    res.json({
+      success: true,
+      message: `Documents synced successfully for employee ${employeeId}`,
+      data: {
+        employeeId: employee.employeeId,
+        totalDocuments: employee.documents.length,
+        newDocumentsAdded: newDocuments.length,
+        candidatePortalDocuments: candidatePortalDocuments.length,
+        syncedAt: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Sync documents error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during document sync',
+      error: error.message 
+    });
   }
 });
 
@@ -415,6 +698,8 @@ router.post('/:id/upload', [
       type: req.body.type || 'other',
       name: req.body.name || req.file.originalname,
       filePath: req.file.path,
+      url: `/uploads/employees/${req.file.filename}`, // Add proper URL for frontend access
+      uploadedAt: new Date(),
       expiryDate: req.body.expiryDate || null
     };
 
@@ -431,6 +716,159 @@ router.post('/:id/upload', [
   }
 });
 
+// @route   PUT /api/employees/:id/document/:documentId/name
+// @desc    Update employee document name
+// @access  Private
+router.put('/:id/document/:documentId/name', [
+  authenticate,
+  canAccessEmployee
+], async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: 'Document name is required' });
+    }
+
+    const employee = await Employee.findById(req.params.id);
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    const document = employee.documents.id(req.params.documentId);
+    if (!document) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    document.name = name.trim();
+    await employee.save();
+
+    res.json({
+      success: true,
+      message: 'Document name updated successfully',
+      document: {
+        _id: document._id,
+        name: document.name,
+        type: document.type,
+        url: document.url
+      }
+    });
+  } catch (error) {
+    console.error('Update document name error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/employees/:id/document/:documentId
+// @desc    Delete employee document
+// @access  Private
+router.delete('/:id/document/:documentId', [
+  authenticate,
+  canAccessEmployee
+], async (req, res) => {
+  try {
+    const employee = await Employee.findById(req.params.id);
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    const document = employee.documents.id(req.params.documentId);
+    if (!document) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    // Remove the document from the array
+    employee.documents.pull(req.params.documentId);
+    await employee.save();
+
+    res.json({
+      success: true,
+      message: 'Document deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete document error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/employees/:id/document/:documentId/set-profile-picture
+// @desc    Set employee document as profile picture
+// @access  Private
+router.put('/:id/document/:documentId/set-profile-picture', [
+  authenticate,
+  canAccessEmployee
+], async (req, res) => {
+  try {
+    console.log('🔍 Set profile picture request:', {
+      employeeId: req.params.id,
+      documentId: req.params.documentId,
+      userId: req.user.id
+    });
+
+    const employee = await Employee.findById(req.params.id);
+    if (!employee) {
+      console.log('❌ Employee not found:', req.params.id);
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    const document = employee.documents.id(req.params.documentId);
+    if (!document) {
+      console.log('❌ Document not found:', req.params.documentId);
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    console.log('🔍 Found document:', {
+      name: document.name,
+      url: document.url,
+      filePath: document.filePath,
+      type: document.type
+    });
+
+    // Check if the document is an image
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+    const fileExtension = document.name.toLowerCase().substring(document.name.lastIndexOf('.'));
+    console.log('🔍 File extension:', fileExtension);
+    
+    if (!imageExtensions.includes(fileExtension)) {
+      console.log('❌ Not an image file:', fileExtension);
+      return res.status(400).json({ message: 'Only image files can be set as profile picture' });
+    }
+
+    // Update the employee's profile picture
+    // Use filePath if url is undefined (for backward compatibility)
+    let imageUrl = document.url;
+    if (!imageUrl && document.filePath) {
+      // Extract filename from filePath and construct proper URL
+      const filename = document.filePath.split('/').pop();
+      imageUrl = `/uploads/employees/${filename}`;
+    } else if (!imageUrl) {
+      // Fallback to document name
+      imageUrl = `/uploads/employees/${document.name}`;
+    }
+    
+    employee.profilePicture = {
+      documentId: document._id,
+      url: imageUrl,
+      name: document.name,
+      setAt: new Date()
+    };
+
+    console.log('🔍 Constructed image URL:', imageUrl);
+    console.log('🔍 Setting profile picture:', employee.profilePicture);
+    await employee.save();
+    console.log('✅ Profile picture updated successfully');
+
+    res.json({
+      success: true,
+      message: 'Profile picture updated successfully',
+      profilePicture: employee.profilePicture
+    });
+  } catch (error) {
+    console.error('❌ Set profile picture error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/employees/org-chart
 // @desc    Get organization chart
 // @access  Private (HR, Admin, Manager)
@@ -442,7 +880,7 @@ router.get('/reports/org-chart', [
     const employees = await Employee.find({ 'employmentInfo.isActive': true })
       .populate('employmentInfo.department', 'name code')
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
-      .select('employeeId personalInfo employmentInfo.designation employmentInfo.department employmentInfo.reportingManager');
+      .select('employeeId personalInfo employmentInfo.designation employmentInfo.department employmentInfo.reportingManager profilePicture');
 
     // Build hierarchical structure
     const buildOrgChart = (employees, managerId = null) => {
@@ -484,7 +922,7 @@ router.get('/my-team', authenticate, async (req, res) => {
     })
     .populate('user', 'email role')
     .populate('employmentInfo.department', 'name')
-    .select('employeeId personalInfo employmentInfo createdAt user')
+    .select('employeeId personalInfo employmentInfo profilePicture createdAt user')
     .sort({ 'personalInfo.firstName': 1 });
 
     // Get leave balances for team members
@@ -1024,7 +1462,7 @@ router.get('/reportee-data', authenticate, async (req, res) => {
     })
     .populate('user', 'email role')
     .populate('employmentInfo.department', 'name')
-    .select('employeeId personalInfo employmentInfo createdAt user')
+    .select('employeeId personalInfo employmentInfo profilePicture createdAt user')
     .sort({ 'personalInfo.firstName': 1 });
 
     // Get leave balances for team members
@@ -1147,7 +1585,7 @@ router.get('/all-employees', authenticate, async (req, res) => {
       .populate('user', 'email role')
       .populate('employmentInfo.department', 'name')
       .populate('employmentInfo.reportingManager', 'employeeId personalInfo.firstName personalInfo.lastName')
-      .select('employeeId personalInfo employmentInfo createdAt user')
+      .select('employeeId personalInfo employmentInfo profilePicture createdAt user')
       .sort({ 'personalInfo.firstName': 1 });
 
     // Return all employees with full data (no filtering)
@@ -1230,6 +1668,7 @@ router.get('/:id', [authenticate, canAccessEmployee], async (req, res) => {
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
+
 
     // Return full employee data (no filtering)
     res.json(employee);

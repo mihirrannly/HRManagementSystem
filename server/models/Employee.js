@@ -12,6 +12,18 @@ const employeeSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  profilePicture: {
+    documentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'documents'
+    },
+    url: String,
+    name: String,
+    setAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
   personalInfo: {
     firstName: {
       type: String,
@@ -132,10 +144,11 @@ const employeeSchema = new mongoose.Schema({
   documents: [{
     type: {
       type: String,
-      enum: ['resume', 'offer-letter', 'id-proof', 'address-proof', 'educational', 'experience', 'other']
+      enum: ['resume', 'offer-letter', 'id-proof', 'address-proof', 'educational', 'experience', 'other', 'aadhaar', 'pan', 'cancelled_cheque', 'passbook', 'bank_statement', 'education', 'work_experience']
     },
     name: String,
     filePath: String,
+    url: String, // Add URL field for frontend access
     uploadedAt: {
       type: Date,
       default: Date.now
@@ -209,6 +222,16 @@ const employeeSchema = new mongoose.Schema({
     default: {}
   },
   
+  // Face detection data for attendance
+  faceData: {
+    faceImage: String, // Path to stored face image
+    faceEmbedding: String, // Face embedding vector for recognition
+    registeredAt: Date,
+    registeredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now

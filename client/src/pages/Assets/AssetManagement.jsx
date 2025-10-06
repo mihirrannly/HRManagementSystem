@@ -253,9 +253,25 @@ const AssetManagement = () => {
     try {
       const assetData = {
         ...assetForm,
+        // Convert empty strings to undefined for optional fields
+        brand: assetForm.brand || undefined,
+        model: assetForm.model || undefined,
+        serialNumber: assetForm.serialNumber || undefined,
+        vendor: assetForm.vendor || undefined,
+        location: assetForm.location || undefined,
+        description: assetForm.description || undefined,
         purchasePrice: assetForm.purchasePrice ? parseFloat(assetForm.purchasePrice) : undefined,
         purchaseDate: assetForm.purchaseDate || undefined,
-        warrantyExpiry: assetForm.warrantyExpiry || undefined
+        warrantyExpiry: assetForm.warrantyExpiry || undefined,
+        // Clean up specifications object
+        specifications: {
+          processor: assetForm.specifications.processor || undefined,
+          ram: assetForm.specifications.ram || undefined,
+          storage: assetForm.specifications.storage || undefined,
+          graphics: assetForm.specifications.graphics || undefined,
+          os: assetForm.specifications.os || undefined,
+          other: assetForm.specifications.other || undefined
+        }
       };
 
       if (editingAsset) {
@@ -272,7 +288,23 @@ const AssetManagement = () => {
       fetchAssets();
     } catch (error) {
       console.error('Error saving asset:', error);
-      setError(error.response?.data?.message || 'Failed to save asset');
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      
+      let errorMessage = 'Failed to save asset';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.map(err => err.msg).join(', ');
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Bad Request: Please check all required fields are filled correctly';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication required. Please login again.';
+      } else if (error.response?.status === 403) {
+        errorMessage = 'Permission denied. You do not have permission to create assets.';
+      }
+      
+      setError(errorMessage);
     }
   };
 

@@ -169,7 +169,7 @@ router.post('/login', async (req, res) => {
     const employee = await Employee.findOne({ user: user._id })
       .populate('employmentInfo.department', 'name code')
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
-      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo');
+      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo profilePicture');
 
     console.log('🔍 Final user object before token generation:', {
       _id: user._id,
@@ -218,7 +218,7 @@ router.get('/me', authenticate, async (req, res) => {
     const employee = await Employee.findOne({ user: req.user._id })
       .populate('employmentInfo.department', 'name code')
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
-      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo');
+      .select('employeeId personalInfo contactInfo employmentInfo salaryInfo profilePicture');
 
     res.json({
       user: {

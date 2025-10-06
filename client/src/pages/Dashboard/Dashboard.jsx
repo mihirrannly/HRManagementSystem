@@ -137,12 +137,9 @@ const Dashboard = () => {
   const showTeamDashboard = user?.role === 'manager' || 
     (user?.email?.toLowerCase().includes('prajwal') && user?.role !== 'employee');
   
-  if (showEmployeeDashboard) {
+  // Always show employee dashboard for everyone to match employee section structure
+  if (showEmployeeDashboard || showTeamDashboard) {
     return <EmployeeDashboard />;
-  }
-  
-  if (showTeamDashboard) {
-    return <TeamDashboard />;
   }
 
   const [dashboardData, setDashboardData] = useState({

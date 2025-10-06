@@ -90,6 +90,12 @@ const menuItems = [
     roles: ['admin', 'hr', 'manager']
   },
   {
+    text: 'Exit Management',
+    icon: <ExitToAppIcon />,
+    path: '/exit-management',
+    roles: ['admin', 'hr', 'manager']
+  },
+  {
     text: 'Settings',
     icon: <SettingsIcon />,
     path: '/settings',
@@ -141,7 +147,23 @@ const Layout = () => {
 
       {/* User Info */}
       <Box sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.50' }}>
-        <Avatar sx={{ width: 56, height: 56, mx: 'auto', mb: 1, bgcolor: 'primary.main' }}>
+        <Avatar 
+          src={employee?.profilePicture?.url ? 
+               (employee.profilePicture.url.startsWith('http') ? employee.profilePicture.url : `http://localhost:5001${employee.profilePicture.url}`) :
+               employee?.additionalInfo?.candidatePortalData?.personalInfo?.profilePhoto?.url || 
+               employee?.additionalInfo?.profilePhoto?.url || 
+               employee?.personalInfo?.profilePicture || 
+               null}
+          sx={{ 
+            width: 56, 
+            height: 56, 
+            mx: 'auto', 
+            mb: 1, 
+            bgcolor: 'primary.main',
+            fontSize: '1.2rem',
+            fontWeight: 600
+          }}
+        >
           {employee?.personalInfo?.firstName?.charAt(0) || user?.email?.charAt(0).toUpperCase()}
         </Avatar>
         <Typography variant="subtitle2" fontWeight="medium">

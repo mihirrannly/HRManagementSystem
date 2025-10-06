@@ -66,7 +66,7 @@ const checkPermission = (module, action) => {
 // Check if user can access employee data
 const canAccessEmployee = async (req, res, next) => {
   try {
-    const { employeeId } = req.params;
+    const employeeId = req.params.id || req.params.employeeId;
     const Employee = require('../models/Employee');
     
     const employee = await Employee.findById(employeeId);
@@ -101,7 +101,7 @@ const canAccessEmployee = async (req, res, next) => {
 // Check if user can access employee data with data filtering
 const canAccessEmployeeWithFilter = async (req, res, next) => {
   try {
-    const { employeeId } = req.params;
+    const employeeId = req.params.id || req.params.employeeId;
     const Employee = require('../models/Employee');
     
     const employee = await Employee.findById(employeeId);

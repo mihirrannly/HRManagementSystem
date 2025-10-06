@@ -19,7 +19,7 @@ const attendanceSchema = new mongoose.Schema({
     },
     method: {
       type: String,
-      enum: ['manual', 'biometric', 'mobile', 'web'],
+      enum: ['manual', 'biometric', 'mobile', 'web', 'face-detection'],
       default: 'web'
     },
     deviceInfo: {
@@ -30,6 +30,8 @@ const attendanceSchema = new mongoose.Schema({
     },
     ipAddress: String,
     screenshot: String, // Base64 or file path
+    faceImage: String, // Path to face image for face detection attendance
+    faceEmbedding: String, // Face embedding for verification
     isValidLocation: {
       type: Boolean,
       default: false
@@ -49,7 +51,7 @@ const attendanceSchema = new mongoose.Schema({
     },
     method: {
       type: String,
-      enum: ['manual', 'biometric', 'mobile', 'web'],
+      enum: ['manual', 'biometric', 'mobile', 'web', 'face-detection'],
       default: 'web'
     },
     deviceInfo: {
@@ -60,6 +62,8 @@ const attendanceSchema = new mongoose.Schema({
     },
     ipAddress: String,
     earlyLeaveReason: String,
+    faceImage: String, // Path to face image for face detection attendance
+    faceEmbedding: String, // Face embedding for verification
     isValidLocation: {
       type: Boolean,
       default: false

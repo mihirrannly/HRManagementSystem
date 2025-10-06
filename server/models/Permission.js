@@ -12,6 +12,7 @@ const MODULES = {
   REPORTS: 'reports',
   ORGANIZATION: 'organization',
   ONBOARDING: 'onboarding',
+  EXIT_MANAGEMENT: 'exit_management',
   ASSETS: 'assets',
   SETTINGS: 'settings',
   PERMISSIONS: 'permissions'
