@@ -41,8 +41,8 @@ const upload = multer({
 const OFFICE_CONFIG = {
   timezone: 'Asia/Kolkata',
   workingHours: {
-    start: '09:00',
-    end: '18:00'
+    start: '10:00', // Office starts at 10 AM
+    end: '19:00' // Office ends at 7 PM
   }
 };
 

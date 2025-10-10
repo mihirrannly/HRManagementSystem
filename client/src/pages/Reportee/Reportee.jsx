@@ -68,6 +68,10 @@ import {
   Security as SecurityIcon,
   Print as PrintIcon,
   FilterList as FilterListIcon,
+  Warning as WarningIcon,
+  Timer as TimerIcon,
+  WatchLater as WatchLaterIcon,
+  DateRange as DateRangeIcon,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -167,6 +171,11 @@ const Reportee = () => {
   const [accessLevel, setAccessLevel] = useState('manager');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Filter states for attendance and leave
+  const [attendanceFilter, setAttendanceFilter] = useState('thisMonth');
+  const [leaveFilter, setLeaveFilter] = useState('thisYear');
+  const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
 
   useEffect(() => {
     fetchTeamMembers();
@@ -257,10 +266,23 @@ const Reportee = () => {
     }
   };
 
-  const fetchEmployeeDashboard = async (employeeId) => {
+  const fetchEmployeeDashboard = async (employeeId, attendancePeriod = null, leavePeriod = null) => {
     try {
       setLoading(true);
-      const response = await reporteeApi.get(`/employees/team-dashboard/${employeeId}`);
+      
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (attendancePeriod) params.append('attendancePeriod', attendancePeriod);
+      if (leavePeriod) params.append('leavePeriod', leavePeriod);
+      
+      // Add custom date range if applicable
+      if (attendancePeriod === 'custom' && customDateRange.start && customDateRange.end) {
+        params.append('startDate', customDateRange.start);
+        params.append('endDate', customDateRange.end);
+      }
+      
+      const url = `/employees/team-dashboard/${employeeId}${params.toString() ? '?' + params.toString() : ''}`;
+      const response = await reporteeApi.get(url);
       setEmployeeDashboard(response.data);
       setAccessLevel(response.data.accessLevel);
     } catch (error) {
@@ -315,6 +337,19 @@ const Reportee = () => {
   const attendancePercentage = employeeDashboard?.attendance?.totalWorkingDays > 0 
     ? Math.round((employeeDashboard.attendance.present / employeeDashboard.attendance.totalWorkingDays) * 100)
     : 0;
+
+  const punctualityRate = employeeDashboard?.attendance?.present > 0 
+    ? Math.round(((employeeDashboard.attendance.present - (employeeDashboard.attendance.late || 0)) / employeeDashboard.attendance.present) * 100)
+    : 0;
+
+  // Calculate leave metrics
+  const totalAllocated = (employeeDashboard?.leaves?.leaveBalance?.casualLeave?.allocated || 0) +
+                        (employeeDashboard?.leaves?.leaveBalance?.sickLeave?.allocated || 0) +
+                        (employeeDashboard?.leaves?.leaveBalance?.specialLeave?.allocated || 0);
+  const totalUsed = ((employeeDashboard?.leaves?.leaveBalance?.casualLeave?.allocated || 0) - (employeeDashboard?.leaves?.leaveBalance?.casualLeave?.available || 0)) +
+                   ((employeeDashboard?.leaves?.leaveBalance?.sickLeave?.allocated || 0) - (employeeDashboard?.leaves?.leaveBalance?.sickLeave?.available || 0)) +
+                   ((employeeDashboard?.leaves?.leaveBalance?.specialLeave?.allocated || 0) - (employeeDashboard?.leaves?.leaveBalance?.specialLeave?.available || 0));
+  const utilizationRate = totalAllocated > 0 ? Math.round((totalUsed / totalAllocated) * 100) : 0;
 
   if (loading && !employeeDashboard) {
     return (
@@ -581,56 +616,206 @@ const Reportee = () => {
               </Grid>
 
               {/* Attendance Summary */}
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <Card>
                   <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTimeIcon sx={{ mr: 1 }} />
-                      Attendance Summary (This Month)
-                    </Typography>
-                    
-                    <Grid container spacing={2} sx={{ mb: 2 }}>
-                      <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                        <AccessTimeIcon sx={{ mr: 1 }} />
+                        Attendance Summary
+                      </Typography>
+                      <FormControl size="small" sx={{ minWidth: 150 }}>
+                        <InputLabel>Period</InputLabel>
+                        <Select
+                          value={attendanceFilter}
+                          label="Period"
+                          onChange={(e) => {
+                            setAttendanceFilter(e.target.value);
+                            if (selectedEmployee && e.target.value !== 'custom') {
+                              fetchEmployeeDashboard(selectedEmployee._id, e.target.value, leaveFilter);
+                            }
+                          }}
+                        >
+                          <MenuItem value="thisMonth">This Month</MenuItem>
+                          <MenuItem value="lastMonth">Last Month</MenuItem>
+                          <MenuItem value="last3Months">Last 3 Months</MenuItem>
+                          <MenuItem value="thisYear">This Year</MenuItem>
+                          <MenuItem value="custom">Custom Range</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+
+                    {/* Custom Date Range */}
+                    {attendanceFilter === 'custom' && (
+                      <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <Grid container spacing={2} alignItems="center">
+                          <Grid item xs={5}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Start Date"
+                              type="date"
+                              InputLabelProps={{ shrink: true }}
+                              value={customDateRange.start}
+                              onChange={(e) => setCustomDateRange({ ...customDateRange, start: e.target.value })}
+                            />
+                          </Grid>
+                          <Grid item xs={5}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="End Date"
+                              type="date"
+                              InputLabelProps={{ shrink: true }}
+                              value={customDateRange.end}
+                              onChange={(e) => setCustomDateRange({ ...customDateRange, end: e.target.value })}
+                            />
+                          </Grid>
+                          <Grid item xs={2}>
+                            <Button
+                              fullWidth
+                              variant="contained"
+                              size="small"
+                              onClick={() => {
+                                if (selectedEmployee && customDateRange.start && customDateRange.end) {
+                                  fetchEmployeeDashboard(selectedEmployee._id, 'custom', leaveFilter);
+                                } else {
+                                  toast.error('Please select both start and end dates');
+                                }
+                              }}
+                            >
+                              Apply
+                            </Button>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )}
+
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 1.5, border: '1px solid', borderColor: 'success.main', borderRadius: 1, bgcolor: 'success.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="success.main">
+                          <CheckCircleIcon sx={{ fontSize: 28, color: 'success.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="success.main">
                             {employeeDashboard.attendance?.present || 0}
                           </Typography>
-                          <Typography variant="caption" color="success.main">Present</Typography>
+                          <Typography variant="caption" color="success.dark" fontWeight="500">
+                            Present Days
+                          </Typography>
                         </Box>
                       </Grid>
-                      <Grid item xs={6}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 1.5, border: '1px solid', borderColor: 'error.main', borderRadius: 1, bgcolor: 'error.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="error.main">
+                          <CancelIcon sx={{ fontSize: 28, color: 'error.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="error.main">
                             {employeeDashboard.attendance?.absent || 0}
                           </Typography>
-                          <Typography variant="caption" color="error.main">Absent</Typography>
+                          <Typography variant="caption" color="error.dark" fontWeight="500">
+                            Absent Days
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Box textAlign="center" sx={{ p: 1.5, border: '1px solid', borderColor: 'warning.main', borderRadius: 1, bgcolor: 'warning.50' }}>
+                          <WarningIcon sx={{ fontSize: 28, color: 'warning.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="warning.main">
+                            {employeeDashboard.attendance?.late || 0}
+                          </Typography>
+                          <Typography variant="caption" color="warning.dark" fontWeight="500">
+                            Late Days
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Box textAlign="center" sx={{ p: 1.5, border: '1px solid', borderColor: 'info.main', borderRadius: 1, bgcolor: 'info.50' }}>
+                          <TimerIcon sx={{ fontSize: 28, color: 'info.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="info.main">
+                            {(employeeDashboard.attendance?.regularPresent || 0) - (employeeDashboard.attendance?.regularLate || 0)}
+                          </Typography>
+                          <Typography variant="caption" color="info.dark" fontWeight="500">
+                            On-Time
+                          </Typography>
                         </Box>
                       </Grid>
                     </Grid>
 
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary">Attendance Rate</Typography>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={attendancePercentage} 
-                        sx={{ mb: 1, height: 8, borderRadius: 4 }}
-                      />
-                      <Typography variant="body2" fontWeight="bold">
-                        {attendancePercentage}%
-                      </Typography>
-                    </Box>
+                    <Divider sx={{ my: 2 }} />
 
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2">Late Days:</Typography>
-                      <Typography variant="body2" fontWeight="bold" color="warning.main">
-                        {employeeDashboard.attendance?.late || 0}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2">Working Days:</Typography>
-                      <Typography variant="body2" fontWeight="bold">
-                        {employeeDashboard.attendance?.totalWorkingDays || 0}
-                      </Typography>
+                    {/* Additional Metrics */}
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={12} md={6}>
+                        <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1, bgcolor: 'grey.50' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Attendance Rate
+                            </Typography>
+                            <Typography variant="h6" fontWeight="700" color="primary.main">
+                              {attendancePercentage}%
+                            </Typography>
+                          </Box>
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={attendancePercentage} 
+                            sx={{ height: 8, borderRadius: 4 }}
+                            color={attendancePercentage >= 90 ? 'success' : attendancePercentage >= 75 ? 'warning' : 'error'}
+                          />
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1, bgcolor: 'grey.50' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Punctuality Rate
+                            </Typography>
+                            <Typography variant="h6" fontWeight="700" color="success.main">
+                              {punctualityRate}%
+                            </Typography>
+                          </Box>
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={punctualityRate}
+                            sx={{ height: 8, borderRadius: 4 }}
+                            color="success"
+                          />
+                        </Box>
+                      </Grid>
+                    </Grid>
+
+                    {/* Detailed Stats */}
+                    <Box sx={{ p: 2, bgcolor: 'primary.50', borderRadius: 1, border: '1px solid', borderColor: 'primary.200' }}>
+                      <Grid container spacing={2}>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Total Working Days
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600">
+                            {employeeDashboard.attendance?.totalWorkingDays || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Half Days
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600">
+                            {employeeDashboard.attendance?.halfDays || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Avg. Working Hours
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600">
+                            {employeeDashboard.attendance?.avgWorkingHours || '0.0'}h
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Overtime Hours
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600" color="warning.main">
+                            {employeeDashboard.attendance?.overtimeHours || '0.0'}h
+                          </Typography>
+                        </Grid>
+                      </Grid>
                     </Box>
                   </CardContent>
                 </Card>
@@ -640,45 +825,223 @@ const Reportee = () => {
               <Grid item xs={12}>
                 <Card>
                   <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <BeachAccessIcon sx={{ mr: 1 }} />
-                      Leave Summary (This Year)
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                        <BeachAccessIcon sx={{ mr: 1 }} />
+                        Leave Summary
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                          <InputLabel>Period</InputLabel>
+                          <Select
+                            value={leaveFilter}
+                            label="Period"
+                            onChange={(e) => {
+                              setLeaveFilter(e.target.value);
+                              if (selectedEmployee) {
+                                fetchEmployeeDashboard(selectedEmployee._id, attendanceFilter, e.target.value);
+                              }
+                            }}
+                          >
+                            <MenuItem value="thisMonth">This Month</MenuItem>
+                            <MenuItem value="lastMonth">Last Month</MenuItem>
+                            <MenuItem value="thisQuarter">This Quarter</MenuItem>
+                            <MenuItem value="thisYear">This Year</MenuItem>
+                            <MenuItem value="all">All Time</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <Tooltip title="Export Leave Report">
+                          <IconButton size="small" onClick={() => toast.info('Export feature coming soon')}>
+                            <DownloadIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
                     
-                    <Grid container spacing={2}>
-                      <Grid item xs={3}>
+                    {/* Leave Request Status */}
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 2, border: '1px solid', borderColor: 'primary.main', borderRadius: 1, bgcolor: 'primary.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="primary.main">
+                          <EventIcon sx={{ fontSize: 28, color: 'primary.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="primary.main">
                             {employeeDashboard.leaves?.totalRequests || 0}
                           </Typography>
-                          <Typography variant="caption" color="primary.main">Total Requests</Typography>
+                          <Typography variant="caption" color="primary.dark" fontWeight="500">
+                            Total Requests
+                          </Typography>
                         </Box>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 2, border: '1px solid', borderColor: 'success.main', borderRadius: 1, bgcolor: 'success.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="success.main">
+                          <CheckCircleIcon sx={{ fontSize: 28, color: 'success.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="success.main">
                             {employeeDashboard.leaves?.approved || 0}
                           </Typography>
-                          <Typography variant="caption" color="success.main">Approved</Typography>
+                          <Typography variant="caption" color="success.dark" fontWeight="500">
+                            Approved
+                          </Typography>
                         </Box>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 2, border: '1px solid', borderColor: 'warning.main', borderRadius: 1, bgcolor: 'warning.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="warning.main">
+                          <ScheduleIcon sx={{ fontSize: 28, color: 'warning.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="warning.main">
                             {employeeDashboard.leaves?.pending || 0}
                           </Typography>
-                          <Typography variant="caption" color="warning.main">Pending</Typography>
+                          <Typography variant="caption" color="warning.dark" fontWeight="500">
+                            Pending
+                          </Typography>
                         </Box>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={6} md={3}>
                         <Box textAlign="center" sx={{ p: 2, border: '1px solid', borderColor: 'error.main', borderRadius: 1, bgcolor: 'error.50' }}>
-                          <Typography variant="h6" fontWeight="600" color="error.main">
+                          <CancelIcon sx={{ fontSize: 28, color: 'error.main', mb: 0.5 }} />
+                          <Typography variant="h5" fontWeight="700" color="error.main">
                             {employeeDashboard.leaves?.rejected || 0}
                           </Typography>
-                          <Typography variant="caption" color="error.main">Rejected</Typography>
+                          <Typography variant="caption" color="error.dark" fontWeight="500">
+                            Rejected
+                          </Typography>
                         </Box>
                       </Grid>
                     </Grid>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Leave Balance Breakdown */}
+                    <Typography variant="subtitle2" fontWeight="600" gutterBottom sx={{ mb: 2 }}>
+                      Leave Balance by Type
+                    </Typography>
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      {employeeDashboard.leaves?.leaveBalance ? (
+                        <>
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Casual Leave
+                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 1 }}>
+                                <Typography variant="h5" fontWeight="700" color="primary.main">
+                                  {employeeDashboard.leaves.leaveBalance.casualLeave?.available || 0}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
+                                  / {employeeDashboard.leaves.leaveBalance.casualLeave?.allocated || 0} days
+                                </Typography>
+                              </Box>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={employeeDashboard.leaves.leaveBalance.casualLeave?.allocated 
+                                  ? ((employeeDashboard.leaves.leaveBalance.casualLeave.allocated - (employeeDashboard.leaves.leaveBalance.casualLeave.available || 0)) 
+                                    / employeeDashboard.leaves.leaveBalance.casualLeave.allocated) * 100 
+                                  : 0}
+                                sx={{ height: 6, borderRadius: 3 }}
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                Used: {(employeeDashboard.leaves.leaveBalance.casualLeave?.allocated || 0) - (employeeDashboard.leaves.leaveBalance.casualLeave?.available || 0)} days
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Sick Leave
+                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 1 }}>
+                                <Typography variant="h5" fontWeight="700" color="warning.main">
+                                  {employeeDashboard.leaves.leaveBalance.sickLeave?.available || 0}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
+                                  / {employeeDashboard.leaves.leaveBalance.sickLeave?.allocated || 0} days
+                                </Typography>
+                              </Box>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={employeeDashboard.leaves.leaveBalance.sickLeave?.allocated 
+                                  ? ((employeeDashboard.leaves.leaveBalance.sickLeave.allocated - (employeeDashboard.leaves.leaveBalance.sickLeave.available || 0)) 
+                                    / employeeDashboard.leaves.leaveBalance.sickLeave.allocated) * 100 
+                                  : 0}
+                                sx={{ height: 6, borderRadius: 3 }}
+                                color="warning"
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                Used: {(employeeDashboard.leaves.leaveBalance.sickLeave?.allocated || 0) - (employeeDashboard.leaves.leaveBalance.sickLeave?.available || 0)} days
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ p: 2, border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Special Leave
+                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 1 }}>
+                                <Typography variant="h5" fontWeight="700" color="success.main">
+                                  {employeeDashboard.leaves.leaveBalance.specialLeave?.available || 0}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
+                                  / {employeeDashboard.leaves.leaveBalance.specialLeave?.allocated || 0} days
+                                </Typography>
+                              </Box>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={employeeDashboard.leaves.leaveBalance.specialLeave?.allocated 
+                                  ? ((employeeDashboard.leaves.leaveBalance.specialLeave.allocated - (employeeDashboard.leaves.leaveBalance.specialLeave.available || 0)) 
+                                    / employeeDashboard.leaves.leaveBalance.specialLeave.allocated) * 100 
+                                  : 0}
+                                sx={{ height: 6, borderRadius: 3 }}
+                                color="success"
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                Used: {(employeeDashboard.leaves.leaveBalance.specialLeave?.allocated || 0) - (employeeDashboard.leaves.leaveBalance.specialLeave?.available || 0)} days
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </>
+                      ) : (
+                        <Grid item xs={12}>
+                          <Alert severity="info">
+                            No leave balance information available for this employee.
+                          </Alert>
+                        </Grid>
+                      )}
+                    </Grid>
+
+                    {/* Overall Leave Statistics */}
+                    <Box sx={{ p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
+                      <Grid container spacing={2}>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Total Allocated
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600">
+                            {totalAllocated} days
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Total Available
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600" color="success.main">
+                            {totalAllocated - totalUsed} days
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Total Used
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600" color="error.main">
+                            {totalUsed} days
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Utilization Rate
+                          </Typography>
+                          <Typography variant="h6" fontWeight="600" color="primary.main">
+                            {utilizationRate}%
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>

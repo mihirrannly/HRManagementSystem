@@ -26,6 +26,8 @@ const shiftRoutes = require('./routes/shifts');
 const testRoutes = require('./routes/test');
 const faceDetectionRoutes = require('./routes/faceDetection');
 const exitManagementRoutes = require('./routes/exitManagement');
+const salaryManagementRoutes = require('./routes/salaryManagement');
+const designationRoutes = require('./routes/designations');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -41,25 +43,51 @@ app.use(compression());
 // Rate limiting - More generous for development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs (increased for development)
+  max: 5000, // limit each IP to 5000 requests per windowMs (increased for bulk imports)
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: '15 minutes'
-  }
+  },
+  // Skip rate limiting for import endpoints
+  skip: (req) => req.path.includes('/import')
 });
 app.use(limiter);
 
-// CORS configuration
-app.use(cors({
-  origin: [
-    process.env.CLIENT_URL || 'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// CORS configuration - Allow local network access in development
+const allowedOrigins = [
+  process.env.CLIENT_URL || 'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000'
+];
+
+// In development, also allow network IP access
+if (process.env.NODE_ENV === 'development') {
+  allowedOrigins.push('http://192.168.68.133:5173');
+  // Allow any local network IP for development
+  app.use(cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (mobile apps, Postman, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list or matches local network pattern
+      if (allowedOrigins.includes(origin) || /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }));
+} else {
+  app.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }));
+}
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -67,7 +95,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static files with CORS headers and proper MIME types
 app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:5173');
+  const origin = req.headers.origin;
+  
+  // In development, allow any local network origin
+  if (process.env.NODE_ENV === 'development' && origin) {
+    if (allowedOrigins.includes(origin) || /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+  } else {
+    res.header('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:5173');
+  }
+  
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   
@@ -110,6 +148,8 @@ app.use('/api/shifts', shiftRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/face-detection', faceDetectionRoutes);
 app.use('/api/exit-management', exitManagementRoutes);
+app.use('/api/salary-management', salaryManagementRoutes);
+app.use('/api/designations', designationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -135,12 +175,35 @@ app.use('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5001;
+const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Accessible on: http://localhost:${PORT}`);
+  
+  // In development, show network URL
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🌐 Network URL: http://192.168.68.133:${PORT}`);
+  }
   
   // Start attendance scheduler
   attendanceScheduler.start();
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('💥 UNCAUGHT EXCEPTION! Server will continue running...');
+  console.error('Error:', error.message);
+  console.error('Stack:', error.stack);
+  // Don't exit - let nodemon handle restarts if needed
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 UNHANDLED REJECTION! Server will continue running...');
+  console.error('Reason:', reason);
+  console.error('Promise:', promise);
+  // Don't exit - let nodemon handle restarts if needed
 });
 

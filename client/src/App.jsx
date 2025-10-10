@@ -22,6 +22,8 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import Employees from './pages/Employees/Employees';
 import EmployeeProfile from './pages/Employees/EmployeeProfile';
 import Attendance from './pages/Attendance/Attendance';
+import AttendanceImport from './pages/Attendance/AttendanceImport';
+import RannklyAttendanceImport from './pages/Attendance/RannklyAttendanceImport';
 import Leave from './pages/Leave/Leave';
 import Payroll from './pages/Payroll/Payroll';
 import Reports from './pages/Reports/Reports';
@@ -32,6 +34,7 @@ import PermissionsFixed from './pages/Permissions/PermissionsFixed';
 import AuthTest from './pages/Permissions/AuthTest';
 import AssetManagement from './pages/Assets/AssetManagement';
 import ExitManagement from './pages/ExitManagement/ExitManagement';
+import SalaryManagement from './pages/SalaryManagement/SalaryManagement';
 import Settings from './pages/Settings/Settings';
 import OfferAcceptance from './pages/OfferAcceptance';
 import CandidateDocuments from './pages/CandidateDocuments';
@@ -217,11 +220,14 @@ function App() {
                 <Route path="organization" element={<OrganizationAdvanced />} />
                 <Route path="candidate-review/:candidateId" element={<CandidateReview />} />
                 <Route path="attendance" element={<Attendance />} />
+                <Route path="attendance/import" element={<AttendanceImport />} />
+                <Route path="attendance/import-rannkly" element={<RannklyAttendanceImport />} />
                 <Route path="leave" element={<Leave />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="permissions" element={<PermissionsFixed />} />
                 <Route path="assets" element={<AssetManagement />} />
                 <Route path="exit-management" element={<ExitManagement />} />
+                <Route path="salary-management" element={<SalaryManagement />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
 

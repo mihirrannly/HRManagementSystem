@@ -240,6 +240,12 @@ router.get('/users', [authenticate, authorize(['admin', 'hr'])], async (req, res
     console.log('📥 Fetching users for permissions management...');
     const { page = 1, limit = 20, search = '', role = '' } = req.query;
     
+    // Parse pagination parameters as integers
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    
+    console.log('📊 Request params - page:', pageNum, 'limit:', limitNum);
+    
     let userQuery = { isActive: true };
     if (search) {
       userQuery.email = { $regex: search, $options: 'i' };
@@ -250,8 +256,8 @@ router.get('/users', [authenticate, authorize(['admin', 'hr'])], async (req, res
     // Step 1: Get users
     const users = await User.find(userQuery, '-password')
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum);
 
     console.log(`👥 Found ${users.length} users`);
 
@@ -259,10 +265,10 @@ router.get('/users', [authenticate, authorize(['admin', 'hr'])], async (req, res
       return res.json({
         users: [],
         pagination: {
-          current: parseInt(page),
+          current: pageNum,
           pages: 0,
           total: 0,
-          limit: parseInt(limit)
+          limit: limitNum
         }
       });
     }
@@ -336,14 +342,15 @@ router.get('/users', [authenticate, authorize(['admin', 'hr'])], async (req, res
     const total = await User.countDocuments(userQuery);
 
     console.log('✅ Successfully prepared user data');
+    console.log(`📊 Returning ${usersWithRoles.length} users out of ${total} total`);
 
     res.json({
       users: usersWithRoles,
       pagination: {
-        current: parseInt(page),
-        pages: Math.ceil(total / limit),
+        current: pageNum,
+        pages: Math.ceil(total / limitNum),
         total,
-        limit: parseInt(limit)
+        limit: limitNum
       }
     });
   } catch (error) {

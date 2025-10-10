@@ -110,20 +110,35 @@ const Permissions = () => {
 
   const fetchRoles = async () => {
     try {
-      const response = await axios.get('/permissions/roles');
+      // Fetch all roles by using a high limit value
+      const response = await axios.get('/permissions/roles', {
+        params: {
+          limit: 1000 // Fetch up to 1000 roles (all roles)
+        }
+      });
       setRoles(response.data.roles);
       setAvailableRoles(response.data.roles);
     } catch (error) {
       console.error('Error fetching roles:', error);
+      toast.error('Failed to load roles');
     }
   };
 
   const fetchUsers = async () => {
     try {
-      const response = await axios.get('/permissions/users');
+      console.log('🔍 Fetching users with limit: 1000');
+      // Fetch all users by using a high limit value
+      const response = await axios.get('/permissions/users', {
+        params: {
+          limit: 1000 // Fetch up to 1000 users (all users)
+        }
+      });
+      console.log('✅ Received users:', response.data.users.length);
+      console.log('📊 Pagination info:', response.data.pagination);
       setUsers(response.data.users);
     } catch (error) {
       console.error('Error fetching users:', error);
+      toast.error('Failed to load users');
     }
   };
 
@@ -359,23 +374,39 @@ const Permissions = () => {
       {/* User Management Tab */}
       {tabValue === 1 && (
         <Box>
-          <Typography variant="h6" gutterBottom>
-            User Role Assignments
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">
+              User Role Assignments
+            </Typography>
+            <Chip 
+              label={`${users.length} Users`} 
+              color="primary" 
+              variant="outlined"
+            />
+          </Box>
           
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>User</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Current Roles</TableCell>
-                  <TableCell>Last Login</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {users.map((user) => (
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 5 }}>
+              <Typography>Loading users...</Typography>
+            </Box>
+          ) : users.length === 0 ? (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No users found. Users will appear here once they are created in the system.
+            </Alert>
+          ) : (
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>User</TableCell>
+                    <TableCell>Email</TableCell>
+                    <TableCell>Current Roles</TableCell>
+                    <TableCell>Last Login</TableCell>
+                    <TableCell>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {users.map((user) => (
                   <TableRow key={user._id}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -416,10 +447,11 @@ const Permissions = () => {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
         </Box>
       )}
 

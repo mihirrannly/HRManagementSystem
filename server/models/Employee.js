@@ -87,6 +87,17 @@ const employeeSchema = new mongoose.Schema({
       type: String,
       required: true
     },
+    position: {
+      type: String,
+      enum: [
+        'CEO', 'COO', 'CTO', 'CFO', 'CMO', 'CHRO', 
+        'VP', 'Director', 'Senior Manager', 'Manager', 
+        'Team Lead', 'Senior Executive', 'Executive', 
+        'Senior Associate', 'Associate', 'Trainee', 
+        'Intern', 'Consultant', 'Specialist', 'Other'
+      ],
+      default: null
+    },
     employeeType: {
       type: String,
       enum: ['full-time', 'part-time', 'contract', 'intern'],

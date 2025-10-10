@@ -15,6 +15,8 @@ import {
   ListItemText,
   ListItemIcon,
   Divider,
+  useTheme,
+  alpha,
 } from '@mui/material';
 import {
   People as PeopleIcon,
@@ -75,54 +77,403 @@ const departmentData = [
   { name: 'Finance', employees: 18 },
 ];
 
-const StatCard = ({ title, value, change, icon, color = 'primary', onClick }) => (
-  <Card 
-    sx={{ 
-      height: '100%', 
-      position: 'relative', 
-      overflow: 'visible',
-      cursor: onClick ? 'pointer' : 'default',
-      transition: 'all 0.2s ease',
-      '&:hover': onClick ? {
-        transform: 'translateY(-2px)',
-        boxShadow: 4,
-      } : {}
-    }}
-    onClick={onClick}
-  >
-    <CardContent>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Avatar sx={{ bgcolor: `${color}.main`, mr: 2 }}>
-          {icon}
-        </Avatar>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h4" fontWeight="bold" color="text.primary">
-            {value}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {title}
-          </Typography>
+const StatCard = ({ title, value, change, icon, color = '#1976d2', subtitle, onClick }) => {
+  const theme = useTheme();
+  
+  return (
+    <Card 
+      sx={{ 
+        height: '100%', 
+        borderLeft: `3px solid ${color}`,
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'all 0.2s ease',
+        '&:hover': onClick ? {
+          transform: 'translateY(-2px)',
+          boxShadow: 4,
+        } : {}
+      }}
+      onClick={onClick}
+    >
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <Avatar sx={{ bgcolor: alpha(color, 0.1), color: color, mr: 2, width: 48, height: 48 }}>
+            {icon}
+          </Avatar>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="h4" fontWeight="bold" color="text.primary">
+              {value}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {title}
+            </Typography>
+            {subtitle && (
+              <Typography variant="caption" color="text.secondary">
+                {subtitle}
+              </Typography>
+            )}
+          </Box>
         </Box>
+        {change !== undefined && (
+          <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+            {change > 0 ? (
+              <TrendingUpIcon color="success" sx={{ mr: 1, fontSize: 16 }} />
+            ) : (
+              <TrendingDownIcon color="error" sx={{ mr: 1, fontSize: 16 }} />
+            )}
+            <Typography
+              variant="caption"
+              color={change > 0 ? 'success.main' : 'error.main'}
+              fontWeight="medium"
+            >
+              {Math.abs(change)}% from last month
+            </Typography>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// Employee Overview Section Component
+const EmployeeOverviewSection = () => {
+  const [exits, setExits] = useState([]);
+  const [onboarding, setOnboarding] = useState([]);
+  const [probation, setProbation] = useState([]);
+  const [birthdaysData, setBirthdaysData] = useState([]);
+  const [anniversariesData, setAnniversariesData] = useState({ thisMonth: [], upcoming: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchOverviewData();
+  }, []);
+
+  const fetchOverviewData = async () => {
+    try {
+      const [exitsRes, onboardingRes, employeesRes, birthdaysRes, anniversariesRes] = await Promise.all([
+        axios.get('/exit-management/').catch(() => ({ data: [] })),
+        axios.get('/onboarding/').catch(() => ({ data: [] })),
+        axios.get('/employees?page=1&limit=1000').catch(() => ({ data: { employees: [] } })),
+        axios.get('/employees/birthdays').catch(() => ({ data: { success: false } })),
+        axios.get('/employees/anniversaries').catch(() => ({ data: { success: false } })),
+      ]);
+
+      // Process exits
+      if (Array.isArray(exitsRes.data)) {
+        setExits(exitsRes.data.filter(exit => exit.status !== 'completed' && exit.status !== 'cancelled'));
+      }
+
+      // Process onboarding
+      if (Array.isArray(onboardingRes.data)) {
+        setOnboarding(onboardingRes.data.filter(item => item.status === 'pending' || item.status === 'in_progress'));
+      }
+
+      // Process probation employees
+      if (employeesRes.data.employees) {
+        const currentDate = new Date();
+        const probationEmps = employeesRes.data.employees.filter(emp => {
+          const probationEndDate = emp.employmentInfo?.probationEndDate;
+          return probationEndDate && new Date(probationEndDate) >= currentDate && emp.status === 'active';
+        });
+        setProbation(probationEmps);
+      }
+
+      // Process birthdays
+      if (birthdaysRes.data.success) {
+        setBirthdaysData([...(birthdaysRes.data.thisMonth || []), ...(birthdaysRes.data.upcoming || [])].slice(0, 4));
+      }
+
+      // Process anniversaries
+      if (anniversariesRes.data.success) {
+        setAnniversariesData({
+          thisMonth: anniversariesRes.data.thisMonth || [],
+          upcoming: anniversariesRes.data.upcoming || [],
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching overview data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ mt: 4, p: 3 }}>
+        <LinearProgress />
       </Box>
-      {change && (
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {change > 0 ? (
-            <TrendingUpIcon color="success" sx={{ mr: 1, fontSize: 20 }} />
-          ) : (
-            <TrendingDownIcon color="error" sx={{ mr: 1, fontSize: 20 }} />
-          )}
-          <Typography
-            variant="body2"
-            color={change > 0 ? 'success.main' : 'error.main'}
-            fontWeight="medium"
+    );
+  }
+
+  return (
+    <Box sx={{ mt: 4 }}>
+      {/* Section Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" fontWeight="700" gutterBottom>
+          Employee Overview
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Current status and important updates for your team members
+        </Typography>
+      </Box>
+
+      <Grid container spacing={3}>
+        {/* Exits */}
+        <Grid item xs={12} md={3}>
+          <Card
+            elevation={0}
+            sx={{
+              border: '1px solid #e0e0e0',
+              borderRadius: 2,
+              height: '100%',
+              minHeight: 400,
+            }}
           >
-            {Math.abs(change)}% from last month
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" fontWeight="700" color="#d32f2f">
+                  Exits
+                </Typography>
+                <Chip label={exits.length} size="small" sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', fontWeight: 600 }} />
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                {exits.length > 0 ? exits.map((exit, index) => (
+                  <Box key={exit._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < exits.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                    <Typography variant="body2" fontWeight="600">
+                      {exit.employeeId?.personalInfo ? `${exit.employeeId.personalInfo.firstName} ${exit.employeeId.personalInfo.lastName}` : exit.employeeName || 'N/A'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {exit.lastWorkingDay ? moment(exit.lastWorkingDay).format('DD MMM YYYY') : 'Date pending'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {exit.employeeId?.employmentInfo?.department || 'N/A'} - {exit.employeeId?.employmentInfo?.location || 'N/A'}
+                    </Typography>
+                  </Box>
+                )) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No active exits
+                  </Typography>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Onboarding */}
+        <Grid item xs={12} md={3}>
+          <Card
+            elevation={0}
+            sx={{
+              border: '1px solid #e0e0e0',
+              borderRadius: 2,
+              height: '100%',
+              minHeight: 400,
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" fontWeight="700" color="#1976d2">
+                  Onboarding
+                </Typography>
+                <Chip label={onboarding.length} size="small" sx={{ bgcolor: alpha('#1976d2', 0.1), color: '#1976d2', fontWeight: 600 }} />
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                {onboarding.length > 0 ? onboarding.map((item, index) => (
+                  <Box key={item._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < onboarding.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                    <Typography variant="body2" fontWeight="600">
+                      {item.personalInfo?.firstName && item.personalInfo?.lastName ? `${item.personalInfo.firstName} ${item.personalInfo.lastName}` : item.name || 'N/A'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      New Joiner
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {item.jobDetails?.department || 'N/A'} - {item.jobDetails?.location || 'N/A'}
+                    </Typography>
+                  </Box>
+                )) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No active onboarding
+                  </Typography>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Probation */}
+        <Grid item xs={12} md={3}>
+          <Card
+            elevation={0}
+            sx={{
+              border: '1px solid #e0e0e0',
+              borderRadius: 2,
+              height: '100%',
+              minHeight: 400,
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" fontWeight="700" color="#f57c00">
+                  Probation
+                </Typography>
+                <Chip label={probation.length} size="small" sx={{ bgcolor: alpha('#f57c00', 0.1), color: '#f57c00', fontWeight: 600 }} />
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                {probation.length > 0 ? probation.map((emp, index) => (
+                  <Box key={emp._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < probation.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                    <Typography variant="body2" fontWeight="600">
+                      {emp.personalInfo ? `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}` : 'N/A'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      In Probation
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {emp.employmentInfo?.department || 'N/A'} - {emp.employmentInfo?.location || 'N/A'}
+                    </Typography>
+                  </Box>
+                )) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No employees in probation
+                  </Typography>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Birthdays */}
+        <Grid item xs={12} md={3}>
+          <Card
+            elevation={0}
+            sx={{
+              border: '1px solid #e0e0e0',
+              borderRadius: 2,
+              height: '100%',
+              minHeight: 400,
+              background: 'linear-gradient(135deg, #fff8e1 0%, #ffffff 100%)',
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" fontWeight="700" color="#f57c00" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  🎂 Birthdays
+                </Typography>
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                {birthdaysData.length > 0 ? birthdaysData.map((birthday, index) => (
+                  <Box key={birthday.employeeId || index} sx={{ mb: 2, pb: 2, borderBottom: index < birthdaysData.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                    <Typography variant="body2" fontWeight="600">
+                      {birthday.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {moment(birthday.birthdayDate).format('DD MMM YYYY')}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {birthday.department || 'N/A'} - {birthday.location || 'N/A'}
+                    </Typography>
+                  </Box>
+                )) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No upcoming birthdays
+                  </Typography>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Work Anniversaries */}
+      {(anniversariesData.thisMonth.length > 0 || anniversariesData.upcoming.length > 0) && (
+        <Box sx={{ mt: 3 }}>
+          <Typography variant="h6" fontWeight="700" gutterBottom>
+            Work Anniversaries
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Celebrating milestones and dedication of our team members
+          </Typography>
+
+          <Grid container spacing={3}>
+            {/* This Month's Anniversaries */}
+            {anniversariesData.thisMonth.length > 0 && (
+              <Grid item xs={12} md={6}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 2,
+                    background: 'linear-gradient(135deg, #fff5f8 0%, #ffffff 100%)',
+                  }}
+                >
+                  <CardContent>
+                    <Typography variant="h6" fontWeight="700" color="#d81b60" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      🎉 This Month&apos;s Anniversaries
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+                    <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {anniversariesData.thisMonth.map((anniversary, index) => (
+                        <Box key={anniversary.employeeId || index} sx={{ mb: 2, pb: 2, borderBottom: index < anniversariesData.thisMonth.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                          <Typography variant="body2" fontWeight="600">
+                            {anniversary.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {anniversary.yearsOfService} Year{anniversary.yearsOfService !== 1 ? 's' : ''} • {moment(anniversary.anniversaryDate).format('DD MMM YYYY')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {anniversary.department || 'N/A'} - {anniversary.location || 'N/A'}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+
+            {/* Upcoming Anniversaries */}
+            {anniversariesData.upcoming.length > 0 && (
+              <Grid item xs={12} md={6}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 2,
+                    background: 'linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%)',
+                  }}
+                >
+                  <CardContent>
+                    <Typography variant="h6" fontWeight="700" color="#0288d1" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      ⭐ Upcoming Anniversaries
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+                    <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {anniversariesData.upcoming.slice(0, 5).map((anniversary, index) => (
+                        <Box key={anniversary.employeeId || index} sx={{ mb: 2, pb: 2, borderBottom: index < Math.min(5, anniversariesData.upcoming.length) - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                          <Typography variant="body2" fontWeight="600">
+                            {anniversary.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {anniversary.yearsOfService} Year{anniversary.yearsOfService !== 1 ? 's' : ''} • {moment(anniversary.anniversaryDate).format('DD MMM YYYY')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {anniversary.department || 'N/A'} - {anniversary.location || 'N/A'}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+          </Grid>
         </Box>
       )}
-    </CardContent>
-  </Card>
-);
+    </Box>
+  );
+};
 
 const Dashboard = () => {
   const { user, employee } = useAuth();
@@ -161,6 +512,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
   const [officeStatus, setOfficeStatus] = useState(null);
+  
   useEffect(() => {
     fetchDashboardData();
     fetchAttendanceStatus();
@@ -291,10 +643,10 @@ const Dashboard = () => {
     <Box sx={{ flexGrow: 1 }}>
       {/* Welcome Header */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
+        <Typography variant="h4" fontWeight="700" gutterBottom color="text.primary">
           Welcome back, {employee?.personalInfo ? `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}` : 'User'}! 👋
         </Typography>
-        <Typography variant="body1" color="text.secondary">
+        <Typography variant="body2" color="text.secondary">
           {moment().format('dddd, MMMM Do YYYY')}
         </Typography>
       </Box>
@@ -358,7 +710,7 @@ const Dashboard = () => {
             value={dashboardData.overview.totalEmployees}
             change={5}
             icon={<PeopleIcon />}
-            color="primary"
+            color="#1976d2"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
@@ -367,7 +719,7 @@ const Dashboard = () => {
             value={dashboardData.attendance.present}
             change={2}
             icon={<CheckCircleIcon />}
-            color="success"
+            color="#388e3c"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
@@ -376,7 +728,7 @@ const Dashboard = () => {
             value={dashboardData.overview.pendingLeaves}
             change={-10}
             icon={<ScheduleIcon />}
-            color="warning"
+            color="#f57c00"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
@@ -385,7 +737,7 @@ const Dashboard = () => {
             value={dashboardData.overview.newJoinees}
             change={15}
             icon={<TrendingUpIcon />}
-            color="info"
+            color="#00acc1"
           />
         </Grid>
         {(user?.role === 'admin' || user?.role === 'hr') && (
@@ -394,7 +746,7 @@ const Dashboard = () => {
               title="Organization"
               value="Dashboard"
               icon={<BusinessIcon />}
-              color="secondary"
+              color="#7b1fa2"
               onClick={() => navigate('/organization')}
             />
           </Grid>
@@ -405,7 +757,7 @@ const Dashboard = () => {
               title="Team"
               value="Management"
               icon={<PeopleIcon />}
-              color="info"
+              color="#00acc1"
               onClick={() => navigate('/employees')}
             />
           </Grid>
@@ -416,9 +768,17 @@ const Dashboard = () => {
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {/* Attendance Chart */}
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, height: 400 }}>
+          <Paper 
+            elevation={0}
+            sx={{ 
+              p: 3, 
+              height: 400,
+              border: '1px solid #e0e0e0',
+              borderRadius: 2
+            }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h6" fontWeight="bold" sx={{ flex: 1 }}>
+              <Typography variant="h6" fontWeight="700" color="text.primary" sx={{ flex: 1 }}>
                 Weekly Attendance Overview
               </Typography>
               <IconButton size="small">
@@ -452,8 +812,16 @@ const Dashboard = () => {
 
         {/* Leave Distribution */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+          <Paper 
+            elevation={0}
+            sx={{ 
+              p: 3, 
+              height: 400,
+              border: '1px solid #e0e0e0',
+              borderRadius: 2
+            }}
+          >
+            <Typography variant="h6" fontWeight="700" color="text.primary" gutterBottom>
               Leave Distribution
             </Typography>
             <ResponsiveContainer width="100%" height={250}>
@@ -481,8 +849,16 @@ const Dashboard = () => {
       <Grid container spacing={3}>
         {/* Department Overview */}
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+          <Paper 
+            elevation={0}
+            sx={{ 
+              p: 3, 
+              height: 400,
+              border: '1px solid #e0e0e0',
+              borderRadius: 2
+            }}
+          >
+            <Typography variant="h6" fontWeight="700" color="text.primary" gutterBottom>
               Department Overview
             </Typography>
             <ResponsiveContainer width="100%" height={300}>
@@ -499,8 +875,16 @@ const Dashboard = () => {
 
         {/* Recent Activities */}
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+          <Paper 
+            elevation={0}
+            sx={{ 
+              p: 3, 
+              height: 400,
+              border: '1px solid #e0e0e0',
+              borderRadius: 2
+            }}
+          >
+            <Typography variant="h6" fontWeight="700" color="text.primary" gutterBottom>
               Recent Activities
             </Typography>
             <List>
@@ -547,6 +931,9 @@ const Dashboard = () => {
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Employee Overview Section */}
+      <EmployeeOverviewSection />
     </Box>
   );
 };

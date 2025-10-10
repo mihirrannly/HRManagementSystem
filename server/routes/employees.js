@@ -43,6 +43,158 @@ const upload = multer({
   }
 });
 
+// @route   GET /api/employees/birthdays
+// @desc    Get employee birthdays (current month and upcoming)
+// @access  Private (All authenticated users)
+router.get('/birthdays', authenticate, async (req, res) => {
+  try {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth(); // 0-11
+    const currentYear = currentDate.getFullYear();
+    const nextMonth = (currentMonth + 1) % 12;
+
+    // Get all active employees with birthdays
+    const employees = await Employee.find({
+      'employmentInfo.isActive': true,
+      'personalInfo.dateOfBirth': { $exists: true }
+    })
+      .select('personalInfo.firstName personalInfo.lastName personalInfo.dateOfBirth employeeId')
+      .lean();
+
+    const thisMonthBirthdays = [];
+    const upcomingBirthdays = [];
+
+    employees.forEach(employee => {
+      const birthDate = new Date(employee.personalInfo.dateOfBirth);
+      const birthMonth = birthDate.getMonth();
+      const birthDay = birthDate.getDate();
+      
+      // Calculate age
+      let age = currentYear - birthDate.getFullYear();
+      
+      // Check if birthday is this month
+      if (birthMonth === currentMonth) {
+        const birthdayThisYear = new Date(currentYear, birthMonth, birthDay);
+        // Adjust age if birthday hasn't happened yet this year
+        if (birthdayThisYear > currentDate) {
+          age--;
+        }
+        thisMonthBirthdays.push({
+          employeeId: employee.employeeId,
+          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
+          age: age + 1, // Age they'll be/are this year
+          birthdayDate: birthdayThisYear,
+          dateOfBirth: employee.personalInfo.dateOfBirth
+        });
+      }
+      // Check if birthday is next month
+      else if (birthMonth === nextMonth) {
+        const birthdayNextMonth = new Date(nextMonth === 0 ? currentYear + 1 : currentYear, birthMonth, birthDay);
+        upcomingBirthdays.push({
+          employeeId: employee.employeeId,
+          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
+          age: nextMonth === 0 ? age + 1 : age + 1,
+          birthdayDate: birthdayNextMonth,
+          dateOfBirth: employee.personalInfo.dateOfBirth
+        });
+      }
+    });
+
+    // Sort by date
+    thisMonthBirthdays.sort((a, b) => a.birthdayDate - b.birthdayDate);
+    upcomingBirthdays.sort((a, b) => a.birthdayDate - b.birthdayDate);
+
+    res.json({
+      success: true,
+      thisMonth: thisMonthBirthdays,
+      upcoming: upcomingBirthdays
+    });
+  } catch (error) {
+    console.error('Error fetching birthdays:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch birthdays',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/employees/anniversaries
+// @desc    Get work anniversaries (current month and upcoming)
+// @access  Private (All authenticated users)
+router.get('/anniversaries', authenticate, async (req, res) => {
+  try {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth(); // 0-11
+    const currentYear = currentDate.getFullYear();
+    const nextMonth = (currentMonth + 1) % 12;
+    const nextMonthYear = nextMonth === 0 ? currentYear + 1 : currentYear;
+
+    // Get all active employees
+    const employees = await Employee.find({
+      'employmentInfo.isActive': true,
+      'employmentInfo.dateOfJoining': { $exists: true }
+    })
+      .select('personalInfo.firstName personalInfo.lastName employmentInfo.dateOfJoining employeeId')
+      .lean();
+
+    const thisMonthAnniversaries = [];
+    const upcomingAnniversaries = [];
+
+    employees.forEach(employee => {
+      const joiningDate = new Date(employee.employmentInfo.dateOfJoining);
+      const joiningMonth = joiningDate.getMonth();
+      const joiningDay = joiningDate.getDate();
+      
+      // Calculate years of service
+      const yearsOfService = currentYear - joiningDate.getFullYear();
+      
+      // Skip if less than 1 year
+      if (yearsOfService < 1) return;
+      
+      // Check if anniversary is this month
+      if (joiningMonth === currentMonth) {
+        const anniversaryDate = new Date(currentYear, joiningMonth, joiningDay);
+        thisMonthAnniversaries.push({
+          employeeId: employee.employeeId,
+          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
+          yearsOfService,
+          anniversaryDate,
+          joiningDate: employee.employmentInfo.dateOfJoining
+        });
+      }
+      // Check if anniversary is next month
+      else if (joiningMonth === nextMonth) {
+        const anniversaryDate = new Date(nextMonthYear, joiningMonth, joiningDay);
+        upcomingAnniversaries.push({
+          employeeId: employee.employeeId,
+          name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
+          yearsOfService,
+          anniversaryDate,
+          joiningDate: employee.employmentInfo.dateOfJoining
+        });
+      }
+    });
+
+    // Sort by date
+    thisMonthAnniversaries.sort((a, b) => a.anniversaryDate - b.anniversaryDate);
+    upcomingAnniversaries.sort((a, b) => a.anniversaryDate - b.anniversaryDate);
+
+    res.json({
+      success: true,
+      thisMonth: thisMonthAnniversaries,
+      upcoming: upcomingAnniversaries
+    });
+  } catch (error) {
+    console.error('Error fetching anniversaries:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch anniversaries',
+      error: error.message
+    });
+  }
+});
+
 // @route   GET /api/employees
 // @desc    Get all employees with filtering, sorting, and pagination
 // @access  Private (HR, Admin, Manager)
@@ -50,7 +202,7 @@ router.get('/', [
   authenticate,
   authorize(['admin', 'hr', 'manager']),
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 10000 }),
   query('department').optional().isMongoId(),
   query('isActive').optional().isBoolean(),
   query('search').optional().isLength({ min: 1, max: 100 })
@@ -1119,35 +1271,296 @@ router.get('/team-dashboard/:employeeId', authenticate, async (req, res) => {
     
     console.log('📊 Final access level:', accessLevel);
 
-    // Get attendance summary for the employee
-    const currentMonth = new Date();
-    const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-    const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    // Calculate date range based on attendance period filter
+    const attendancePeriod = req.query.attendancePeriod || 'thisMonth';
+    let attendanceStartDate, attendanceEndDate;
+    const now = new Date();
 
+    switch (attendancePeriod) {
+      case 'lastMonth':
+        attendanceStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        attendanceEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        break;
+      case 'last3Months':
+        attendanceStartDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        attendanceEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        break;
+      case 'thisYear':
+        attendanceStartDate = new Date(now.getFullYear(), 0, 1);
+        attendanceEndDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        break;
+      case 'custom':
+        if (req.query.startDate && req.query.endDate) {
+          attendanceStartDate = new Date(req.query.startDate);
+          attendanceEndDate = new Date(req.query.endDate + 'T23:59:59.999');
+        } else {
+          attendanceStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          attendanceEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        }
+        break;
+      case 'thisMonth':
+      default:
+        attendanceStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        attendanceEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        break;
+    }
+
+    console.log('📅 Attendance date range:', { attendancePeriod, attendanceStartDate, attendanceEndDate });
+
+    // Get attendance summary for the employee
     const attendanceRecords = await Attendance.find({
       employee: employeeId,
-      date: { $gte: startOfMonth, $lte: endOfMonth }
+      date: { $gte: attendanceStartDate, $lte: attendanceEndDate }
     });
+
+    console.log(`📊 Total attendance records found: ${attendanceRecords.length}`);
+    
+    // Log status breakdown of all records
+    const statusBreakdown = {};
+    attendanceRecords.forEach(record => {
+      const status = record.status || 'undefined';
+      statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
+    });
+    console.log(`📊 Status breakdown of all records:`, statusBreakdown);
+    
+    // Log detailed breakdown of status vs isLate flag for debugging
+    const detailedBreakdown = {};
+    attendanceRecords.forEach(record => {
+      const key = `status:${record.status}, isLate:${record.isLate}`;
+      detailedBreakdown[key] = (detailedBreakdown[key] || 0) + 1;
+    });
+    console.log(`📊 Detailed status+isLate breakdown:`, detailedBreakdown);
+    
+    // Log lateMinutes breakdown
+    const lateMinutesBreakdown = {};
+    attendanceRecords.forEach(record => {
+      const key = `lateMinutes:${record.lateMinutes || 0}`;
+      lateMinutesBreakdown[key] = (lateMinutesBreakdown[key] || 0) + 1;
+    });
+    console.log(`📊 LateMinutes breakdown:`, lateMinutesBreakdown);
+    
+    // Log which records have lateMinutes = 0
+    const onTimeRecords = attendanceRecords.filter(r => !r.lateMinutes || r.lateMinutes === 0);
+    console.log(`📊 Records with lateMinutes=0 (${onTimeRecords.length} total):`);
+    onTimeRecords.forEach(r => {
+      console.log(`  - ${r.date.toISOString().split('T')[0]}: status=${r.status}, lateMinutes=${r.lateMinutes}`);
+    });
+
+    // Filter out only non-working days based on STATUS (not date)
+    // If someone worked on a Saturday, their status will be 'present' or 'late', not 'weekend'
+    // So we should count those as working days
+    const workingDayRecords = attendanceRecords.filter(record => 
+      record.status !== 'weekend' && 
+      record.status !== 'holiday' &&
+      record.status !== 'on-leave'
+    );
+    
+    console.log(`📊 Working day records (excluding holidays/leaves, INCLUDING weekends if worked): ${workingDayRecords.length}`);
+
+    // Also include weekend records where employee actually checked in (worked)
+    // These might have status='weekend' but have checkIn time
+    const weekendWorkedRecords = attendanceRecords.filter(record => 
+      record.status === 'weekend' && record.checkIn && record.checkIn.time
+    );
+    
+    if (weekendWorkedRecords.length > 0) {
+      console.log(`📊 Weekend records with check-in found: ${weekendWorkedRecords.length} (adding these to working days)`);
+      // Add these to working day records
+      workingDayRecords.push(...weekendWorkedRecords);
+    }
+
+    // Also include on-leave records where employee actually checked in (worked despite being on leave)
+    const leaveWorkedRecords = attendanceRecords.filter(record => 
+      record.status === 'on-leave' && record.checkIn && record.checkIn.time
+    );
+    
+    if (leaveWorkedRecords.length > 0) {
+      console.log(`📊 On-leave records with check-in found: ${leaveWorkedRecords.length} (employee worked despite being on leave - adding to working days)`);
+      // Add these to working day records
+      workingDayRecords.push(...leaveWorkedRecords);
+    }
+
+    console.log(`📊 Total working day records (after including weekend + leave work): ${workingDayRecords.length}`);
+
+    // Calculate detailed attendance metrics
+    // Present: Anyone who actually checked in, OR has status 'present', 'late', 'half-day'
+    const presentRecords = workingDayRecords.filter(record => 
+      // Has check-in (actually worked)
+      (record.checkIn && record.checkIn.time) ||
+      // OR has present/late/half-day status
+      record.status === 'present' || 
+      record.status === 'late' || 
+      record.status === 'half-day'
+    );
+    
+    // Late: Count based on lateMinutes > 0 (or some threshold like 5 minutes)
+    // The Monthly Grid likely shows cells as "late" only if lateMinutes is significant
+    // Even if isLate=true, if lateMinutes is 0 or very small, the Grid shows it as on-time
+    const lateRecords = presentRecords.filter(record => 
+      record.lateMinutes && record.lateMinutes > 0
+    );
+    
+    // For on-time calculation, only count REGULAR working days (exclude weekend and on-leave work)
+    // The Monthly Grid doesn't include weekend/on-leave work in the on-time count
+    const regularPresentRecords = presentRecords.filter(record =>
+      record.status !== 'weekend' && record.status !== 'on-leave'
+    );
+    
+    const regularLateRecords = regularPresentRecords.filter(record =>
+      record.lateMinutes && record.lateMinutes > 0
+    );
+    
+    // Log the actual on-time regular records for debugging
+    const regularOnTimeRecords = regularPresentRecords.filter(record =>
+      !record.lateMinutes || record.lateMinutes === 0
+    );
+    
+    console.log(`📊 Regular working days: Present=${regularPresentRecords.length}, Late=${regularLateRecords.length}, On-Time=${regularOnTimeRecords.length}`);
+    console.log(`📊 Regular ON-TIME records (${regularOnTimeRecords.length}):`);
+    regularOnTimeRecords.forEach(r => {
+      console.log(`  - ${r.date.toISOString().split('T')[0]}: status=${r.status}, lateMinutes=${r.lateMinutes}, checkIn=${r.checkIn?.time ? new Date(r.checkIn.time).toLocaleTimeString() : 'N/A'}`);
+    });
+    
+    // Absent: explicitly marked as absent OR no check-in and not present/late/half-day
+    const absentRecords = workingDayRecords.filter(record => 
+      record.status === 'absent' || 
+      (!record.checkIn?.time && record.status !== 'present' && record.status !== 'late' && record.status !== 'half-day' && record.status !== 'weekend')
+    );
+
+    // Half days
+    const halfDayRecords = workingDayRecords.filter(record =>
+      record.status === 'half-day'
+    );
+
+    console.log(`📊 Attendance breakdown: Total Present=${presentRecords.length}, Total Late=${lateRecords.length}, Absent=${absentRecords.length}, HalfDay=${halfDayRecords.length}`);
+    
+    // Calculate working hours (only for records with check-in/out)
+    let totalHours = 0;
+    let totalRegularHours = 0;
+    let totalOvertimeHours = 0;
+    let daysWithHours = 0;
+
+    presentRecords.forEach(record => {
+      if (record.checkIn?.time && record.checkOut?.time) {
+        const hours = (new Date(record.checkOut.time) - new Date(record.checkIn.time)) / (1000 * 60 * 60);
+        totalHours += hours;
+        daysWithHours++;
+        
+        // Assuming 9 hours is standard working day
+        if (hours >= 9) {
+          totalRegularHours += 9;
+          totalOvertimeHours += (hours - 9);
+        } else {
+          totalRegularHours += hours;
+        }
+      } else if (record.totalHours) {
+        // Use pre-calculated totalHours if check-in/out times are not available
+        totalHours += record.totalHours;
+        daysWithHours++;
+        
+        if (record.totalHours >= 9) {
+          totalRegularHours += 9;
+          totalOvertimeHours += (record.totalHours - 9);
+        } else {
+          totalRegularHours += record.totalHours;
+        }
+      }
+    });
+
+    const avgWorkingHours = daysWithHours > 0 
+      ? (totalHours / daysWithHours).toFixed(1) 
+      : '0.0';
 
     const attendanceSummary = {
-      present: attendanceRecords.filter(record => record.status === 'present').length,
-      absent: attendanceRecords.filter(record => record.status === 'absent').length,
-      late: attendanceRecords.filter(record => record.status === 'late').length,
-      totalWorkingDays: attendanceRecords.length
+      present: presentRecords.length, // ALL present days including weekend/on-leave work
+      absent: absentRecords.length,
+      late: lateRecords.length, // ALL late days (status='late')
+      totalWorkingDays: workingDayRecords.length, // All working days including weekend/on-leave work
+      halfDays: halfDayRecords.length,
+      avgWorkingHours: avgWorkingHours,
+      overtimeHours: totalOvertimeHours.toFixed(1),
+      // Add separate fields for on-time calculation in frontend
+      regularPresent: regularPresentRecords.length, // For frontend to calculate on-time correctly
+      regularLate: regularLateRecords.length
     };
 
-    // Get leave summary
-    const currentYear = new Date().getFullYear();
-    const leaveRequests = await LeaveRequest.find({
-      employee: employeeId,
-      year: currentYear
-    });
+    console.log(`📊 Final attendance summary:`, attendanceSummary);
 
+    // Calculate date range for leave requests based on leave period filter
+    const leavePeriod = req.query.leavePeriod || 'thisYear';
+    let leaveStartDate, leaveEndDate;
+
+    switch (leavePeriod) {
+      case 'thisMonth':
+        leaveStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        leaveEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        break;
+      case 'lastMonth':
+        leaveStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        leaveEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        break;
+      case 'thisQuarter':
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        leaveStartDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
+        leaveEndDate = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59, 999);
+        break;
+      case 'all':
+        // Get all leave requests (no date filter)
+        leaveStartDate = null;
+        leaveEndDate = null;
+        break;
+      case 'thisYear':
+      default:
+        leaveStartDate = new Date(now.getFullYear(), 0, 1);
+        leaveEndDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        break;
+    }
+
+    console.log('🏖️ Leave date range:', { leavePeriod, leaveStartDate, leaveEndDate });
+
+    // Get leave summary
+    const leaveQuery = {
+      employee: employeeId
+    };
+    
+    if (leaveStartDate && leaveEndDate) {
+      leaveQuery.$or = [
+        { startDate: { $gte: leaveStartDate, $lte: leaveEndDate } },
+        { endDate: { $gte: leaveStartDate, $lte: leaveEndDate } },
+        { 
+          startDate: { $lte: leaveStartDate }, 
+          endDate: { $gte: leaveEndDate } 
+        }
+      ];
+    }
+
+    const leaveRequests = await LeaveRequest.find(leaveQuery);
+
+    // Get leave balance from employee record
+    const leaveBalance = employee.leaveBalance || {};
+    
     const leaveSummary = {
       totalRequests: leaveRequests.length,
       approved: leaveRequests.filter(leave => leave.status === 'approved').length,
       pending: leaveRequests.filter(leave => leave.status === 'pending').length,
-      rejected: leaveRequests.filter(leave => leave.status === 'rejected').length
+      rejected: leaveRequests.filter(leave => leave.status === 'rejected').length,
+      leaveBalance: {
+        casualLeave: {
+          allocated: leaveBalance.casualLeave?.allocated || 0,
+          used: leaveBalance.casualLeave?.used || 0,
+          available: (leaveBalance.casualLeave?.allocated || 0) - (leaveBalance.casualLeave?.used || 0)
+        },
+        sickLeave: {
+          allocated: leaveBalance.sickLeave?.allocated || 0,
+          used: leaveBalance.sickLeave?.used || 0,
+          available: (leaveBalance.sickLeave?.allocated || 0) - (leaveBalance.sickLeave?.used || 0)
+        },
+        specialLeave: {
+          allocated: leaveBalance.specialLeave?.allocated || 0,
+          used: leaveBalance.specialLeave?.used || 0,
+          available: (leaveBalance.specialLeave?.allocated || 0) - (leaveBalance.specialLeave?.used || 0)
+        }
+      }
     };
 
     // Return dashboard data with full employee information (no filtering)

@@ -239,22 +239,70 @@ const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmploye
               </Box>
             )}
             {!isEditMode ? (
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.9rem' }}>
-                {employee.employeeId} • {employee.employmentInfo?.designation || 'N/A'}
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Typography variant="body1" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-                  {employee.employeeId} •
+              <>
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.9rem' }}>
+                  {employee.employeeId} • {employee.employmentInfo?.designation || 'N/A'}
+                  {employee.employmentInfo?.position && (
+                    <Chip 
+                      label={employee.employmentInfo.position} 
+                      size="small" 
+                      color="primary" 
+                      sx={{ ml: 1, height: 20, fontSize: '0.7rem' }} 
+                    />
+                  )}
                 </Typography>
-                <TextField
-                  size="small"
-                  label="Designation"
-                  value={editedEmployee.employmentInfo?.designation || ''}
-                  onChange={(e) => handleFieldChange('designation', e.target.value, 'employmentInfo')}
-                  sx={{ minWidth: 150 }}
-                  variant="standard"
-                />
+              </>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body1" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
+                    {employee.employeeId} •
+                  </Typography>
+                  <FormControl size="small" sx={{ minWidth: 200 }} variant="standard">
+                    <InputLabel>Designation</InputLabel>
+                    <Select
+                      value={editedEmployee.employmentInfo?.designation || ''}
+                      onChange={(e) => handleFieldChange('designation', e.target.value, 'employmentInfo')}
+                      label="Designation"
+                    >
+                      {designations.map((designation) => (
+                        <MenuItem key={designation._id} value={designation.name}>
+                          {designation.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+                <FormControl size="small" sx={{ minWidth: 200 }} variant="standard">
+                  <InputLabel>Position/Title</InputLabel>
+                  <Select
+                    value={editedEmployee.employmentInfo?.position || ''}
+                    onChange={(e) => handleFieldChange('position', e.target.value, 'employmentInfo')}
+                    label="Position/Title"
+                  >
+                    <MenuItem value=""><em>None</em></MenuItem>
+                    <MenuItem value="CEO">CEO</MenuItem>
+                    <MenuItem value="COO">COO</MenuItem>
+                    <MenuItem value="CTO">CTO</MenuItem>
+                    <MenuItem value="CFO">CFO</MenuItem>
+                    <MenuItem value="CMO">CMO</MenuItem>
+                    <MenuItem value="CHRO">CHRO</MenuItem>
+                    <MenuItem value="VP">VP</MenuItem>
+                    <MenuItem value="Director">Director</MenuItem>
+                    <MenuItem value="Senior Manager">Senior Manager</MenuItem>
+                    <MenuItem value="Manager">Manager</MenuItem>
+                    <MenuItem value="Team Lead">Team Lead</MenuItem>
+                    <MenuItem value="Senior Executive">Senior Executive</MenuItem>
+                    <MenuItem value="Executive">Executive</MenuItem>
+                    <MenuItem value="Senior Associate">Senior Associate</MenuItem>
+                    <MenuItem value="Associate">Associate</MenuItem>
+                    <MenuItem value="Trainee">Trainee</MenuItem>
+                    <MenuItem value="Intern">Intern</MenuItem>
+                    <MenuItem value="Consultant">Consultant</MenuItem>
+                    <MenuItem value="Specialist">Specialist</MenuItem>
+                    <MenuItem value="Other">Other</MenuItem>
+                  </Select>
+                </FormControl>
               </Box>
             )}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.85rem' }}>
@@ -3714,6 +3762,7 @@ const EmployeeDirectoryModule = () => {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [pagination, setPagination] = useState({
     page: 0,
     rowsPerPage: 24,
@@ -3851,6 +3900,7 @@ const EmployeeDirectoryModule = () => {
 
   useEffect(() => {
     fetchDepartments();
+    fetchDesignations();
   }, []);
 
   const fetchDepartments = async () => {
@@ -3903,6 +3953,19 @@ const EmployeeDirectoryModule = () => {
           { _id: 'sales', name: 'Sales' }
         ]);
       }
+    }
+  };
+
+  const fetchDesignations = async () => {
+    try {
+      const response = await axios.get('/designations', {
+        params: { isActive: 'true' }
+      });
+      setDesignations(response.data.designations || []);
+    } catch (error) {
+      console.error('Error fetching designations:', error);
+      // Fallback to empty array if API fails
+      setDesignations([]);
     }
   };
 
@@ -5402,14 +5465,52 @@ const EmployeeDirectoryModule = () => {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Designation"
-                    value={newEmployee.employmentInfo.designation}
-                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'designation', e.target.value)}
-                    required
-                    size="small"
-                  />
+                  <FormControl fullWidth size="small" required>
+                    <InputLabel>Designation</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.designation}
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'designation', e.target.value)}
+                      label="Designation"
+                    >
+                      {designations.map((designation) => (
+                        <MenuItem key={designation._id} value={designation.name}>
+                          {designation.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Position/Title</InputLabel>
+                    <Select
+                      value={newEmployee.employmentInfo.position || ''}
+                      label="Position/Title"
+                      onChange={(e) => handleNewEmployeeChange('employmentInfo', 'position', e.target.value)}
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value="CEO">CEO</MenuItem>
+                      <MenuItem value="COO">COO</MenuItem>
+                      <MenuItem value="CTO">CTO</MenuItem>
+                      <MenuItem value="CFO">CFO</MenuItem>
+                      <MenuItem value="CMO">CMO</MenuItem>
+                      <MenuItem value="CHRO">CHRO</MenuItem>
+                      <MenuItem value="VP">VP</MenuItem>
+                      <MenuItem value="Director">Director</MenuItem>
+                      <MenuItem value="Senior Manager">Senior Manager</MenuItem>
+                      <MenuItem value="Manager">Manager</MenuItem>
+                      <MenuItem value="Team Lead">Team Lead</MenuItem>
+                      <MenuItem value="Senior Executive">Senior Executive</MenuItem>
+                      <MenuItem value="Executive">Executive</MenuItem>
+                      <MenuItem value="Senior Associate">Senior Associate</MenuItem>
+                      <MenuItem value="Associate">Associate</MenuItem>
+                      <MenuItem value="Trainee">Trainee</MenuItem>
+                      <MenuItem value="Intern">Intern</MenuItem>
+                      <MenuItem value="Consultant">Consultant</MenuItem>
+                      <MenuItem value="Specialist">Specialist</MenuItem>
+                      <MenuItem value="Other">Other</MenuItem>
+                    </Select>
+                  </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <FormControl fullWidth size="small">

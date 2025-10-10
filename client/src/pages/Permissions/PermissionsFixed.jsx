@@ -161,9 +161,14 @@ const PermissionsFixed = () => {
 
   const fetchRoles = async () => {
     try {
-      console.log('Fetching roles...');
-      const response = await axios.get('/permissions/roles');
+      console.log('Fetching roles with limit 1000...');
+      const response = await axios.get('/permissions/roles', {
+        params: {
+          limit: 1000 // Fetch all roles
+        }
+      });
       console.log('Roles response:', response.data);
+      console.log('Total roles received:', response.data.roles?.length);
       
       setRoles(response.data.roles || []);
       setAvailableRoles(response.data.roles || []);
@@ -175,9 +180,15 @@ const PermissionsFixed = () => {
 
   const fetchUsers = async () => {
     try {
-      console.log('Fetching users...');
-      const response = await axios.get('/permissions/users');
+      console.log('Fetching users with limit 1000...');
+      const response = await axios.get('/permissions/users', {
+        params: {
+          limit: 1000 // Fetch all users
+        }
+      });
       console.log('Users response:', response.data);
+      console.log('Total users received:', response.data.users?.length);
+      console.log('Pagination info:', response.data.pagination);
       
       setUsers(response.data.users || []);
     } catch (error) {
@@ -493,9 +504,16 @@ const PermissionsFixed = () => {
       {/* User Management Tab */}
       {tabValue === 1 && (
         <Box>
-          <Typography variant="h6" gutterBottom>
-            User Role Assignments
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">
+              User Role Assignments
+            </Typography>
+            <Chip 
+              label={`${users.length} Users Loaded`} 
+              color="primary" 
+              variant="outlined"
+            />
+          </Box>
           
           <TableContainer component={Paper}>
             <Table>

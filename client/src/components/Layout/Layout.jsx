@@ -96,6 +96,12 @@ const menuItems = [
     roles: ['admin', 'hr', 'manager']
   },
   {
+    text: 'Salary Management',
+    icon: <AttachMoneyIcon />,
+    path: '/salary-management',
+    roles: ['admin', 'hr', 'finance']
+  },
+  {
     text: 'Settings',
     icon: <SettingsIcon />,
     path: '/settings',

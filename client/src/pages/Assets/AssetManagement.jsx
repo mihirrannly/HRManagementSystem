@@ -620,7 +620,7 @@ const AssetManagement = () => {
                     {stat.count}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    ${(stat.totalValue || 0).toLocaleString()}
+                    ₹{(stat.totalValue || 0).toLocaleString()}
                   </Typography>
                 </CardContent>
               </Card>
@@ -808,7 +808,7 @@ const AssetManagement = () => {
                       
                       {asset.purchasePrice && (
                         <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600 }}>
-                          ${asset.purchasePrice.toLocaleString()}
+                          ₹{asset.purchasePrice.toLocaleString()}
                         </Typography>
                       )}
                     </CardContent>
@@ -962,7 +962,7 @@ const AssetManagement = () => {
                           <Stack spacing={0.5}>
                             {asset.purchasePrice && (
                               <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                ${asset.purchasePrice.toLocaleString()}
+                                ₹{asset.purchasePrice.toLocaleString()}
                               </Typography>
                             )}
                             <Typography variant="caption" color="text.secondary">

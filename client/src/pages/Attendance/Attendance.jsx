@@ -49,17 +49,21 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   CalendarToday as CalendarTodayIcon,
-  Group as GroupIcon
+  Group as GroupIcon,
+  FileUpload as FileUploadIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import moment from 'moment';
+import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../contexts/AuthContext';
 import IdleDetector from '../../components/IdleDetector';
+import MonthlyAttendanceGrid from './MonthlyAttendanceGrid';
 
 const Attendance = () => {
   const { user, isEmployee, forceLogout } = useAuth();
+  const navigate = useNavigate();
   const [attendanceStatus, setAttendanceStatus] = useState(null);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,15 +78,29 @@ const Attendance = () => {
   const [tabValue, setTabValue] = useState(0);
   const [teamSummary, setTeamSummary] = useState(null);
   const [calendarData, setCalendarData] = useState(null);
-  const [calendarMonth, setCalendarMonth] = useState(moment());
+  // Calendar month selector - default to current month if within range, otherwise January 2025
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = moment();
+    if (now.isBetween('2025-01-01', '2025-10-31', 'day', '[]')) {
+      return now;
+    }
+    return moment('2025-01-01');
+  });
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [selectedPeriod, setSelectedPeriod] = useState('today');
+  // Custom date range - default to Jan 2025 to Oct 2025
   const [customDateRange, setCustomDateRange] = useState({
-    startDate: moment().format('YYYY-MM-DD'),
-    endDate: moment().format('YYYY-MM-DD')
+    startDate: moment('2025-01-01').format('YYYY-MM-DD'),
+    endDate: moment('2025-10-31').format('YYYY-MM-DD')
   });
-  // Employee month selector
-  const [selectedMonth, setSelectedMonth] = useState(moment());
+  // Employee month selector - default to current month if within range, otherwise January 2025
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = moment();
+    if (now.isBetween('2025-01-01', '2025-10-31', 'day', '[]')) {
+      return now;
+    }
+    return moment('2025-01-01');
+  });
   // Location and checkout dialog states removed - functionality moved to dashboard only
   
   // Edit attendance states
@@ -109,7 +127,7 @@ const Attendance = () => {
   }, []);
 
   useEffect(() => {
-    if (!isEmployee && tabValue === 2) {
+    if (!isEmployee && (tabValue === 2 || tabValue === 3)) {
       fetchCalendarData();
     }
   }, [tabValue, calendarMonth, selectedEmployee]);
@@ -405,6 +423,30 @@ const Attendance = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            {/* Import Button - Only for Admin/HR */}
+            {!isEmployee && (user?.role === 'admin' || user?.role === 'hr') && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<FileUploadIcon />}
+                onClick={() => navigate('/attendance/import')}
+                sx={{
+                  textTransform: 'none',
+                  fontSize: '0.75rem',
+                  px: 2,
+                  py: 0.5,
+                  borderColor: '#667eea',
+                  color: '#667eea',
+                  '&:hover': {
+                    borderColor: '#764ba2',
+                    bgcolor: 'rgba(102, 126, 234, 0.04)',
+                  }
+                }}
+              >
+                Import Attendance
+              </Button>
+            )}
+            <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
               Last updated: {moment().format('HH:mm:ss')}
             </Typography>
@@ -502,181 +544,6 @@ const Attendance = () => {
         </Card>
       )}
 
-      {/* Enhanced Statistics Overview */}
-      <Box sx={{ mb: 3 }}>
-        {/* Primary Stats */}
-        <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          <Grid item xs={6} sm={3}>
-            <Paper sx={{ 
-              p: 2, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8',
-              borderRadius: 1,
-              '&:hover': { boxShadow: 1 }
-            }}>
-              <CheckCircleIcon sx={{ fontSize: 20, color: '#4caf50', mb: 0.5 }} />
-              <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600, mb: 0.3 }}>
-                {stats.presentDays}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                Present Days
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Paper sx={{ 
-              p: 2, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8',
-              borderRadius: 1,
-              '&:hover': { boxShadow: 1 }
-            }}>
-              <CancelIcon sx={{ fontSize: 20, color: '#f44336', mb: 0.5 }} />
-              <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600, mb: 0.3 }}>
-                {stats.absentDays}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                Absent Days
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Paper sx={{ 
-              p: 2, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8',
-              borderRadius: 1,
-              '&:hover': { boxShadow: 1 }
-            }}>
-              <ScheduleIcon sx={{ fontSize: 20, color: '#ff9800', mb: 0.5 }} />
-              <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600, mb: 0.3 }}>
-                {stats.lateDays}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                Late Days
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Paper sx={{ 
-              p: 2, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8',
-              borderRadius: 1,
-              '&:hover': { boxShadow: 1 }
-            }}>
-              <TimeIcon sx={{ fontSize: 20, color: '#2196f3', mb: 0.5 }} />
-              <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600, mb: 0.3 }}>
-                {stats.averageHours.toFixed(1)}h
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                Avg Hours/Day
-              </Typography>
-            </Paper>
-          </Grid>
-        </Grid>
-
-        {/* Secondary Stats */}
-        <Grid container spacing={1} sx={{ mb: 2 }}>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {stats.totalHours.toFixed(0)}h
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Total Hours
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {((stats.presentDays / Math.max(stats.presentDays + stats.absentDays, 1)) * 100).toFixed(0)}%
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Attendance
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {((stats.lateDays / Math.max(stats.presentDays, 1)) * 100).toFixed(0)}%
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Late Rate
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {moment().format('MMM')}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Period
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {moment().daysInMonth()}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Work Days
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <Paper sx={{ 
-              p: 1.5, 
-              textAlign: 'center', 
-              border: '1px solid #e8e8e8', 
-              bgcolor: '#fafafa',
-              borderRadius: 1
-            }}>
-              <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {moment().date()}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                Today
-              </Typography>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Box>
-
       {/* Tab Navigation for Admin Users */}
       {!isEmployee && (
         <Paper sx={{ mb: 3 }}>
@@ -705,6 +572,10 @@ const Attendance = () => {
               label="Calendar View" 
               sx={{ textTransform: 'none', fontWeight: 500 }}
             />
+            <Tab 
+              label="Monthly Grid" 
+              sx={{ textTransform: 'none', fontWeight: 500 }}
+            />
           </Tabs>
         </Paper>
       )}
@@ -725,6 +596,10 @@ const Attendance = () => {
                 value={selectedMonth.format('YYYY-MM')}
                 onChange={(e) => setSelectedMonth(moment(e.target.value))}
                 InputLabelProps={{ shrink: true }}
+                inputProps={{
+                  min: "2025-01",
+                  max: "2025-10"
+                }}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -732,22 +607,40 @@ const Attendance = () => {
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setSelectedMonth(moment().subtract(1, 'month'))}
+                  onClick={() => {
+                    const newMonth = selectedMonth.clone().subtract(1, 'month');
+                    if (newMonth.isSameOrAfter('2025-01-01', 'month')) {
+                      setSelectedMonth(newMonth);
+                    }
+                  }}
+                  disabled={selectedMonth.isSameOrBefore('2025-01-01', 'month')}
                 >
                   ← Previous Month
                 </Button>
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setSelectedMonth(moment())}
+                  onClick={() => {
+                    const now = moment();
+                    if (now.isBetween('2025-01-01', '2025-10-31', 'day', '[]')) {
+                      setSelectedMonth(now);
+                    } else {
+                      setSelectedMonth(moment('2025-01-01'));
+                    }
+                  }}
                 >
                   Current Month
                 </Button>
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setSelectedMonth(moment().add(1, 'month'))}
-                  disabled={selectedMonth.isSameOrAfter(moment(), 'month')}
+                  onClick={() => {
+                    const newMonth = selectedMonth.clone().add(1, 'month');
+                    if (newMonth.isSameOrBefore('2025-10-31', 'month')) {
+                      setSelectedMonth(newMonth);
+                    }
+                  }}
+                  disabled={selectedMonth.isSameOrAfter('2025-10-31', 'month')}
                 >
                   Next Month →
                 </Button>
@@ -1032,6 +925,10 @@ const Attendance = () => {
                       value={customDateRange.startDate}
                       onChange={(e) => setCustomDateRange(prev => ({ ...prev, startDate: e.target.value }))}
                       InputLabelProps={{ shrink: true }}
+                      inputProps={{
+                        min: "2025-01-01",
+                        max: "2025-10-31"
+                      }}
                     />
                   </Grid>
                   <Grid item xs={12} md={3}>
@@ -1043,6 +940,10 @@ const Attendance = () => {
                       value={customDateRange.endDate}
                       onChange={(e) => setCustomDateRange(prev => ({ ...prev, endDate: e.target.value }))}
                       InputLabelProps={{ shrink: true }}
+                      inputProps={{
+                        min: "2025-01-01",
+                        max: "2025-10-31"
+                      }}
                     />
                   </Grid>
                 </>
@@ -1617,10 +1518,13 @@ const Attendance = () => {
                 <IconButton 
                   onClick={() => {
                     const newMonth = calendarMonth.clone().subtract(1, 'month');
-                    setCalendarMonth(newMonth);
-                    fetchCalendarData(newMonth);
+                    if (newMonth.isSameOrAfter('2025-01-01', 'month')) {
+                      setCalendarMonth(newMonth);
+                      fetchCalendarData(newMonth);
+                    }
                   }}
                   size="small"
+                  disabled={calendarMonth.isSameOrBefore('2025-01-01', 'month')}
                   sx={{ 
                     bgcolor: 'rgba(102, 126, 234, 0.1)',
                     '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.2)' }
@@ -1634,8 +1538,12 @@ const Attendance = () => {
                   size="small"
                   onClick={() => {
                     const today = moment();
-                    setCalendarMonth(today);
-                    fetchCalendarData(today);
+                    let targetMonth = today;
+                    if (!today.isBetween('2025-01-01', '2025-10-31', 'day', '[]')) {
+                      targetMonth = moment('2025-01-01');
+                    }
+                    setCalendarMonth(targetMonth);
+                    fetchCalendarData(targetMonth);
                   }}
                   sx={{
                     background: 'linear-gradient(45deg, #667eea, #764ba2)',
@@ -1652,10 +1560,13 @@ const Attendance = () => {
                 <IconButton 
                   onClick={() => {
                     const newMonth = calendarMonth.clone().add(1, 'month');
-                    setCalendarMonth(newMonth);
-                    fetchCalendarData(newMonth);
+                    if (newMonth.isSameOrBefore('2025-10-31', 'month')) {
+                      setCalendarMonth(newMonth);
+                      fetchCalendarData(newMonth);
+                    }
                   }}
                   size="small"
+                  disabled={calendarMonth.isSameOrAfter('2025-10-31', 'month')}
                   sx={{ 
                     bgcolor: 'rgba(102, 126, 234, 0.1)',
                     '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.2)' }
@@ -1944,11 +1855,16 @@ const Attendance = () => {
                                     <Box key={emp.employeeId} sx={{ mb: 1 }}>
                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                                         <Avatar sx={{ width: 24, height: 24, fontSize: 10 }}>
-                                          {emp.name?.charAt(0)}
+                                          {(emp.employeeName || emp.name)?.charAt(0)}
                                         </Avatar>
-                                        <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.7rem' }}>
-                                          {emp.employeeId}
-                                        </Typography>
+                                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                                          <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.7rem', display: 'block', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {emp.employeeName || emp.name || emp.employeeId}
+                                          </Typography>
+                                          <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary', display: 'block', lineHeight: 1.3 }}>
+                                            ID: {emp.employeeId}
+                                          </Typography>
+                                        </Box>
                                       </Box>
                                       
                                       <Chip
@@ -2047,6 +1963,11 @@ const Attendance = () => {
             </Box>
           )}
         </Paper>
+      )}
+
+      {/* Tab 3: Monthly Grid View - Rannkly Format */}
+      {!isEmployee && tabValue === 3 && (
+        <MonthlyAttendanceGrid />
       )}
 
       {/* Calendar Day Detail Modal */}
@@ -2212,20 +2133,22 @@ const Attendance = () => {
                               fontSize: 14,
                               fontWeight: 600
                             }}>
-                              {emp.name?.charAt(0)}
+                              {(emp.employeeName || emp.name)?.charAt(0)}
                             </Avatar>
                             <Box sx={{ flex: 1 }}>
                               <Typography variant="subtitle2" sx={{ 
-                                fontWeight: 600,
-                                color: 'text.primary'
+                                fontWeight: 700,
+                                color: 'text.primary',
+                                fontSize: '0.95rem'
                               }}>
-                                {emp.name}
+                                {emp.employeeName || emp.name || 'Unknown Employee'}
                               </Typography>
                               <Typography variant="caption" sx={{ 
                                 color: 'text.secondary',
-                                fontWeight: 500
+                                fontWeight: 500,
+                                fontSize: '0.75rem'
                               }}>
-                                {emp.employeeId}
+                                ID: {emp.employeeId}
                               </Typography>
                             </Box>
                             <Chip

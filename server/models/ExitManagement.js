@@ -5,7 +5,7 @@ const exitManagementSchema = new mongoose.Schema({
   employee: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee',
-    required: true
+    required: false  // Made optional to support historical exit imports
   },
   employeeId: {
     type: String,
@@ -18,16 +18,30 @@ const exitManagementSchema = new mongoose.Schema({
   department: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
-    required: true
+    required: false  // Made optional to support historical exit imports
   },
   designation: {
     type: String,
     required: true
   },
+  location: String,
+  workEmail: String,
+  personalEmail: String,
   reportingManager: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
   },
+  reportingManagerName: String,  // For cases where reporting manager is not in the database
+  
+  // Additional employee info from CSV
+  mobilePhone: String,
+  currentAddress: String,
+  dateOfJoining: Date,
+  okToRehire: Boolean,
+  assetRecoveryStatus: String,
+  financeSettlementStatus: String,
+  exitSurveyStatus: String,
+  teamTransitionStatus: String,
 
   // Exit Details
   exitType: {
@@ -49,6 +63,7 @@ const exitManagementSchema = new mongoose.Schema({
     required: true
   },
   detailedReason: String,
+  requestedBy: String,  // Name of person who requested the exit
 
   // Exit Process Status
   status: {

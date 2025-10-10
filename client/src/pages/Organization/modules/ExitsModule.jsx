@@ -40,6 +40,7 @@ import {
   Tab,
   LinearProgress,
   Autocomplete,
+  IconButton,
 } from '@mui/material';
 import {
   ExitToApp as ExitToAppIcon,
@@ -58,9 +59,12 @@ import {
   Assignment as AssignmentIcon,
   PlayArrow as PlayArrowIcon,
   Done as DoneIcon,
+  Close as CloseIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import moment from 'moment';
 import { toast } from 'react-toastify';
+import Papa from 'papaparse';
 import ExitSurvey from '../../../components/ExitSurvey';
 import ExitSurveySummary from '../../../components/ExitSurveySummary';
 
@@ -76,6 +80,14 @@ const ExitsModule = () => {
   const [surveyDialogOpen, setSurveyDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [activeMainTab, setActiveMainTab] = useState(0);
+  
+  // CSV Import states
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvData, setCsvData] = useState([]);
+  const [csvFile, setCsvFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   
   // Form states
   const [formData, setFormData] = useState({
@@ -157,7 +169,7 @@ const ExitsModule = () => {
         return;
       }
 
-      const response = await fetch('/api/exit-management', {
+      const response = await fetch('/api/exit-management?limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -374,6 +386,204 @@ const ExitsModule = () => {
     }
   };
 
+  const handleImportCSV = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const isCSV = file.type === 'text/csv' || 
+                  file.type === 'application/csv' || 
+                  file.type === 'text/plain' ||
+                  file.name.toLowerCase().endsWith('.csv');
+    
+    if (!isCSV) {
+      toast.error(`Please select a valid CSV file. Selected file type: ${file.type}`);
+      return;
+    }
+
+    setCsvFile(file);
+    // Reset previous data
+    setCsvHeaders([]);
+    setCsvData([]);
+    
+    // Parse the file
+    parseCsvFile(file);
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const parseCsvFile = (file) => {
+    console.log('Starting to parse file:', file.name, 'Size:', file.size);
+    
+    // Read the file as text
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      console.log('File content (first 500 chars):', text.substring(0, 500));
+      
+      // Try to detect delimiter (tab or comma)
+      const firstLine = text.split('\n')[0];
+      const hasTab = firstLine.includes('\t');
+      const delimiter = hasTab ? '\t' : ',';
+      
+      console.log('Detected delimiter:', delimiter === '\t' ? 'TAB (TSV)' : 'COMMA (CSV)');
+      
+      // Parse with PapaParse
+      Papa.parse(text, {
+        complete: (results) => {
+          console.log('PapaParse results:', results);
+          
+          if (results.errors && results.errors.length > 0) {
+            console.warn('PapaParse warnings:', results.errors);
+          }
+          
+          if (!results.data || results.data.length === 0) {
+            toast.error('No data found in CSV file. Please check the file format.');
+            return;
+          }
+          
+          // Remove completely empty rows
+          let cleanData = results.data.filter(row => 
+            Array.isArray(row) && row.length > 0 && row.some(cell => 
+              cell !== null && cell !== undefined && cell.toString().trim() !== ''
+            )
+          );
+          
+          console.log('Clean data after filtering:', cleanData.length, 'rows');
+          
+          if (cleanData.length === 0) {
+            toast.error('No valid data rows found in CSV file');
+            return;
+          }
+          
+          // Extract headers (first row)
+          const rawHeaders = cleanData[0];
+          const headers = rawHeaders.map((header, index) => {
+            const cleanHeader = header ? header.toString().trim() : '';
+            return cleanHeader || `Column ${index + 1}`;
+          });
+          
+          console.log('Processed headers:', headers);
+          console.log('Number of columns:', headers.length);
+          
+          // Extract data rows (skip first row which contains headers)
+          const dataRows = cleanData.slice(1);
+          console.log('Data rows count:', dataRows.length);
+          
+          // Log first data row for debugging
+          if (dataRows.length > 0) {
+            console.log('First data row sample:', dataRows[0]);
+            console.log('First row column count:', dataRows[0].length);
+          }
+          
+          // Validate that we have consistent column counts
+          const headerCount = headers.length;
+          const validDataRows = dataRows.filter((row, index) => {
+            const isValid = Array.isArray(row) && row.length <= headerCount && 
+                           row.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '');
+            return isValid;
+          });
+          
+          console.log('Final valid data rows:', validDataRows.length);
+          
+          setCsvHeaders(headers);
+          setCsvData(validDataRows);
+          setImportDialogOpen(true);
+          
+          toast.success(`Successfully parsed ${validDataRows.length} exit records with ${headers.length} fields`);
+        },
+        header: false,
+        skipEmptyLines: true,
+        delimiter: delimiter,  // Auto-detected delimiter
+        quoteChar: '"',
+        escapeChar: '"',
+        dynamicTyping: false,
+        encoding: 'UTF-8',
+        worker: false,
+        error: (error) => {
+          console.error('PapaParse error:', error);
+          toast.error(`Error parsing CSV: ${error.message}`);
+        }
+      });
+    };
+    
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
+      toast.error('Error reading CSV file');
+    };
+    
+    reader.readAsText(file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!csvData.length) {
+      toast.warning('No data to import');
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Prepare data for import - convert CSV rows to objects
+      const exitRecords = csvData.map((row, index) => {
+        const record = {};
+        csvHeaders.forEach((header, headerIndex) => {
+          // Map headers to the expected field names
+          const value = row[headerIndex] || '';
+          record[header] = value;
+        });
+        return record;
+      });
+
+      console.log('CSV Headers:', csvHeaders);
+      console.log('Sample record (first one):', exitRecords[0]);
+      console.log('Importing exit records:', exitRecords.length);
+      toast.info(`📥 Importing ${exitRecords.length} exit records...`);
+
+      const response = await fetch('/api/exit-management/import-json', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ exitRecords })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setImportProgress(100);
+        toast.success(`✅ Successfully imported ${result.imported} exit records!`);
+        
+        if (result.failed > 0) {
+          toast.warning(`⚠️ ${result.failed} records failed to import.`);
+          console.log('Failed records:', result.errors);
+          console.table(result.errors.slice(0, 5)); // Show first 5 errors in table format
+        }
+        
+        // Close dialog and refresh data
+        setImportDialogOpen(false);
+        setCsvData([]);
+        setCsvHeaders([]);
+        setCsvFile(null);
+        fetchExitRecords();
+        fetchStats();
+      } else {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to import CSV');
+      }
+    } catch (error) {
+      console.error('Error importing CSV:', error);
+      toast.error('Error importing CSV file');
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+    }
+  };
+
   const handleSurveySubmit = async (surveyData) => {
     try {
       const token = localStorage.getItem('token');
@@ -397,6 +607,33 @@ const ExitsModule = () => {
     } catch (error) {
       console.error('Error submitting exit survey:', error);
       toast.error('Error submitting exit survey');
+    }
+  };
+
+  const handleUpdateMissingFields = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      toast.info('🔄 Updating exit records with missing employee information...');
+      
+      const response = await fetch('/api/exit-management/update-missing-fields', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(`✅ ${result.message}`);
+        fetchExitRecords(); // Refresh the list
+      } else {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to update exit records');
+      }
+    } catch (error) {
+      console.error('Error updating exit records:', error);
+      toast.error('Error updating exit records');
     }
   };
 
@@ -705,11 +942,45 @@ const ExitsModule = () => {
                         </Box>
                         <Box>
                           <Typography variant="body2" color="text.secondary">Department</Typography>
-                          <Typography variant="body1" fontWeight="500">{exit.department?.name}</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.department?.name || 'N/A'}</Typography>
                         </Box>
                         <Box>
                           <Typography variant="body2" color="text.secondary">Designation</Typography>
                           <Typography variant="body1" fontWeight="500">{exit.designation}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Location</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.location || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Work Email</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.workEmail || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Personal Email</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.personalEmail || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Reporting Manager</Typography>
+                          <Typography variant="body1" fontWeight="500">
+                            {exit.reportingManager?.personalInfo?.firstName && exit.reportingManager?.personalInfo?.lastName 
+                              ? `${exit.reportingManager.personalInfo.firstName} ${exit.reportingManager.personalInfo.lastName}`
+                              : exit.reportingManagerName || 'N/A'}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Mobile Phone</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.mobilePhone || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Current Address</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.currentAddress || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Date of Joining</Typography>
+                          <Typography variant="body1" fontWeight="500">
+                            {exit.dateOfJoining ? moment(exit.dateOfJoining).format('DD MMM YYYY') : 'N/A'}
+                          </Typography>
                         </Box>
                       </Stack>
                     </CardContent>
@@ -728,18 +999,58 @@ const ExitsModule = () => {
                           {getExitTypeChip(exit.exitType)}
                         </Box>
                         <Box>
+                          <Typography variant="body2" color="text.secondary">Current Status</Typography>
+                          {getStatusChip(exit.status)}
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Requested By</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.requestedBy || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Notice Date</Typography>
+                          <Typography variant="body1" fontWeight="500">
+                            {exit.resignationDate ? moment(exit.resignationDate).format('DD MMM YYYY') : 'N/A'}
+                          </Typography>
+                        </Box>
+                        <Box>
                           <Typography variant="body2" color="text.secondary">Last Working Date</Typography>
                           <Typography variant="body1" fontWeight="500">
                             {moment(exit.lastWorkingDate).format('DD MMM YYYY')}
                           </Typography>
                         </Box>
                         <Box>
-                          <Typography variant="body2" color="text.secondary">Reason</Typography>
-                          <Typography variant="body1" fontWeight="500">{exit.reasonForLeaving}</Typography>
+                          <Typography variant="body2" color="text.secondary">Exit Reason</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.reasonForLeaving || 'N/A'}</Typography>
+                        </Box>
+                        {exit.detailedReason && (
+                          <Box>
+                            <Typography variant="body2" color="text.secondary">Detailed Reason</Typography>
+                            <Typography variant="body1" fontWeight="500">{exit.detailedReason}</Typography>
+                          </Box>
+                        )}
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Ok to Rehire</Typography>
+                          <Chip 
+                            size="small" 
+                            color={exit.okToRehire ? 'success' : 'default'}
+                            label={exit.okToRehire ? 'Yes' : exit.okToRehire === false ? 'No' : 'N/A'}
+                          />
                         </Box>
                         <Box>
-                          <Typography variant="body2" color="text.secondary">Current Status</Typography>
-                          {getStatusChip(exit.status)}
+                          <Typography variant="body2" color="text.secondary">Asset Recovery</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.assetRecoveryStatus || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Finance Settlement</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.financeSettlementStatus || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Exit Survey</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.exitSurveyStatus || 'N/A'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Team Transition</Typography>
+                          <Typography variant="body1" fontWeight="500">{exit.teamTransitionStatus || 'N/A'}</Typography>
                         </Box>
                       </Stack>
                     </CardContent>
@@ -1193,6 +1504,20 @@ const ExitsModule = () => {
           <Stack direction="row" spacing={2}>
             <Button
               variant="outlined"
+              onClick={handleUpdateMissingFields}
+              sx={{
+                color: 'white',
+                borderColor: 'rgba(255,255,255,0.5)',
+                '&:hover': {
+                  borderColor: 'white',
+                  bgcolor: 'rgba(255,255,255,0.1)'
+                }
+              }}
+            >
+              🔄 Update Fields
+            </Button>
+            <Button
+              variant="outlined"
               startIcon={<DownloadIcon />}
               onClick={handleExport}
               sx={{
@@ -1205,6 +1530,26 @@ const ExitsModule = () => {
               }}
             >
               Export
+            </Button>
+            <Button
+              variant="outlined"
+              component="label"
+              sx={{
+                color: 'white',
+                borderColor: 'rgba(255,255,255,0.5)',
+                '&:hover': {
+                  borderColor: 'white',
+                  bgcolor: 'rgba(255,255,255,0.1)'
+                }
+              }}
+            >
+              📤 Import CSV
+              <input
+                type="file"
+                hidden
+                accept=".csv"
+                onChange={handleImportCSV}
+              />
             </Button>
             <Button
               variant="contained"
@@ -1572,6 +1917,130 @@ const ExitsModule = () => {
             onCancel={() => setSurveyDialogOpen(false)}
           />
         </DialogContent>
+      </Dialog>
+
+      {/* CSV Import Preview Dialog */}
+      <Dialog 
+        open={importDialogOpen} 
+        onClose={() => !isImporting && setImportDialogOpen(false)} 
+        maxWidth="lg" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            maxHeight: '90vh'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          fontWeight: 600,
+          fontSize: '1.5rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <VisibilityIcon />
+            CSV Import Preview
+          </Box>
+          <IconButton 
+            onClick={() => !isImporting && setImportDialogOpen(false)}
+            disabled={isImporting}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        
+        <DialogContent sx={{ mt: 2 }}>
+          {csvFile && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="600">
+                File: {csvFile.name} ({(csvFile.size / 1024).toFixed(2)} KB)
+              </Typography>
+              <Typography variant="body2">
+                {csvData.length} records found with {csvHeaders.length} fields
+              </Typography>
+            </Alert>
+          )}
+
+          {isImporting && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" gutterBottom>
+                Importing records... {importProgress}%
+              </Typography>
+              <LinearProgress variant="determinate" value={importProgress} />
+            </Box>
+          )}
+
+          {csvData.length > 0 && (
+            <TableContainer component={Paper} sx={{ maxHeight: 500 }}>
+              <Table stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>#</TableCell>
+                    {csvHeaders.map((header, index) => (
+                      <TableCell key={index} sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>
+                        {header}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {csvData.slice(0, 50).map((row, rowIndex) => (
+                    <TableRow key={rowIndex} hover>
+                      <TableCell sx={{ fontWeight: 'bold' }}>{rowIndex + 1}</TableCell>
+                      {row.map((cell, cellIndex) => (
+                        <TableCell key={cellIndex}>
+                          {cell || <span style={{ color: '#ccc' }}>—</span>}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {csvData.length > 50 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Showing first 50 records. Total records: {csvData.length}
+            </Alert>
+          )}
+
+          {csvData.length === 0 && (
+            <Alert severity="warning">
+              No data to preview. Please select a valid CSV file.
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ p: 3, bgcolor: '#f8f9fa' }}>
+          <Button 
+            onClick={() => setImportDialogOpen(false)} 
+            disabled={isImporting}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmImport}
+            disabled={isImporting || csvData.length === 0}
+            variant="contained"
+            sx={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              fontWeight: 600,
+              '&:hover': {
+                background: 'linear-gradient(135deg, #5568d3 0%, #65408b 100%)',
+              }
+            }}
+          >
+            {isImporting ? 'Importing...' : `Import ${csvData.length} Records`}
+          </Button>
+        </DialogActions>
       </Dialog>
       </Box>
   );

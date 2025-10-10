@@ -53,6 +53,7 @@ import {
   Refresh as RefreshIcon,
   Analytics,
   Speed,
+  Work as WorkIcon,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -82,6 +83,7 @@ import DocumentsModule from './modules/DocumentsModule';
 import EngageModule from './modules/EngageModule';
 import AssetsModule from './modules/AssetsModule';
 import SettingsModule from './modules/SettingsModule';
+import DesignationsModule from './modules/DesignationsModule';
 
 // Colors for charts
 const COLORS = ['#1976d2', '#2e7d32', '#ed6c02', '#9c27b0', '#d32f2f', '#0288d1'];
@@ -110,6 +112,14 @@ const organizationModules = [
     icon: <AccountTreeIcon />,
     color: '#ed6c02',
     description: 'Departments and hierarchy',
+    badge: null
+  },
+  {
+    id: 'designations',
+    title: 'Designations',
+    icon: <WorkIcon />,
+    color: '#00796b',
+    description: 'Manage job designations',
     badge: null
   },
   {
@@ -520,6 +530,8 @@ const Organization = () => {
         return <AssetsModule />;
       case 'settings':
         return <SettingsModule />;
+      case 'designations':
+        return <DesignationsModule />;
       default:
         return renderModulePlaceholder(currentModule);
     }

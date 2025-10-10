@@ -1,12 +1,42 @@
 const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const moment = require('moment-timezone');
+const multer = require('multer');
+const xlsx = require('xlsx');
+const path = require('path');
+const fs = require('fs');
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
 const { LeaveRequest } = require('../models/Leave');
 const { authenticate, authorize } = require('../middleware/auth');
 const { checkPermissions, MODULES, ACTIONS } = require('../middleware/permissions');
 const attendanceService = require('../services/attendanceService');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../../uploads/temp');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, `attendance-${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      return cb(new Error('Only Excel files (.xlsx, .xls) are allowed'));
+    }
+    cb(null, true);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // Office configuration
 const OFFICE_CONFIG = {
@@ -19,8 +49,8 @@ const OFFICE_CONFIG = {
     '172.16.0.0/12' // Private network range
   ],
   workingHours: {
-    start: '09:00',
-    end: '18:00'
+    start: '10:00', // Office starts at 10 AM
+    end: '19:00' // Office ends at 7 PM
   }
 };
 
@@ -1386,6 +1416,575 @@ router.get('/calendar', [
   } catch (error) {
     console.error('Error fetching calendar data:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/attendance/import/preview
+// @desc    Preview attendance data from Excel file before import
+// @access  Private (Admin, HR)
+router.post('/import/preview', [
+  authenticate,
+  authorize(['admin', 'hr']),
+  upload.single('file')
+], async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    console.log('📥 Attendance import preview requested');
+    console.log('📄 File:', req.file.originalname);
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0]; // Get first sheet
+    const worksheet = workbook.Sheets[sheetName];
+
+    // Convert to JSON
+    const jsonData = xlsx.utils.sheet_to_json(worksheet, { 
+      header: 1, // Get raw data with first row as array
+      defval: '' // Default value for empty cells
+    });
+
+    if (jsonData.length === 0) {
+      // Clean up uploaded file
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ message: 'Excel file is empty' });
+    }
+
+    // Extract headers (first row)
+    const headers = jsonData[0];
+    
+    // Extract data rows (remaining rows)
+    const dataRows = jsonData.slice(1, Math.min(11, jsonData.length)); // Preview first 10 rows
+
+    // Detect common column mappings
+    const columnMapping = detectColumnMapping(headers);
+
+    // Store file info in session for later import
+    const fileInfo = {
+      path: req.file.path,
+      originalName: req.file.originalname,
+      uploadedAt: new Date().toISOString(),
+      totalRows: jsonData.length - 1, // Exclude header row
+      headers: headers
+    };
+
+    res.json({
+      success: true,
+      fileInfo,
+      headers,
+      dataRows,
+      suggestedMapping: columnMapping,
+      totalRows: jsonData.length - 1,
+      previewRows: dataRows.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error previewing attendance data:', error);
+    
+    // Clean up uploaded file if it exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({ 
+      success: false,
+      message: 'Error previewing file',
+      error: error.message 
+    });
+  }
+});
+
+// @route   POST /api/attendance/import/execute
+// @desc    Execute attendance data import from Excel file
+// @access  Private (Admin, HR)
+router.post('/import/execute', [
+  authenticate,
+  authorize(['admin', 'hr']),
+  body('filePath').notEmpty(),
+  body('columnMapping').isObject(),
+  body('month').optional().isString(),
+  body('year').optional().isInt()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { filePath, columnMapping, month, year } = req.body;
+
+    console.log('📥 Attendance import execution started');
+    console.log('📄 File path:', filePath);
+    console.log('🗺️  Column mapping:', columnMapping);
+
+    // Verify file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'File not found. Please upload the file again.' 
+      });
+    }
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+
+    // Convert to JSON with headers
+    const jsonData = xlsx.utils.sheet_to_json(worksheet, { defval: null });
+
+    if (jsonData.length === 0) {
+      fs.unlinkSync(filePath);
+      return res.status(400).json({ 
+        success: false,
+        message: 'No data found in Excel file' 
+      });
+    }
+
+    console.log(`📊 Processing ${jsonData.length} attendance records...`);
+
+    const results = {
+      success: 0,
+      failed: 0,
+      skipped: 0,
+      errors: [],
+      created: [],
+      updated: []
+    };
+
+    // Process each row
+    for (let i = 0; i < jsonData.length; i++) {
+      try {
+        const row = jsonData[i];
+        const rowNumber = i + 2; // +2 because Excel rows start at 1 and first row is header
+
+        // Extract data based on column mapping
+        const employeeIdValue = row[columnMapping.employeeId];
+        const dateValue = row[columnMapping.date];
+        const checkInValue = row[columnMapping.checkIn];
+        const checkOutValue = row[columnMapping.checkOut];
+        const statusValue = row[columnMapping.status];
+
+        // Validate required fields
+        if (!employeeIdValue || !dateValue) {
+          results.skipped++;
+          results.errors.push({
+            row: rowNumber,
+            error: 'Missing employee ID or date'
+          });
+          continue;
+        }
+
+        // Find employee by employeeId
+        const employee = await Employee.findOne({ employeeId: employeeIdValue });
+        if (!employee) {
+          results.failed++;
+          results.errors.push({
+            row: rowNumber,
+            employeeId: employeeIdValue,
+            error: `Employee not found: ${employeeIdValue}`
+          });
+          continue;
+        }
+
+        // Parse date
+        let attendanceDate;
+        if (typeof dateValue === 'number') {
+          // Excel date serial number
+          attendanceDate = moment(xlsx.SSF.parse_date_code(dateValue)).startOf('day').toDate();
+        } else {
+          // String date
+          attendanceDate = moment(dateValue, ['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY', 'DD-MM-YYYY']).startOf('day').toDate();
+        }
+
+        if (!attendanceDate || !moment(attendanceDate).isValid()) {
+          results.failed++;
+          results.errors.push({
+            row: rowNumber,
+            employeeId: employeeIdValue,
+            error: `Invalid date format: ${dateValue}`
+          });
+          continue;
+        }
+
+        // Parse check-in time
+        let checkInTime = null;
+        if (checkInValue) {
+          checkInTime = parseTimeValue(checkInValue, attendanceDate);
+        }
+
+        // Parse check-out time
+        let checkOutTime = null;
+        if (checkOutValue) {
+          checkOutTime = parseTimeValue(checkOutValue, attendanceDate);
+        }
+
+        // Determine status
+        let status = 'present';
+        if (statusValue) {
+          const normalizedStatus = statusValue.toString().toLowerCase().trim();
+          if (['present', 'absent', 'late', 'half-day', 'holiday', 'weekend', 'on-leave'].includes(normalizedStatus)) {
+            status = normalizedStatus;
+          }
+        } else if (!checkInTime && !checkOutTime) {
+          status = 'absent';
+        }
+
+        // Calculate total hours if both check-in and check-out exist
+        let totalHours = 0;
+        let regularHours = 0;
+        let overtimeHours = 0;
+        
+        if (checkInTime && checkOutTime) {
+          const diffMs = checkOutTime - checkInTime;
+          totalHours = Math.max(0, diffMs / (1000 * 60 * 60)); // Convert to hours
+          regularHours = Math.min(totalHours, 8);
+          overtimeHours = Math.max(0, totalHours - 8);
+        }
+
+        // Check if record already exists
+        const existingAttendance = await Attendance.findOne({
+          employee: employee._id,
+          date: attendanceDate
+        });
+
+        const attendanceData = {
+          employee: employee._id,
+          date: attendanceDate,
+          status,
+          totalHours,
+          regularHours,
+          overtimeHours,
+          isManualEntry: true,
+          createdBy: req.user._id
+        };
+
+        // Add check-in data if available
+        if (checkInTime) {
+          attendanceData.checkIn = {
+            time: checkInTime,
+            method: 'manual',
+            location: { address: 'Imported from Excel' }
+          };
+
+          // Determine if late
+          const workStart = moment(attendanceDate).hour(9).minute(0);
+          const isLate = moment(checkInTime).isAfter(workStart);
+          const lateMinutes = isLate ? Math.ceil(moment(checkInTime).diff(workStart, 'minutes')) : 0;
+
+          attendanceData.isLate = isLate;
+          attendanceData.lateMinutes = lateMinutes;
+        }
+
+        // Add check-out data if available
+        if (checkOutTime) {
+          attendanceData.checkOut = {
+            time: checkOutTime,
+            method: 'manual',
+            location: { address: 'Imported from Excel' }
+          };
+        }
+
+        if (existingAttendance) {
+          // Update existing record
+          Object.assign(existingAttendance, attendanceData);
+          existingAttendance.updatedAt = new Date();
+          await existingAttendance.save();
+          
+          results.updated.push({
+            employeeId: employeeIdValue,
+            date: moment(attendanceDate).format('YYYY-MM-DD'),
+            status
+          });
+          results.success++;
+        } else {
+          // Create new record
+          const newAttendance = new Attendance(attendanceData);
+          await newAttendance.save();
+          
+          results.created.push({
+            employeeId: employeeIdValue,
+            date: moment(attendanceDate).format('YYYY-MM-DD'),
+            status
+          });
+          results.success++;
+        }
+
+      } catch (rowError) {
+        console.error(`❌ Error processing row ${i + 2}:`, rowError);
+        results.failed++;
+        results.errors.push({
+          row: i + 2,
+          error: rowError.message
+        });
+      }
+    }
+
+    // Clean up uploaded file
+    fs.unlinkSync(filePath);
+
+    console.log('✅ Attendance import completed');
+    console.log(`📊 Results: ${results.success} success, ${results.failed} failed, ${results.skipped} skipped`);
+
+    res.json({
+      success: true,
+      message: `Import completed: ${results.success} records processed successfully`,
+      results
+    });
+
+  } catch (error) {
+    console.error('❌ Error executing attendance import:', error);
+
+    // Clean up uploaded file if it exists
+    if (req.body.filePath && fs.existsSync(req.body.filePath)) {
+      fs.unlinkSync(req.body.filePath);
+    }
+
+    res.status(500).json({ 
+      success: false,
+      message: 'Error importing attendance data',
+      error: error.message 
+    });
+  }
+});
+
+// Helper function to detect column mapping based on common header names
+function detectColumnMapping(headers) {
+  const mapping = {
+    employeeId: null,
+    date: null,
+    checkIn: null,
+    checkOut: null,
+    status: null,
+    totalHours: null
+  };
+
+  headers.forEach((header, index) => {
+    const normalizedHeader = header.toString().toLowerCase().trim();
+
+    // Employee ID variations
+    if (normalizedHeader.match(/employee.*id|emp.*id|staff.*id|id/i)) {
+      mapping.employeeId = header;
+    }
+    // Date variations
+    else if (normalizedHeader.match(/date|day|attendance.*date/i)) {
+      mapping.date = header;
+    }
+    // Check-in variations
+    else if (normalizedHeader.match(/check.*in|in.*time|clock.*in|entry.*time|login/i)) {
+      mapping.checkIn = header;
+    }
+    // Check-out variations
+    else if (normalizedHeader.match(/check.*out|out.*time|clock.*out|exit.*time|logout/i)) {
+      mapping.checkOut = header;
+    }
+    // Status variations
+    else if (normalizedHeader.match(/status|attendance.*status|present|absent/i)) {
+      mapping.status = header;
+    }
+    // Total hours variations
+    else if (normalizedHeader.match(/total.*hours|hours.*worked|working.*hours/i)) {
+      mapping.totalHours = header;
+    }
+  });
+
+  return mapping;
+}
+
+// Helper function to parse time values from various formats
+function parseTimeValue(timeValue, baseDate) {
+  try {
+    if (!timeValue) return null;
+
+    // If it's already a Date object
+    if (timeValue instanceof Date) {
+      return timeValue;
+    }
+
+    // Excel time serial number (decimal between 0 and 1)
+    if (typeof timeValue === 'number' && timeValue >= 0 && timeValue < 1) {
+      const totalMinutes = Math.round(timeValue * 24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return moment(baseDate).hour(hours).minute(minutes).second(0).toDate();
+    }
+
+    // Excel date-time serial number (number > 1)
+    if (typeof timeValue === 'number' && timeValue > 1) {
+      return moment(xlsx.SSF.parse_date_code(timeValue)).toDate();
+    }
+
+    // String time format (e.g., "09:30", "9:30 AM", "09:30:00")
+    if (typeof timeValue === 'string') {
+      const timeStr = timeValue.trim();
+      
+      // Try parsing with various formats
+      const formats = ['HH:mm:ss', 'HH:mm', 'h:mm A', 'h:mm:ss A', 'hh:mm A', 'hh:mm:ss A'];
+      
+      for (const format of formats) {
+        const parsed = moment(timeStr, format, true);
+        if (parsed.isValid()) {
+          return moment(baseDate)
+            .hour(parsed.hour())
+            .minute(parsed.minute())
+            .second(parsed.second())
+            .toDate();
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error parsing time value:', timeValue, error);
+    return null;
+  }
+}
+
+// @route   POST /api/attendance/import-single
+// @desc    Import a single attendance record (for batch imports from frontend)
+// @access  Private (Admin, HR)
+router.post('/import-single', 
+  authenticate,
+  authorize(['admin', 'hr']),
+  async (req, res) => {
+  try {
+    // Validate input
+    if (!req.body.employeeId || !req.body.date) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'employeeId and date are required' 
+      });
+    }
+
+    const { employeeId, date, checkIn, checkOut, status } = req.body;
+
+    // Find employee by employeeId
+    const employee = await Employee.findOne({ employeeId });
+    if (!employee) {
+      // Return success with skipped flag for historical employees no longer in system
+      return res.status(200).json({
+        success: true,
+        skipped: true,
+        message: `Employee not found in system (may be historical): ${employeeId}`
+      });
+    }
+
+    // Parse date
+    const attendanceDate = moment(date, ['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY']).startOf('day').toDate();
+    if (!moment(attendanceDate).isValid()) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid date format: ${date}`
+      });
+    }
+
+    // Parse times
+    let checkInTime = null;
+    if (checkIn) {
+      checkInTime = parseTimeValue(checkIn, attendanceDate);
+    }
+
+    let checkOutTime = null;
+    if (checkOut) {
+      checkOutTime = parseTimeValue(checkOut, attendanceDate);
+    }
+
+    // Determine status
+    let attendanceStatus = 'present';
+    if (status) {
+      const normalizedStatus = status.toString().toLowerCase().trim();
+      if (['present', 'absent', 'late', 'half-day', 'holiday', 'weekend', 'on-leave'].includes(normalizedStatus)) {
+        attendanceStatus = normalizedStatus;
+      }
+    } else if (!checkInTime && !checkOutTime) {
+      attendanceStatus = 'absent';
+    }
+
+    // Calculate total hours
+    let totalHours = 0;
+    let regularHours = 0;
+    let overtimeHours = 0;
+    
+    if (checkInTime && checkOutTime) {
+      const diffMs = checkOutTime - checkInTime;
+      totalHours = Math.max(0, diffMs / (1000 * 60 * 60));
+      regularHours = Math.min(totalHours, 8);
+      overtimeHours = Math.max(0, totalHours - 8);
+    }
+
+    // Check if record exists
+    const existingAttendance = await Attendance.findOne({
+      employee: employee._id,
+      date: attendanceDate
+    });
+
+    const attendanceData = {
+      employee: employee._id,
+      date: attendanceDate,
+      status: attendanceStatus,
+      totalHours,
+      regularHours,
+      overtimeHours,
+      isManualEntry: true,
+      createdBy: req.user._id
+    };
+
+    if (checkInTime) {
+      attendanceData.checkIn = {
+        time: checkInTime,
+        method: 'manual',
+        location: { address: 'Imported from Rannkly Report' }
+      };
+
+      // Use OFFICE_CONFIG start time instead of hardcoded 9 AM
+      const workStart = moment.tz(moment(attendanceDate).format('YYYY-MM-DD') + ' ' + OFFICE_CONFIG.workingHours.start, OFFICE_CONFIG.timezone);
+      const isLate = moment(checkInTime).isAfter(workStart);
+      const lateMinutes = isLate ? Math.ceil(moment(checkInTime).diff(workStart, 'minutes')) : 0;
+
+      attendanceData.isLate = isLate;
+      attendanceData.lateMinutes = lateMinutes;
+    }
+
+    if (checkOutTime) {
+      attendanceData.checkOut = {
+        time: checkOutTime,
+        method: 'manual',
+        location: { address: 'Imported from Rannkly Report' }
+      };
+    }
+
+    let created = false;
+    if (existingAttendance) {
+      Object.assign(existingAttendance, attendanceData);
+      existingAttendance.updatedAt = new Date();
+      await existingAttendance.save();
+    } else {
+      const newAttendance = new Attendance(attendanceData);
+      await newAttendance.save();
+      created = true;
+    }
+
+    res.json({
+      success: true,
+      created,
+      message: created ? 'Attendance record created' : 'Attendance record updated'
+    });
+
+  } catch (error) {
+    console.error('❌ Error importing single record:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Request body:', req.body);
+    
+    // Ensure we always send a response
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Server error',
+        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
   }
 });
 
