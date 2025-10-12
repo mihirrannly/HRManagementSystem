@@ -28,11 +28,15 @@ const faceDetectionRoutes = require('./routes/faceDetection');
 const exitManagementRoutes = require('./routes/exitManagement');
 const salaryManagementRoutes = require('./routes/salaryManagement');
 const designationRoutes = require('./routes/designations');
+const webhookRoutes = require('./routes/webhook');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
 
 const app = express();
+
+// Trust proxy - Required for rate limiting and getting real IP addresses
+app.set('trust proxy', true);
 
 // Security middleware with custom configuration for CORS
 app.use(helmet({
@@ -61,33 +65,33 @@ const allowedOrigins = [
 ];
 
 // In development, also allow network IP access
-if (process.env.NODE_ENV === 'development') {
-  allowedOrigins.push('http://192.168.68.133:5173');
-  // Allow any local network IP for development
-  app.use(cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (mobile apps, Postman, etc.)
-      if (!origin) return callback(null, true);
+// if (process.env.NODE_ENV === 'development') {
+//   allowedOrigins.push('http://192.168.68.133:5173');
+//   // Allow any local network IP for development
+//   app.use(cors({
+//     origin: function (origin, callback) {
+//       // Allow requests with no origin (mobile apps, Postman, etc.)
+//       if (!origin) return callback(null, true);
       
-      // Check if origin is in allowed list or matches local network pattern
-      if (allowedOrigins.includes(origin) || /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  }));
-} else {
-  app.use(cors({
-    origin: allowedOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  }));
-}
+//       // Check if origin is in allowed list or matches local network pattern
+//       if (allowedOrigins.includes(origin) || /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error('Not allowed by CORS'));
+//       }
+//     },
+//     credentials: true,
+//     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-key']
+//   }));
+// } else {
+//   app.use(cors({
+//     origin: allowedOrigins,
+//     credentials: true,
+//     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-key']
+//   }));
+// }
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -150,6 +154,7 @@ app.use('/api/face-detection', faceDetectionRoutes);
 app.use('/api/exit-management', exitManagementRoutes);
 app.use('/api/salary-management', salaryManagementRoutes);
 app.use('/api/designations', designationRoutes);
+app.use('/api/webhook', webhookRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -251,3 +251,5 @@ Employees checking in before 10 AM will be marked as **On Time**, and only those
 If any records still show incorrect late status, it might be cached data. The system will calculate correctly for all new check-ins from now on!
 
 
+
+

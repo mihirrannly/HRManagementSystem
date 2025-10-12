@@ -58,6 +58,12 @@ const OFFICE_CONFIG = {
 const isOfficeIP = (clientIP) => {
   console.log('🔍 Checking IP:', clientIP);
   
+  // Check if IP validation is disabled (for testing/development)
+  if (process.env.DISABLE_IP_VALIDATION === 'true') {
+    console.log('⚠️  IP validation is DISABLED (testing mode)');
+    return true;
+  }
+  
   // For development, allow localhost
   if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1') {
     console.log('✅ Localhost access allowed');
@@ -173,21 +179,11 @@ router.get('/today', authenticate, async (req, res) => {
     const officeTime = getOfficeTime();
     const today = officeTime.clone().startOf('day').toDate();
     
-    // Check if today is a working day (Monday to Friday)
+    // Check if today is a weekend
     const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // Sunday (0) or Saturday (6)
     
-    if (!isWorkingDay) {
-      return res.json({ 
-        checkedIn: false, 
-        checkedOut: false,
-        checkIn: null,
-        checkOut: null,
-        totalHours: 0,
-        status: 'weekend',
-        message: 'Today is not a working day'
-      });
-    }
+    // Note: We allow attendance on weekends, but mark it as weekend work
 
     // Get real attendance record for today
     const attendance = await Attendance.findOne({
@@ -443,17 +439,12 @@ router.post('/checkin', authenticate, async (req, res) => {
     const officeTime = getOfficeTime();
     const today = officeTime.clone().startOf('day').toDate();
     
-    // Check if today is a working day (Monday to Friday)
+    // Check if today is a weekend (but still allow check-in)
     const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // Sunday (0) or Saturday (6)
     
-    if (!isWorkingDay) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Check-in is only allowed on working days (Monday to Friday)',
-        dayOfWeek: officeTime.format('dddd')
-      });
-    }
+    // Note: We allow check-in on weekends for employees who work on weekends
+    // The system will mark it as 'weekend' status for proper tracking
     
     // Check if already checked in today
     const existingAttendance = await Attendance.findOne({
@@ -496,13 +487,14 @@ router.post('/checkin', authenticate, async (req, res) => {
         },
         ipAddress: actualIP,
         isValidLocation: true,
-        isLate: isLate,
-        lateMinutes: lateMinutes
+        isLate: isWeekend ? false : isLate, // No late marking on weekends
+        lateMinutes: isWeekend ? 0 : lateMinutes // No late minutes on weekends
       },
-      status: isLate ? 'late' : 'present',
-      isLate: isLate,
-      lateMinutes: lateMinutes,
-      flexibleEndTime: flexibleEndTime.toDate() // Store when employee can leave based on check-in time
+      status: isWeekend ? 'weekend' : (isLate ? 'late' : 'present'),
+      isLate: isWeekend ? false : isLate,
+      lateMinutes: isWeekend ? 0 : lateMinutes,
+      flexibleEndTime: flexibleEndTime.toDate(), // Store when employee can leave based on check-in time
+      isWeekendWork: isWeekend // Flag to identify weekend work
     };
 
     let attendance;
@@ -514,24 +506,29 @@ router.post('/checkin', authenticate, async (req, res) => {
       await attendance.save();
     }
 
-    console.log('✅ Check-in successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'));
+    console.log('✅ Check-in successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'), isWeekend ? '(Weekend)' : '');
 
-    const lateMessage = isLate 
+    const lateMessage = isLate && !isWeekend
       ? ` (${Math.floor(lateMinutes / 60)}h ${lateMinutes % 60}m late)`
       : '';
+    
+    const weekendMessage = isWeekend ? ' (Weekend work - Great dedication! 🌟)' : '';
 
     res.json({
       success: true,
-      message: `Check-in successful at ${officeTime.format('HH:mm')}${lateMessage}. You can leave at ${flexibleEndTime.format('HH:mm')}`,
-      isLate: isLate,
-      lateMinutes: lateMinutes,
+      message: `Check-in successful at ${officeTime.format('HH:mm')}${lateMessage}${weekendMessage}. You can leave at ${flexibleEndTime.format('HH:mm')}`,
+      isLate: isWeekend ? false : isLate,
+      lateMinutes: isWeekend ? 0 : lateMinutes,
       flexibleEndTime: flexibleEndTime.format('HH:mm'),
       checkInTime: officeTime.format('HH:mm'),
+      isWeekend: isWeekend,
+      dayOfWeek: officeTime.format('dddd'),
       attendance: {
         checkIn: attendance.checkIn,
         status: attendance.status,
         isLate: attendance.isLate,
-        lateMinutes: attendance.lateMinutes
+        lateMinutes: attendance.lateMinutes,
+        isWeekendWork: isWeekend
       }
     });
 
@@ -576,17 +573,11 @@ router.post('/checkout', authenticate, async (req, res) => {
     const officeTime = getOfficeTime();
     const today = officeTime.clone().startOf('day').toDate();
     
-    // Check if today is a working day (Monday to Friday)
+    // Check if today is a weekend (but still allow check-out)
     const dayOfWeek = officeTime.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    const isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // Sunday (0) or Saturday (6)
     
-    if (!isWorkingDay) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Check-out is only allowed on working days (Monday to Friday)',
-        dayOfWeek: officeTime.format('dddd')
-      });
-    }
+    // Note: We allow check-out on weekends for employees who work on weekends
     
     // Find today's attendance record
     const attendance = await Attendance.findOne({
@@ -652,27 +643,33 @@ router.post('/checkout', authenticate, async (req, res) => {
 
     await attendance.save();
 
-    console.log('✅ Check-out successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'));
+    console.log('✅ Check-out successful for employee:', employee.employeeId, 'at', officeTime.format('HH:mm'), isWeekend ? '(Weekend)' : '');
 
     const flexibleEndTimeStr = attendance.flexibleEndTime 
       ? moment(attendance.flexibleEndTime).tz(OFFICE_CONFIG.timezone).format('HH:mm')
       : '19:00';
+    
+    const weekendMessage = isWeekend ? ' Thanks for your weekend dedication! 🌟' : '';
+    const earlyMessage = !isWeekend && isEarlyDeparture ? ` (${Math.floor(earlyMinutes / 60)}h ${earlyMinutes % 60}m before ${flexibleEndTimeStr})` : '';
 
     res.json({
       success: true,
-      message: `Check-out successful at ${officeTime.format('HH:mm')}${isEarlyDeparture ? ` (${Math.floor(earlyMinutes / 60)}h ${earlyMinutes % 60}m before ${flexibleEndTimeStr})` : ''}`,
-      isEarlyDeparture: isEarlyDeparture,
-      earlyMinutes: earlyMinutes,
+      message: `Check-out successful at ${officeTime.format('HH:mm')}${earlyMessage}${weekendMessage}`,
+      isEarlyDeparture: isWeekend ? false : isEarlyDeparture,
+      earlyMinutes: isWeekend ? 0 : earlyMinutes,
       flexibleEndTime: flexibleEndTimeStr,
       checkOutTime: officeTime.format('HH:mm'),
       totalHours: attendance.totalHours,
       workingHours: `${Math.floor(attendance.totalHours)}h ${Math.round((attendance.totalHours % 1) * 60)}m`,
+      isWeekend: isWeekend,
+      dayOfWeek: officeTime.format('dddd'),
       attendance: {
         checkIn: attendance.checkIn,
         checkOut: attendance.checkOut,
         totalHours: attendance.totalHours,
-        isEarlyDeparture: isEarlyDeparture,
-        earlyMinutes: earlyMinutes
+        isEarlyDeparture: isWeekend ? false : isEarlyDeparture,
+        earlyMinutes: isWeekend ? 0 : earlyMinutes,
+        isWeekendWork: isWeekend
       }
     });
 
@@ -1072,9 +1069,19 @@ router.get('/team-summary', [
       .populate('leaveRequest', 'leaveType status');
     
     console.log('📋 Found attendance records:', attendanceRecords.length);
-    attendanceRecords.forEach(record => {
-      console.log(`  - ${record.employee.employeeId}: ${record.status} (CheckIn: ${record.checkIn?.time ? 'Yes' : 'No'}, CheckOut: ${record.checkOut?.time ? 'Yes' : 'No'})`);
+    
+    // Filter out records with null employees (orphaned records)
+    const validAttendanceRecords = attendanceRecords.filter(record => {
+      if (record.employee) {
+        console.log(`  - ${record.employee.employeeId}: ${record.status} (CheckIn: ${record.checkIn?.time ? 'Yes' : 'No'}, CheckOut: ${record.checkOut?.time ? 'Yes' : 'No'})`);
+        return true;
+      } else {
+        console.log(`  - ⚠️  Skipping record with null employee: ${record._id} - ${record.status}`);
+        return false;
+      }
     });
+    
+    console.log('📋 Valid attendance records:', validAttendanceRecords.length);
 
     // Get all employees for the filter
     const allEmployees = await Employee.find(
@@ -1087,11 +1094,11 @@ router.get('/team-summary', [
     console.log('👥 Employee list:', allEmployees.map(emp => `${emp.employeeId} - ${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`));
 
     // Calculate aggregate statistics for the date range
-    const totalRecords = attendanceRecords.length;
-    const presentRecords = attendanceRecords.filter(r => r.status === 'present' || r.status === 'late').length;
-    const absentRecords = attendanceRecords.filter(r => r.status === 'absent').length;
-    const lateRecords = attendanceRecords.filter(r => r.status === 'late').length;
-    const totalHours = attendanceRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+    const totalRecords = validAttendanceRecords.length;
+    const presentRecords = validAttendanceRecords.filter(r => r.status === 'present' || r.status === 'late').length;
+    const absentRecords = validAttendanceRecords.filter(r => r.status === 'absent').length;
+    const lateRecords = validAttendanceRecords.filter(r => r.status === 'late').length;
+    const totalHours = validAttendanceRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
     const averageHours = presentRecords > 0 ? totalHours / presentRecords : 0;
 
     // Group attendance by date for detailed view
@@ -1113,7 +1120,7 @@ router.get('/team-summary', [
       
       // Add employee data for this date
       for (const employee of allEmployees) {
-        const attendanceRecord = attendanceRecords.find(
+        const attendanceRecord = validAttendanceRecords.find(
           record => record.employee._id.toString() === employee._id.toString() &&
                    moment(record.date).format('YYYY-MM-DD') === dateKey
         );
@@ -1416,6 +1423,245 @@ router.get('/calendar', [
   } catch (error) {
     console.error('Error fetching calendar data:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/attendance/punch-records
+// @desc    Get punch records with daily aggregation (first punch in, last punch out, total hours)
+// @access  Private
+router.get('/punch-records', [
+  authenticate
+], async (req, res) => {
+  try {
+    console.log('\n🔍 Punch Records Request:');
+    console.log('Query params:', req.query);
+    console.log('User:', req.user.id, req.user.role);
+    
+    const { startDate, endDate, employeeId } = req.query;
+    const userId = req.user.id;
+    
+    console.log('📋 Parsed params:');
+    console.log('  - employeeId:', employeeId);
+    console.log('  - employeeId type:', typeof employeeId);
+    console.log('  - employeeId is undefined?', employeeId === undefined);
+    console.log('  - employeeId is empty string?', employeeId === '');
+    
+    // Determine which employee(s) to fetch data for
+    let queryFilter = {};
+    let findLatestPunch = false;
+    const isAdminOrHR = req.user.role === 'admin' || req.user.role === 'hr';
+    
+    // Check if employeeId is provided and not empty
+    if (employeeId && employeeId !== '') {
+      // Specific employee requested - check permissions
+      if (!isAdminOrHR) {
+        const currentEmployee = await Employee.findOne({ userId });
+        if (!currentEmployee || currentEmployee._id.toString() !== employeeId) {
+          return res.status(403).json({ message: 'Not authorized to view this data' });
+        }
+      }
+      queryFilter.employee = employeeId;
+    } else {
+      // No specific employee requested
+      if (isAdminOrHR) {
+        // Admin/HR requesting without employee - find latest punch for the date
+        console.log('👑 Admin/HR requesting latest punch for date');
+        findLatestPunch = true;
+      } else {
+        // Regular employee - only show their own records
+        const employee = await Employee.findOne({ userId });
+        if (!employee) {
+          return res.status(404).json({ message: 'Employee not found' });
+        }
+        queryFilter.employee = employee._id;
+      }
+    }
+    
+    // Build date filter
+    const dateFilter = {};
+    if (startDate && endDate) {
+      dateFilter.date = {
+        $gte: moment(startDate).startOf('day').toDate(),
+        $lte: moment(endDate).endOf('day').toDate()
+      };
+    } else {
+      // Default to current month
+      dateFilter.date = {
+        $gte: moment().startOf('month').toDate(),
+        $lte: moment().endOf('month').toDate()
+      };
+    }
+    
+    // Fetch attendance records with punch records
+    console.log('📅 Date filter:', dateFilter);
+    console.log('👤 Query filter:', queryFilter);
+    
+    // If finding latest, also show who has attendance number 19 for debugging
+    if (findLatestPunch) {
+      const emp19 = await Employee.findOne({ attendanceNumber: '19' }).lean();
+      if (emp19) {
+        console.log('🔍 DEBUG: Employee with Att#19:', emp19.employeeId, 
+                    emp19.personalInfo?.firstName, emp19.personalInfo?.lastName);
+        // Check if they have attendance today
+        const att19 = await Attendance.findOne({
+          employee: emp19._id,
+          ...dateFilter
+        }).lean();
+        if (att19) {
+          console.log('   ✅ Has attendance record today with', att19.punchRecords?.length || 0, 'punches');
+          if (att19.punchRecords && att19.punchRecords.length > 0) {
+            const latestPunch = att19.punchRecords[att19.punchRecords.length - 1];
+            console.log('   ⏰ Latest punch:', moment(latestPunch.time).format('HH:mm:ss'));
+          }
+        } else {
+          console.log('   ❌ No attendance record today');
+        }
+      } else {
+        console.log('🔍 DEBUG: No employee with Att#19 found');
+      }
+    }
+    
+    const attendanceRecords = await Attendance.find({
+      ...queryFilter,
+      ...dateFilter
+    })
+    .populate('employee', 'personalInfo.firstName personalInfo.lastName employeeId attendanceNumber')
+    .sort({ date: -1, employee: 1 })
+    .lean();
+    
+    console.log('📊 Found', attendanceRecords.length, 'attendance records');
+    console.log('Punch records count per record:', attendanceRecords.map(r => r.punchRecords?.length || 0));
+    console.log('📋 Employees with attendance:', attendanceRecords.map(r => 
+      `${r.employee?.employeeId || 'N/A'} (Att#: ${r.employee?.attendanceNumber || 'N/A'}) - ${r.punchRecords?.length || 0} punches`
+    ));
+    
+    // If finding latest punch and no records found, return empty
+    if (findLatestPunch && attendanceRecords.length === 0) {
+      return res.json({
+        success: true,
+        records: [],
+        dateRange: {
+          start: dateFilter.date?.$gte || null,
+          end: dateFilter.date?.$lte || null
+        },
+        latestPunch: true
+      });
+    }
+    
+    // Process and aggregate data
+    const processedRecords = attendanceRecords.map(record => {
+      const punchRecords = record.punchRecords || [];
+      
+      // Sort punch records by time
+      const sortedPunches = [...punchRecords].sort((a, b) => 
+        new Date(a.time) - new Date(b.time)
+      );
+      
+      // Calculate total hours based on punch pairs
+      let totalMinutes = 0;
+      for (let i = 0; i < sortedPunches.length - 1; i += 2) {
+        const punchIn = sortedPunches[i];
+        const punchOut = sortedPunches[i + 1];
+        
+        if (punchIn.type === 'in' && punchOut && punchOut.type === 'out') {
+          const diff = new Date(punchOut.time) - new Date(punchIn.time);
+          totalMinutes += Math.floor(diff / (1000 * 60));
+        }
+      }
+      
+      // If there's an odd number of punches, the last one is still active
+      const hasActivePunch = sortedPunches.length > 0 && 
+                            sortedPunches.length % 2 !== 0 &&
+                            sortedPunches[sortedPunches.length - 1].type === 'in';
+      
+      // Calculate hours from last active punch if exists
+      if (hasActivePunch) {
+        const lastPunch = sortedPunches[sortedPunches.length - 1];
+        const now = new Date();
+        const diff = now - new Date(lastPunch.time);
+        totalMinutes += Math.floor(diff / (1000 * 60));
+      }
+      
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      
+      return {
+        _id: record._id,
+        date: record.date,
+        employee: record.employee,
+        firstPunchIn: sortedPunches.length > 0 ? sortedPunches[0] : null,
+        lastPunchOut: sortedPunches.length > 1 && sortedPunches[sortedPunches.length - 1].type === 'out' 
+          ? sortedPunches[sortedPunches.length - 1] 
+          : null,
+        punchRecords: sortedPunches,
+        totalPunches: sortedPunches.length,
+        totalHours: hours,
+        totalMinutes: minutes,
+        totalTimeFormatted: `${hours}h ${minutes}m`,
+        status: record.status,
+        isActiveSession: hasActivePunch,
+        checkIn: record.checkIn,
+        checkOut: record.checkOut
+      };
+    });
+    
+    // If we need to find the latest punch, filter to only the most recent
+    let finalRecords = processedRecords;
+    if (findLatestPunch && processedRecords.length > 0) {
+      console.log('🔍 Finding record with latest punch across all employees...');
+      console.log('📊 Total records to check:', processedRecords.length);
+      
+      // Find the record with the most recent punch by checking ALL punches
+      let latestRecord = null;
+      let latestPunchTime = null;
+      
+      for (const record of processedRecords) {
+        if (record.punchRecords && record.punchRecords.length > 0) {
+          // Check ALL punches in this record, not just the last one
+          for (const punch of record.punchRecords) {
+            const punchTime = new Date(punch.time);
+            
+            if (!latestPunchTime || punchTime > latestPunchTime) {
+              latestPunchTime = punchTime;
+              latestRecord = record;
+              console.log('   🆕 New latest:', record.employee.employeeId, 
+                          '- Punch at', moment(punchTime).format('HH:mm:ss'),
+                          'Type:', punch.type);
+            }
+          }
+        }
+      }
+      
+      if (latestRecord) {
+        console.log('✅ FINAL RESULT - Latest punch:', latestRecord.employee.employeeId, 
+                    '(', latestRecord.employee.personalInfo.firstName, latestRecord.employee.personalInfo.lastName, ')',
+                    'at', moment(latestPunchTime).format('HH:mm:ss'));
+        finalRecords = [latestRecord];
+      } else {
+        console.log('❌ No latest punch found');
+        finalRecords = [];
+      }
+    }
+    
+    console.log('✅ Returning', finalRecords.length, 'processed records');
+    
+    res.json({
+      success: true,
+      records: finalRecords,
+      dateRange: {
+        start: dateFilter.date?.$gte || null,
+        end: dateFilter.date?.$lte || null
+      },
+      latestPunch: findLatestPunch
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching punch records:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 });
 

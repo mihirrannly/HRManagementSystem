@@ -593,8 +593,17 @@ router.get('/requests', [
       .skip(skip)
       .limit(limit);
 
+    // Filter out requests with null employees (orphaned records)
+    const validRequests = requests.filter(request => {
+      if (!request.employee) {
+        console.log(`⚠️  Leave request with null employee: ${request._id} - ${request.status}`);
+        return false;
+      }
+      return true;
+    });
+
     // Add leave type information manually since it's now a string enum
-    const requestsWithLeaveType = requests.map(request => {
+    const requestsWithLeaveType = validRequests.map(request => {
       const requestObj = request.toObject();
       const leaveTypeMap = {
         casual: { name: 'Casual Leave', code: 'CL', color: '#4CAF50' },

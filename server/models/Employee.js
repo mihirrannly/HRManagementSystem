@@ -7,6 +7,13 @@ const employeeSchema = new mongoose.Schema({
     unique: true,
     index: true // Add database index for faster queries and enforce uniqueness
   },
+  attendanceNumber: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow null values but enforce uniqueness when present
+    index: true,
+    trim: true
+  },
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -90,6 +97,7 @@ const employeeSchema = new mongoose.Schema({
     position: {
       type: String,
       enum: [
+        null,
         'CEO', 'COO', 'CTO', 'CFO', 'CMO', 'CHRO', 
         'VP', 'Director', 'Senior Manager', 'Manager', 
         'Team Lead', 'Senior Executive', 'Executive', 
@@ -315,6 +323,7 @@ employeeSchema.virtual('experience').get(function() {
 
 // Indexes for better query performance
 employeeSchema.index({ employeeId: 1 });
+employeeSchema.index({ attendanceNumber: 1 });
 employeeSchema.index({ 'employmentInfo.department': 1 });
 employeeSchema.index({ 'employmentInfo.reportingManager': 1 });
 employeeSchema.index({ 'personalInfo.firstName': 1, 'personalInfo.lastName': 1 });

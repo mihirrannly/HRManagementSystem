@@ -584,6 +584,15 @@ const AboutSection = ({ employee, isEditable = false, editedEmployee, onFieldCha
             }}>
               Employee ID: {employee.employeeId || 'Not assigned'}
             </Typography>
+            {employee.attendanceNumber && (
+              <Typography variant="body2" sx={{ 
+                color: '#64748b',
+                fontSize: '0.875rem',
+                mt: 0.5
+              }}>
+                Attendance Number: {employee.attendanceNumber}
+              </Typography>
+            )}
           </Box>
 
           <Grid container spacing={2}>
@@ -938,7 +947,7 @@ const ProfileSection = ({ employee }) => {
                     fontSize: '0.95rem',
                     fontFamily: 'monospace'
                   }}>
-                    {maskSensitiveData(employee.additionalInfo?.['PAN Number'] || employee.salaryInfo?.taxInfo?.panNumber)}
+                    {maskSensitiveData(employee.additionalInfo?.taxInfo?.panNumber || employee.additionalInfo?.['PAN Number'] || employee.salaryInfo?.taxInfo?.panNumber)}
                   </Typography>
                 </Box>
               </Grid>
@@ -966,7 +975,7 @@ const ProfileSection = ({ employee }) => {
                     fontSize: '0.95rem',
                     fontFamily: 'monospace'
                   }}>
-                    {maskSensitiveData(employee.additionalInfo?.['Aadhaar Number'] || employee.salaryInfo?.taxInfo?.aadharNumber)}
+                    {maskSensitiveData(employee.additionalInfo?.taxInfo?.aadharNumber || employee.additionalInfo?.['Aadhaar Number'] || employee.salaryInfo?.taxInfo?.aadharNumber)}
                   </Typography>
                 </Box>
               </Grid>
@@ -994,7 +1003,7 @@ const ProfileSection = ({ employee }) => {
                     fontSize: '0.95rem',
                     fontFamily: 'monospace'
                   }}>
-                    {employee.additionalInfo?.['PF Number'] || employee.salaryInfo?.taxInfo?.pfNumber || 'Not provided'}
+                    {employee.additionalInfo?.taxInfo?.pfNumber || employee.additionalInfo?.['PF Number'] || employee.salaryInfo?.taxInfo?.pfNumber || 'Not provided'}
                   </Typography>
                 </Box>
               </Grid>
@@ -1022,7 +1031,7 @@ const ProfileSection = ({ employee }) => {
                     fontSize: '0.95rem',
                     fontFamily: 'monospace'
                   }}>
-                    {employee.additionalInfo?.['UAN Number'] || employee.salaryInfo?.taxInfo?.uanNumber || 'Not provided'}
+                    {employee.additionalInfo?.taxInfo?.uanNumber || employee.additionalInfo?.['UAN Number'] || employee.salaryInfo?.taxInfo?.uanNumber || 'Not provided'}
                   </Typography>
                 </Box>
               </Grid>
@@ -1050,7 +1059,7 @@ const ProfileSection = ({ employee }) => {
                   'onboardingId', 'candidatePortalData', 'itSetupData', 'hrSetupData', 'allEmergencyContacts',
                   'offerLetterData', 'orientationData', 'onboardingTasks', 'stepProgress', 'educationQualifications',
                   'workExperience', 'governmentDocuments', 'bankDocuments', 'educationDocuments', 
-                  'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt'
+                  'workExperienceDocuments', 'onboardingCompletedAt', 'documentsSubmittedAt', 'taxInfo'
                 ];
                 
                 // Only show simple string/number/boolean values
@@ -5462,6 +5471,16 @@ const EmployeeDirectoryModule = () => {
                     value={newEmployee.employmentInfo.employeeId}
                     onChange={(e) => handleNewEmployeeChange('employmentInfo', 'employeeId', e.target.value)}
                     size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Attendance Number"
+                    value={newEmployee.employmentInfo.attendanceNumber}
+                    onChange={(e) => handleNewEmployeeChange('employmentInfo', 'attendanceNumber', e.target.value)}
+                    size="small"
+                    helperText="Used for fingerprint/biometric attendance"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>

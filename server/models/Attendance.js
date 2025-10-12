@@ -98,6 +98,31 @@ const attendanceSchema = new mongoose.Schema({
       autoLogout: Boolean
     }]
   },
+  punchRecords: [{
+    time: {
+      type: Date,
+      required: true
+    },
+    type: {
+      type: String,
+      enum: ['in', 'out'],
+      required: true
+    },
+    method: {
+      type: String,
+      enum: ['manual', 'biometric', 'mobile', 'web', 'face-detection'],
+      default: 'biometric'
+    },
+    deviceName: String,
+    deviceSerialNumber: String,
+    location: {
+      latitude: Number,
+      longitude: Number,
+      address: String
+    },
+    ipAddress: String,
+    notes: String
+  }],
   totalHours: {
     type: Number,
     default: 0
@@ -173,6 +198,28 @@ const attendanceSchema = new mongoose.Schema({
 
 // Calculate total hours and status before saving
 attendanceSchema.pre('save', function(next) {
+  // Update check-in and check-out from punch records if available
+  if (this.punchRecords && this.punchRecords.length > 0) {
+    // Sort punch records by time
+    const sortedPunches = [...this.punchRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
+    
+    // First punch = Check-in
+    const firstPunch = sortedPunches[0];
+    if (!this.checkIn?.time || new Date(firstPunch.time) < new Date(this.checkIn.time)) {
+      if (!this.checkIn) this.checkIn = {};
+      this.checkIn.time = firstPunch.time;
+      this.checkIn.method = firstPunch.method || 'biometric';
+    }
+    
+    // Last punch = Check-out
+    const lastPunch = sortedPunches[sortedPunches.length - 1];
+    if (sortedPunches.length > 1 && (!this.checkOut?.time || new Date(lastPunch.time) > new Date(this.checkOut.time))) {
+      if (!this.checkOut) this.checkOut = {};
+      this.checkOut.time = lastPunch.time;
+      this.checkOut.method = lastPunch.method || 'biometric';
+    }
+  }
+  
   // Calculate total hours if both check-in and check-out exist
   if (this.checkIn?.time && this.checkOut?.time) {
     const totalMs = this.checkOut.time - this.checkIn.time;

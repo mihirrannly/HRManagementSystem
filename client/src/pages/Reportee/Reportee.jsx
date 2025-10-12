@@ -94,7 +94,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 // Create a dedicated axios instance for Reportee with proper configuration
 const reporteeApi = axios.create({
-  baseURL: 'http://localhost:5001/api',
+  baseURL: '/api',
   timeout: 10000,
 });
 

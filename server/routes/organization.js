@@ -621,6 +621,7 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
   const employee = new Employee({
     // Use employeeId from CSV data if available, otherwise let model generate it
     employeeId: empData.employee_number || empData.employeeNumber || empData.employeeId || undefined,
+    attendanceNumber: empData.attendanceNumber || undefined,
     user: user._id,
     personalInfo: {
       firstName,
@@ -653,6 +654,14 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
         grossSalary,
         ctc
       }
+    },
+    additionalInfo: {
+      taxInfo: {
+        panNumber: empData.panNumber || undefined,
+        aadharNumber: empData.aadhaarNumber || undefined,
+        pfNumber: empData.pfNumber || undefined,
+        uanNumber: empData.uanNumber || undefined
+      }
     }
   });
 
@@ -662,6 +671,11 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
 
 // Helper function to update employee from import data
 async function updateEmployeeFromImport(employee, empData, departmentId) {
+  // Update attendance number if provided
+  if (empData.attendanceNumber !== undefined) {
+    employee.attendanceNumber = empData.attendanceNumber || null;
+  }
+
   // Update personal info
   if (empData.employeeName) {
     const nameParts = empData.employeeName.trim().split(' ');
@@ -692,6 +706,21 @@ async function updateEmployeeFromImport(employee, empData, departmentId) {
       grossSalary: basicSalary + hra + allowances,
       ctc
     };
+  }
+
+  // Update tax info
+  if (empData.panNumber || empData.aadhaarNumber || empData.pfNumber || empData.uanNumber) {
+    if (!employee.additionalInfo) {
+      employee.additionalInfo = {};
+    }
+    if (!employee.additionalInfo.taxInfo) {
+      employee.additionalInfo.taxInfo = {};
+    }
+    
+    if (empData.panNumber !== undefined) employee.additionalInfo.taxInfo.panNumber = empData.panNumber;
+    if (empData.aadhaarNumber !== undefined) employee.additionalInfo.taxInfo.aadharNumber = empData.aadhaarNumber;
+    if (empData.pfNumber !== undefined) employee.additionalInfo.taxInfo.pfNumber = empData.pfNumber;
+    if (empData.uanNumber !== undefined) employee.additionalInfo.taxInfo.uanNumber = empData.uanNumber;
   }
 
   await employee.save();
@@ -903,6 +932,7 @@ router.post('/import-master-data', [
         const employeePayload = {
           // Use employeeId from CSV if available, otherwise let model generate CODR format
           employeeId: csvEmployeeId,
+          attendanceNumber: empData['attendance_number'] || empData.employmentInfo?.attendanceNumber || empData.additionalInfo?.['Attendance Number'] || undefined,
           // user: will be set after user creation
           personalInfo: {
             firstName,
@@ -956,7 +986,14 @@ router.post('/import-master-data', [
           },
 
           // Additional Information (Dynamic fields from CSV)
-          additionalInfo: {}
+          additionalInfo: {
+            taxInfo: {
+              panNumber: empData['pan_number'] || empData.personalInfo?.panNumber || empData.additionalInfo?.['PAN Number'] || undefined,
+              aadharNumber: empData['aadhaar_number'] || empData.personalInfo?.aadhaarNumber || empData.additionalInfo?.['Aadhaar Number'] || undefined,
+              pfNumber: empData['pf_number'] || empData.employmentInfo?.pfNumber || empData.additionalInfo?.['PF Number'] || undefined,
+              uanNumber: empData['uan_number'] || empData.employmentInfo?.uanNumber || empData.additionalInfo?.['UAN Number'] || undefined
+            }
+          }
         };
 
         console.log('DEBUG: Initial payload salary structure:', JSON.stringify(employeePayload.salaryInfo, null, 2));
@@ -966,7 +1003,8 @@ router.post('/import-master-data', [
           'first_name', 'last_name', 'email', 'phone', 'department', 'position', 
           'salary', 'hire_date', 'status', 'manager', 'location', 'employee_id',
           'date_of_birth', 'gender', 'address', 'emergency_contact', 'emergency_phone',
-          'skills', 'education', 'experience_years', 'nationality', 'marital_status'
+          'skills', 'education', 'experience_years', 'nationality', 'marital_status',
+          'attendance_number', 'pan_number', 'aadhaar_number', 'pf_number', 'uan_number'
         ];
 
         Object.keys(empData).forEach(key => {
