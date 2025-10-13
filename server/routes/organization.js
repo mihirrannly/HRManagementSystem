@@ -640,11 +640,11 @@ async function createEmployeeFromImport(empData, firstName, lastName, department
     },
     employmentInfo: {
       department: departmentId,
-      designation: empData.jobTitle || 'Employee',
-      employeeType: empData.workerType || 'full-time',
-      workLocation: empData.location || 'office',
-      dateOfJoining: empData.dateOfJoining ? new Date(empData.dateOfJoining) : new Date(),
-      isActive: empData.employmentStatus !== 'Terminated'
+      designation: empData.jobTitle || empData.employmentInfo?.designation || 'Employee',
+      employeeType: empData.workerType || empData.employmentInfo?.employeeType || 'full-time',
+      workLocation: empData.location || empData.employmentInfo?.workLocation || 'office',
+      dateOfJoining: (empData.dateOfJoining || empData.employmentInfo?.dateOfJoining) ? new Date(empData.dateOfJoining || empData.employmentInfo?.dateOfJoining) : new Date(),
+      isActive: (empData.employmentStatus || empData.employmentInfo?.employmentStatus) !== 'Terminated'
     },
     salaryInfo: {
       currentSalary: {
@@ -963,12 +963,12 @@ router.post('/import-master-data', [
           // Employment Information (matching schema exactly)
           employmentInfo: {
             department: departmentId, // Required ObjectId
-            designation: empData['job_title'] || empData['secondary_job_title'] || 'Employee', // Required
-            employeeType: empData['worker_type'] === 'Permanent' ? 'full-time' : empData['time_type'] === 'FullTime' ? 'full-time' : 'full-time', // Default enum value
-            workLocation: 'office', // Always use default enum value instead of CSV location
-            dateOfJoining: parseDate(empData['date_joined']), // Required
+            designation: empData['job_title'] || empData['secondary_job_title'] || empData.employmentInfo?.designation || 'Employee', // Required
+            employeeType: empData['worker_type'] === 'Permanent' ? 'full-time' : empData['time_type'] === 'FullTime' ? 'full-time' : empData.employmentInfo?.employeeType || 'full-time', // Default enum value
+            workLocation: empData.employmentInfo?.workLocation || 'office', // Always use default enum value instead of CSV location
+            dateOfJoining: parseDate(empData['date_joined'] || empData.employmentInfo?.dateOfJoining), // Required - handle both formats
             workShift: 'day', // Default enum value
-            isActive: (empData['employment_status'] || 'Working').toLowerCase() === 'working',
+            isActive: (empData['employment_status'] || empData.employmentInfo?.employmentStatus || 'Working').toLowerCase() !== 'terminated',
             reportingManager: null // Will be set in second pass after all employees are created
           },
 
@@ -1770,6 +1770,32 @@ router.get('/debug-reporting-managers', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Debug endpoint failed',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/organization/clear-hierarchy-cache
+// @desc    Clear the hierarchy cache to force fresh data fetch
+// @access  Private (Admin, HR)
+router.post('/clear-hierarchy-cache', [
+  authenticate,
+  authorize(['admin', 'hr'])
+], async (req, res) => {
+  try {
+    console.log('Clearing hierarchy cache...');
+    hierarchyCache.data = null;
+    hierarchyCache.timestamp = null;
+    
+    res.json({
+      success: true,
+      message: 'Hierarchy cache cleared successfully'
+    });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to clear cache',
       error: error.message
     });
   }

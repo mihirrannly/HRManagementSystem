@@ -55,6 +55,8 @@ A comprehensive Human Resource Management System built with Node.js, Express, Mo
 - **RESTful APIs**: Well-structured API endpoints
 - **Data Validation**: Comprehensive input validation
 - **Error Handling**: Proper error handling and user feedback
+- **Cloud Storage**: Optional AWS S3 integration for scalable file storage
+- **Flexible Storage**: Automatic fallback to local storage if S3 not configured
 
 ## 🛠 Technology Stack
 
@@ -67,6 +69,7 @@ A comprehensive Human Resource Management System built with Node.js, Express, Mo
 - **bcryptjs**: Password hashing
 - **PDFKit**: PDF generation
 - **Multer**: File uploads
+- **AWS S3**: Cloud file storage (optional)
 - **Moment.js**: Date handling
 
 ### Frontend
@@ -110,7 +113,16 @@ A comprehensive Human Resource Management System built with Node.js, Express, Mo
    JWT_EXPIRE=7d
    PORT=5000
    NODE_ENV=development
+   
+   # Optional: AWS S3 for cloud file storage
+   USE_S3=false  # Set to 'true' to enable S3
+   AWS_ACCESS_KEY_ID=your-aws-key
+   AWS_SECRET_ACCESS_KEY=your-aws-secret
+   AWS_REGION=us-east-1
+   AWS_S3_BUCKET=your-bucket-name
    ```
+   
+   **Note**: For AWS S3 setup, see [S3 Integration Guide](./S3_INTEGRATION_GUIDE.md)
 
 4. **Start MongoDB**
    ```bash

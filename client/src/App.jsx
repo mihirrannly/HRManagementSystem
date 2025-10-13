@@ -31,6 +31,7 @@ import OrganizationAdvanced from './pages/Organization/OrganizationAdvanced';
 import Permissions from './pages/Permissions/Permissions';
 import PermissionsDebug from './pages/Permissions/PermissionsDebug';
 import PermissionsFixed from './pages/Permissions/PermissionsFixed';
+import PermissionsManagement from './pages/Permissions/PermissionsManagement';
 import AuthTest from './pages/Permissions/AuthTest';
 import AssetManagement from './pages/Assets/AssetManagement';
 import ExitManagement from './pages/ExitManagement/ExitManagement';
@@ -224,7 +225,7 @@ function App() {
                 <Route path="attendance/import-rannkly" element={<RannklyAttendanceImport />} />
                 <Route path="leave" element={<Leave />} />
                 <Route path="reports" element={<Reports />} />
-                <Route path="permissions" element={<PermissionsFixed />} />
+                <Route path="permissions" element={<PermissionsManagement />} />
                 <Route path="assets" element={<AssetManagement />} />
                 <Route path="exit-management" element={<ExitManagement />} />
                 <Route path="salary-management" element={<SalaryManagement />} />

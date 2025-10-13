@@ -14,6 +14,7 @@ import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -30,6 +31,20 @@ const OrganizationTreeModule = () => {
   useEffect(() => {
     fetchHierarchy();
   }, []);
+
+  const clearCacheAndRefresh = async () => {
+    try {
+      // Clear the server-side cache first
+      await axios.post('/organization/clear-hierarchy-cache');
+      toast.success('Cache cleared, refreshing...');
+      // Then fetch fresh data
+      await fetchHierarchy();
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      toast.error('Failed to clear cache, but fetching fresh data...');
+      await fetchHierarchy();
+    }
+  };
 
   const fetchHierarchy = async () => {
     setLoading(true);
@@ -511,6 +526,17 @@ const OrganizationTreeModule = () => {
               startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary', fontSize: '1rem' }} />
             }}
           />
+          <IconButton
+            size="small"
+            onClick={clearCacheAndRefresh}
+            sx={{ 
+              color: 'primary.main',
+              '&:hover': { bgcolor: 'primary.lighter' }
+            }}
+            title="Refresh hierarchy"
+          >
+            <RefreshIcon />
+          </IconButton>
           <Button
             variant="outlined"
             size="small"

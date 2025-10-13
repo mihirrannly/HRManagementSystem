@@ -203,25 +203,78 @@ attendanceSchema.pre('save', function(next) {
     // Sort punch records by time
     const sortedPunches = [...this.punchRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
     
-    // First punch = Check-in
-    const firstPunch = sortedPunches[0];
-    if (!this.checkIn?.time || new Date(firstPunch.time) < new Date(this.checkIn.time)) {
-      if (!this.checkIn) this.checkIn = {};
-      this.checkIn.time = firstPunch.time;
-      this.checkIn.method = firstPunch.method || 'biometric';
+    console.log(`🔄 Pre-save hook: Processing ${sortedPunches.length} punch records`);
+    
+    // Filter IN punches and get the first one (first IN of the day)
+    const inPunches = sortedPunches.filter(p => p.type === 'in');
+    if (inPunches.length > 0) {
+      const firstInPunch = inPunches[0];
+      const newCheckInTime = new Date(firstInPunch.time);
+      const existingCheckInTime = this.checkIn?.time ? new Date(this.checkIn.time) : null;
+      
+      // Always update if it's earlier or if no checkIn exists
+      if (!existingCheckInTime || newCheckInTime < existingCheckInTime || newCheckInTime.getTime() !== existingCheckInTime.getTime()) {
+        if (!this.checkIn) this.checkIn = {};
+        this.checkIn.time = firstInPunch.time;
+        this.checkIn.method = firstInPunch.method || 'biometric';
+        this.checkIn.ipAddress = firstInPunch.ipAddress;
+        if (firstInPunch.location) {
+          this.checkIn.location = firstInPunch.location;
+        }
+        console.log(`✅ Updated check-in to: ${new Date(firstInPunch.time).toISOString()}`);
+      }
     }
     
-    // Last punch = Check-out
-    const lastPunch = sortedPunches[sortedPunches.length - 1];
-    if (sortedPunches.length > 1 && (!this.checkOut?.time || new Date(lastPunch.time) > new Date(this.checkOut.time))) {
-      if (!this.checkOut) this.checkOut = {};
-      this.checkOut.time = lastPunch.time;
-      this.checkOut.method = lastPunch.method || 'biometric';
+    // Filter OUT punches and get the last one (last OUT of the day)
+    const outPunches = sortedPunches.filter(p => p.type === 'out');
+    if (outPunches.length > 0) {
+      const lastOutPunch = outPunches[outPunches.length - 1];
+      const newCheckOutTime = new Date(lastOutPunch.time);
+      const existingCheckOutTime = this.checkOut?.time ? new Date(this.checkOut.time) : null;
+      
+      // Always update if it's later or if no checkOut exists
+      if (!existingCheckOutTime || newCheckOutTime > existingCheckOutTime || newCheckOutTime.getTime() !== existingCheckOutTime.getTime()) {
+        if (!this.checkOut) this.checkOut = {};
+        this.checkOut.time = lastOutPunch.time;
+        this.checkOut.method = lastOutPunch.method || 'biometric';
+        this.checkOut.ipAddress = lastOutPunch.ipAddress;
+        if (lastOutPunch.location) {
+          this.checkOut.location = lastOutPunch.location;
+        }
+        console.log(`✅ Updated check-out to: ${new Date(lastOutPunch.time).toISOString()}`);
+      }
     }
   }
   
-  // Calculate total hours if both check-in and check-out exist
-  if (this.checkIn?.time && this.checkOut?.time) {
+  // Calculate total hours between first and last punch (regardless of type)
+  if (this.punchRecords && this.punchRecords.length > 0) {
+    // Sort punch records by time
+    const sortedPunches = [...this.punchRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
+    
+    // Get first and last punch regardless of type
+    const firstPunch = sortedPunches[0];
+    const lastPunch = sortedPunches[sortedPunches.length - 1];
+    
+    // Calculate time between first and last punch
+    const totalMs = new Date(lastPunch.time) - new Date(firstPunch.time);
+    
+    // Subtract break time
+    const breakTime = this.breaks.reduce((total, brk) => {
+      if (brk.breakOut && brk.breakIn) {
+        return total + (brk.breakIn - brk.breakOut);
+      }
+      return total;
+    }, 0);
+    
+    this.totalHours = Math.max(0, (totalMs - breakTime) / (1000 * 60 * 60)); // Convert to hours
+    
+    // Calculate regular and overtime hours (assuming 8 hours is regular)
+    this.regularHours = Math.min(this.totalHours, 8);
+    this.overtimeHours = Math.max(0, this.totalHours - 8);
+    
+    console.log(`⏱️  Total hours calculated: ${this.totalHours.toFixed(2)}h (from ${new Date(firstPunch.time).toTimeString().split(' ')[0]} to ${new Date(lastPunch.time).toTimeString().split(' ')[0]})`);
+  } else if (this.checkIn?.time && this.checkOut?.time) {
+    // Fallback to old logic if no punch records but checkIn/checkOut exist
     const totalMs = this.checkOut.time - this.checkIn.time;
     
     // Subtract break time
@@ -237,6 +290,8 @@ attendanceSchema.pre('save', function(next) {
     // Calculate regular and overtime hours (assuming 8 hours is regular)
     this.regularHours = Math.min(this.totalHours, 8);
     this.overtimeHours = Math.max(0, this.totalHours - 8);
+    
+    console.log(`⏱️  Total hours calculated: ${this.totalHours.toFixed(2)}h (from ${new Date(this.checkIn.time).toTimeString().split(' ')[0]} to ${new Date(this.checkOut.time).toTimeString().split(' ')[0]})`);
   }
 
   // Update timestamp

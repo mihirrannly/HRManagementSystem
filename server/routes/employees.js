@@ -1,47 +1,15 @@
 const express = require('express');
 const { body, validationResult, query } = require('express-validator');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const Employee = require('../models/Employee');
 const User = require('../models/User');
 const Department = require('../models/Department');
 const { authenticate, authorize, canAccessEmployee, canAccessEmployeeWithFilter } = require('../middleware/auth');
+const { uploads, getFileUrl } = require('../middleware/s3Upload');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'uploads/employees';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760 // 10MB default
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Invalid file type'));
-    }
-  }
-});
+// Use S3-enabled upload middleware
+const upload = uploads.employee;
 
 // @route   GET /api/employees/birthdays
 // @desc    Get employee birthdays (current month and upcoming)
@@ -195,6 +163,80 @@ router.get('/anniversaries', authenticate, async (req, res) => {
   }
 });
 
+// @route   GET /api/employees/on-probation
+// @desc    Get employees currently on probation (within first 3 months from joining)
+// @access  Private (All authenticated users)
+router.get('/on-probation', authenticate, async (req, res) => {
+  try {
+    const currentDate = new Date();
+    
+    // Calculate the date 3 months ago
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+    // Get all active employees who joined within the last 3 months
+    const employees = await Employee.find({
+      'employmentInfo.isActive': true,
+      'employmentInfo.dateOfJoining': { 
+        $exists: true,
+        $gte: threeMonthsAgo,
+        $lte: currentDate
+      }
+    })
+      .select('personalInfo.firstName personalInfo.lastName employmentInfo.dateOfJoining employmentInfo.designation employmentInfo.department employeeId profilePicture')
+      .populate('employmentInfo.department', 'name')
+      .lean();
+
+    // Calculate days remaining in probation for each employee
+    const probationEmployees = employees.map(employee => {
+      const joiningDate = new Date(employee.employmentInfo.dateOfJoining);
+      
+      // Calculate probation end date (3 months from joining)
+      const probationEndDate = new Date(joiningDate);
+      probationEndDate.setMonth(probationEndDate.getMonth() + 3);
+      
+      // Calculate days remaining
+      const timeDiff = probationEndDate - currentDate;
+      const daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      
+      // Calculate days completed in probation
+      const timeSinceJoining = currentDate - joiningDate;
+      const daysCompleted = Math.floor(timeSinceJoining / (1000 * 60 * 60 * 24));
+      
+      return {
+        _id: employee._id,
+        employeeId: employee.employeeId,
+        name: `${employee.personalInfo.firstName} ${employee.personalInfo.lastName}`,
+        firstName: employee.personalInfo.firstName,
+        lastName: employee.personalInfo.lastName,
+        designation: employee.employmentInfo.designation,
+        department: employee.employmentInfo.department?.name || 'N/A',
+        joiningDate: employee.employmentInfo.dateOfJoining,
+        probationEndDate: probationEndDate,
+        daysRemaining: Math.max(0, daysRemaining),
+        daysCompleted,
+        profilePicture: employee.profilePicture
+      };
+    });
+
+    // Sort by days remaining (ascending)
+    probationEmployees.sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+    res.json({
+      success: true,
+      count: probationEmployees.length,
+      employees: probationEmployees
+    });
+  } catch (error) {
+    console.error('Error fetching probation employees:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch probation employees',
+      error: error.message
+    });
+  }
+});
+
 // @route   GET /api/employees
 // @desc    Get all employees with filtering, sorting, and pagination
 // @access  Private (HR, Admin, Manager)
@@ -220,12 +262,16 @@ router.get('/', [
     // Build filter query
     let filter = {};
     
-    if (req.query.department) {
-      filter['employmentInfo.department'] = req.query.department;
-    }
-    
+    // Default to showing only active employees unless explicitly requested otherwise
     if (req.query.isActive !== undefined) {
       filter['employmentInfo.isActive'] = req.query.isActive === 'true';
+    } else {
+      // By default, only show active employees
+      filter['employmentInfo.isActive'] = true;
+    }
+    
+    if (req.query.department) {
+      filter['employmentInfo.department'] = req.query.department;
     }
 
     if (req.query.search) {

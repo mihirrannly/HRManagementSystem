@@ -168,6 +168,8 @@ router.post('/attendance', authenticateWebhook, async (req, res) => {
             attendance.isWeekendWork = isWeekend;
           }
           
+          // Mark punchRecords as modified to ensure pre-save hook runs
+          attendance.markModified('punchRecords');
           await attendance.save();
         } else {
           // Create new attendance record

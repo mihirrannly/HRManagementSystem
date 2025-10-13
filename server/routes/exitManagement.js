@@ -67,6 +67,88 @@ router.get('/dashboard/stats', [
   }
 });
 
+// @route   GET /api/exit-management/recent-exits
+// @desc    Get employees who left in the last two months with their exit status
+// @access  Private (HR, Admin, Manager)
+router.get('/recent-exits', [
+  authenticate,
+  checkPermissions(MODULES.EXIT_MANAGEMENT, ACTIONS.READ)
+], async (req, res) => {
+  try {
+    // Calculate date from 2 months ago
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+
+    // Find all exits where last working date is in the last 2 months
+    const recentExits = await ExitManagement.find({
+      lastWorkingDate: {
+        $gte: twoMonthsAgo,
+        $lte: new Date()
+      }
+    })
+      .populate('employee', 'personalInfo employmentInfo')
+      .populate('department', 'name')
+      .populate('reportingManager', 'personalInfo')
+      .sort({ lastWorkingDate: -1 })
+      .lean();
+
+    // Format the response
+    const formattedExits = recentExits.map(exit => ({
+      _id: exit._id,
+      employeeId: exit.employeeId,
+      employeeName: exit.employeeName,
+      designation: exit.designation,
+      department: exit.department?.name || 'N/A',
+      location: exit.location || 'N/A',
+      exitType: exit.exitType,
+      lastWorkingDate: exit.lastWorkingDate,
+      status: exit.status,
+      reasonForLeaving: exit.reasonForLeaving,
+      // Clearance status summary
+      clearanceStatus: {
+        itClearance: exit.clearance?.itClearance?.status || 'pending',
+        hrClearance: exit.clearance?.hrClearance?.status || 'pending',
+        financeClearance: exit.clearance?.financeClearance?.status || 'pending',
+        managerClearance: exit.clearance?.managerClearance?.status || 'pending',
+        adminClearance: exit.clearance?.adminClearance?.status || 'pending',
+      },
+      // Overall completion percentage
+      completionPercentage: calculateCompletionPercentage(exit),
+      // Days since exit
+      daysSinceExit: Math.floor((new Date() - new Date(exit.lastWorkingDate)) / (1000 * 60 * 60 * 24))
+    }));
+
+    res.json({
+      success: true,
+      count: formattedExits.length,
+      exits: formattedExits
+    });
+  } catch (error) {
+    console.error('Error fetching recent exits:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Helper function to calculate completion percentage
+function calculateCompletionPercentage(exit) {
+  const checklist = exit.finalChecklist || {};
+  const checklistItems = [
+    'allClearancesCompleted',
+    'assetsReturned',
+    'documentsCollected',
+    'knowledgeTransferCompleted',
+    'exitInterviewCompleted',
+    'legalComplianceCompleted',
+    'systemAccessRevoked',
+    'finalSettlementProcessed'
+  ];
+  
+  const completedItems = checklistItems.filter(item => checklist[item] === true).length;
+  const totalItems = checklistItems.length;
+  
+  return Math.round((completedItems / totalItems) * 100);
+}
+
 // @route   GET /api/exit-management/export
 // @desc    Export exit management records
 // @access  Private (HR, Admin)

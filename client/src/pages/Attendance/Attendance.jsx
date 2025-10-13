@@ -51,7 +51,9 @@ import {
   ChevronRight as ChevronRightIcon,
   CalendarToday as CalendarTodayIcon,
   Group as GroupIcon,
-  FileUpload as FileUploadIcon
+  FileUpload as FileUploadIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -118,6 +120,9 @@ const Attendance = () => {
   const [dayDetailModalOpen, setDayDetailModalOpen] = useState(false);
   const [selectedDayData, setSelectedDayData] = useState(null);
 
+  // Punch records expanded state
+  const [showAllPunches, setShowAllPunches] = useState(false);
+
   // Punch records states
   const [punchRecords, setPunchRecords] = useState([]);
   const [punchRecordsLoading, setPunchRecordsLoading] = useState(false);
@@ -126,6 +131,7 @@ const Attendance = () => {
   const [allEmployees, setAllEmployees] = useState([]);
   const [showingLatestPunch, setShowingLatestPunch] = useState(false);
   const [manuallySelected, setManuallySelected] = useState(false);
+  const [latestPunchInfo, setLatestPunchInfo] = useState(null);
 
   useEffect(() => {
     fetchTodayStatus();
@@ -133,8 +139,30 @@ const Attendance = () => {
     if (!isEmployee) {
       fetchTeamSummary();
       fetchCalendarData();
+    } else {
+      // For employees, fetch their own employee record and auto-select
+      fetchEmployeeInfo();
     }
   }, []);
+
+  const fetchEmployeeInfo = async () => {
+    try {
+      const response = await axios.get('/employees/me');
+      if (response.data && response.data._id) {
+        console.log('✅ Employee info loaded:', response.data);
+        // Auto-select the employee's own ID
+        setSelectedPunchEmployee(response.data._id);
+        // Also add to employees list for the dropdown
+        setAllEmployees([{
+          _id: response.data._id,
+          employeeId: response.data.employeeId,
+          name: `${response.data.personalInfo?.firstName || ''} ${response.data.personalInfo?.lastName || ''}`.trim()
+        }]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching employee info:', error);
+    }
+  };
 
   useEffect(() => {
     if (!isEmployee && (tabValue === 2 || tabValue === 3)) {
@@ -361,15 +389,21 @@ const Attendance = () => {
       console.log('✅ Punch records response:', response.data);
       console.log('  - latestPunch flag:', response.data.latestPunch);
       console.log('  - Records count:', response.data.records?.length);
+      console.log('  - Latest punch info:', response.data.latestPunchInfo);
       
       const records = response.data.records || [];
       setPunchRecords(records);
       
-      // Only auto-select if user hasn't manually selected someone
+      // Store latest punch info for cards display
+      if (response.data.latestPunchInfo) {
+        setLatestPunchInfo(response.data.latestPunchInfo);
+      } else {
+        setLatestPunchInfo(null);
+      }
+      
+      // Show all records when viewing latest punch mode
       if (response.data.latestPunch && records.length > 0 && !selectedPunchEmployee && !manuallySelected) {
-        const latestEmployee = records[0].employee;
-        console.log('📌 Auto-selecting employee from latest punch:',  latestEmployee?.employeeId);
-        setSelectedPunchEmployee(latestEmployee?._id || '');
+        console.log('📌 Showing all punch records for the date');
         setShowingLatestPunch(true);
       } else if (selectedPunchEmployee && manuallySelected) {
         console.log('👤 User manually selected employee, keeping selection');
@@ -2266,7 +2300,7 @@ const Attendance = () => {
                     display: 'block',
                     pl: 0.5
                   }}>
-                    👤 Select Employee
+                    👤 {isEmployee ? 'Employee' : 'Select Employee'}
                   </Typography>
                   <Select
                     value={selectedPunchEmployee}
@@ -2278,6 +2312,7 @@ const Attendance = () => {
                     }}
                     fullWidth
                     displayEmpty
+                    disabled={isEmployee}
                     sx={{
                       bgcolor: 'rgba(255,255,255,0.2)',
                       color: 'white',
@@ -2287,19 +2322,25 @@ const Attendance = () => {
                       backdropFilter: 'blur(10px)',
                       transition: 'all 0.3s ease',
                       '&:hover': {
-                        bgcolor: 'rgba(255,255,255,0.25)',
-                        transform: 'translateY(-2px)',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+                        bgcolor: isEmployee ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.25)',
+                        transform: isEmployee ? 'none' : 'translateY(-2px)',
+                        boxShadow: isEmployee ? 'none' : '0 4px 20px rgba(0,0,0,0.15)'
                       },
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2 },
                       '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.6)' },
                       '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white', borderWidth: 2 },
-                      '& .MuiSvgIcon-root': { color: 'white' }
+                      '& .MuiSvgIcon-root': { color: 'white' },
+                      '&.Mui-disabled': {
+                        bgcolor: 'rgba(255,255,255,0.15)',
+                        color: 'rgba(255,255,255,0.8)'
+                      }
                     }}
                   >
-                    <MenuItem value="">
-                      <em>Select an employee</em>
-                    </MenuItem>
+                    {!isEmployee && (
+                      <MenuItem value="">
+                        <em>Select an employee</em>
+                      </MenuItem>
+                    )}
                     {(() => {
                       console.log('🎨 Rendering employee dropdown with allEmployees:', allEmployees);
                       console.log('🎨 allEmployees is array?', Array.isArray(allEmployees));
@@ -2357,6 +2398,39 @@ const Attendance = () => {
                   </Button>
                 </Grid>
               )}
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={() => {
+                      console.log('🔄 Manual refresh requested');
+                      fetchPunchRecords();
+                      toast.success('Refreshing punch records...', { autoClose: 1000 });
+                    }}
+                    startIcon={<RefreshIcon />}
+                    disabled={!selectedDate || punchRecordsLoading}
+                    sx={{
+                      bgcolor: 'rgba(255,255,255,0.25)',
+                      color: 'white',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      backdropFilter: 'blur(10px)',
+                      '&:hover': {
+                        bgcolor: 'rgba(255,255,255,0.35)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
+                      },
+                      '&:disabled': {
+                        bgcolor: 'rgba(255,255,255,0.15)',
+                        color: 'rgba(255,255,255,0.5)'
+                      }
+                    }}
+                  >
+                    {punchRecordsLoading ? 'Refreshing...' : 'Refresh Data'}
+                  </Button>
+                </Box>
+              </Grid>
             </Grid>
           </Box>
 
@@ -2396,417 +2470,528 @@ const Attendance = () => {
             </Box>
           ) : (
             <Box sx={{ p: 4 }}>
-              {punchRecords.map((record) => (
-                <Box key={record._id}>
-                  {/* Latest Punch Indicator */}
-                  {showingLatestPunch && (
-                    <Box sx={{ 
-                      mb: 2, 
-                      p: 2, 
-                      bgcolor: '#e3f2fd', 
-                      borderRadius: 2, 
-                      border: '1px solid #2196f3',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.5
-                    }}>
-                      <AccessTime sx={{ color: '#1976d2', fontSize: '1.3rem' }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: '#1565c0', fontWeight: 700, mb: 0.25 }}>
-                          Showing Most Recent Punch
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: '#1976d2', fontSize: '0.75rem' }}>
-                          This employee had the latest punch for {moment(selectedDate).format('MMM D, YYYY')}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-                  
-                  {/* Employee & Date Header */}
+              {/* Show latest punch cards when viewing all records */}
+              {showingLatestPunch && latestPunchInfo && (
+                <Box sx={{ mb: 4 }}>
+                  {/* Latest Punch Info Card */}
                   <Card sx={{ 
-                    mb: 3, 
-                    borderRadius: 3,
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                    border: '1px solid rgba(0,0,0,0.06)',
-                    overflow: 'hidden',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-                      transform: 'translateY(-2px)'
-                    }
+                    mb: 3,
+                    borderRadius: 2,
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                    border: '1px solid #e0e0e0'
                   }}>
-                    <CardContent sx={{ p: 2.5 }}>
-                      <Grid container spacing={2} alignItems="center">
-                        <Grid item xs={12} md={8}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ 
-                              width: 56, 
-                              height: 56, 
-                              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                              fontSize: '1.3rem',
-                              fontWeight: 800,
-                              boxShadow: '0 2px 10px rgba(102, 126, 234, 0.3)',
-                              border: '3px solid rgba(255,255,255,0.9)'
-                            }}>
-                              {record.employee?.personalInfo?.firstName?.[0]}{record.employee?.personalInfo?.lastName?.[0]}
-                            </Avatar>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="h6" sx={{ 
-                                fontWeight: 700, 
-                                color: '#1a1a1a', 
-                                mb: 1,
-                                letterSpacing: '-0.3px'
-                              }}>
-                                {record.employee?.personalInfo?.firstName} {record.employee?.personalInfo?.lastName}
-                              </Typography>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5, flexWrap: 'wrap' }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>
-                                    Attendance #:
-                                  </Typography>
-                                  <Chip 
-                                    label={record.employee?.attendanceNumber ? String(record.employee.attendanceNumber).padStart(6, '0') : 'N/A'} 
-                                    size="small"
-                                    sx={{ 
-                                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                      color: 'white', 
-                                      fontWeight: 700,
-                                      fontSize: '0.7rem',
-                                      px: 1,
-                                      height: 22,
-                                      boxShadow: '0 1px 4px rgba(102, 126, 234, 0.25)'
-                                    }} 
-                                  />
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>
-                                    Employee ID:
-                                  </Typography>
-                                  <Chip 
-                                    label={record.employee?.employeeId || 'N/A'} 
-                                    size="small"
-                                    sx={{ 
-                                      bgcolor: '#f50057', 
-                                      color: 'white', 
-                                      fontWeight: 700,
-                                      fontSize: '0.7rem',
-                                      px: 1,
-                                      height: 22,
-                                      boxShadow: '0 1px 4px rgba(245, 0, 87, 0.25)'
-                                    }} 
-                                  />
-                                </Box>
-                              </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <CalendarTodayIcon sx={{ fontSize: '0.9rem', color: '#667eea' }} />
-                                <Typography variant="caption" sx={{ color: '#666', fontWeight: 500, fontSize: '0.8rem' }}>
-                                  {moment(record.date).format('dddd, MMMM D, YYYY')}
-                                </Typography>
-                              </Box>
-                            </Box>
+                    <CardContent sx={{ p: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                        <AccessTime sx={{ color: '#1976d2', fontSize: '2rem' }} />
+                        <Box>
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a1a', mb: 0.5 }}>
+                            Latest Punch Activity
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#666' }}>
+                            {moment(selectedDate).format('dddd, MMMM D, YYYY')}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <Grid container spacing={3}>
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ 
+                            p: 2.5, 
+                            bgcolor: '#f5f5f5', 
+                            borderRadius: 2,
+                            textAlign: 'center',
+                            height: '100%'
+                          }}>
+                            <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Employee
+                            </Typography>
+                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a1a', mb: 0.5 }}>
+                              {latestPunchInfo.employee?.personalInfo?.firstName} {latestPunchInfo.employee?.personalInfo?.lastName}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#666' }}>
+                              {latestPunchInfo.employee?.employeeId}
+                            </Typography>
                           </Box>
                         </Grid>
-                        <Grid item xs={12} md={4} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                          <Chip 
-                            label={record.status?.toUpperCase() || 'N/A'}
-                            sx={{
-                              bgcolor: record.status === 'present' ? '#e8f5e9' : 
-                                       record.status === 'late' ? '#fff3e0' : 
-                                       record.status === 'absent' ? '#ffebee' : '#f5f5f5',
-                              color: record.status === 'present' ? '#2e7d32' : 
-                                     record.status === 'late' ? '#ef6c00' : 
-                                     record.status === 'absent' ? '#c62828' : '#666',
-                              fontWeight: 700,
-                              fontSize: '0.85rem',
-                              px: 2.5,
-                              py: 2,
-                              borderRadius: 1.5,
-                              boxShadow: record.status === 'present' ? '0 2px 8px rgba(46, 125, 50, 0.15)' : 
-                                         record.status === 'late' ? '0 2px 8px rgba(239, 108, 0, 0.15)' : 
-                                         record.status === 'absent' ? '0 2px 8px rgba(198, 40, 40, 0.15)' : '0 1px 4px rgba(0,0,0,0.1)'
-                            }}
-                          />
+
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ 
+                            p: 2.5, 
+                            bgcolor: '#f5f5f5', 
+                            borderRadius: 2,
+                            textAlign: 'center',
+                            height: '100%'
+                          }}>
+                            <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Time
+                            </Typography>
+                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a1a', mb: 0.5 }}>
+                              {moment(latestPunchInfo.time).format('h:mm:ss A')}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#666', textTransform: 'capitalize' }}>
+                              {latestPunchInfo.punch.method || 'Unknown'}
+                            </Typography>
+                          </Box>
+                        </Grid>
+
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ 
+                            p: 2.5, 
+                            bgcolor: '#f5f5f5', 
+                            borderRadius: 2,
+                            textAlign: 'center',
+                            height: '100%'
+                          }}>
+                            <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Type
+                            </Typography>
+                            <Chip 
+                              label={latestPunchInfo.punch.type?.toUpperCase() || 'N/A'}
+                              sx={{
+                                bgcolor: latestPunchInfo.punch.type === 'in' ? '#4caf50' : '#f44336',
+                                color: 'white',
+                                fontWeight: 700,
+                                fontSize: '0.875rem',
+                                px: 2,
+                                height: 32,
+                                '& .MuiChip-label': {
+                                  px: 1
+                                }
+                              }}
+                            />
+                            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#666' }}>
+                              Punch {latestPunchInfo.punch.type === 'in' ? 'In' : 'Out'}
+                            </Typography>
+                          </Box>
                         </Grid>
                       </Grid>
+
+                      <Box sx={{ 
+                        mt: 2, 
+                        p: 1.5, 
+                        bgcolor: '#e3f2fd', 
+                        borderRadius: 1.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1
+                      }}>
+                        <GroupIcon sx={{ fontSize: '1.25rem', color: '#1976d2' }} />
+                        <Typography variant="body2" sx={{ color: '#1565c0', fontWeight: 600 }}>
+                          Total of {punchRecords.length} employees marked attendance today
+                        </Typography>
+                      </Box>
                     </CardContent>
                   </Card>
 
-                  {/* Summary Cards */}
-                  <Grid container spacing={2} sx={{ mb: 3 }}>
-                    <Grid item xs={12} md={4}>
-                      <Card sx={{ 
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        color: 'white',
-                        borderRadius: 3,
-                        boxShadow: '0 8px 24px rgba(102, 126, 234, 0.35)',
-                        transition: 'all 0.3s ease',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 32px rgba(102, 126, 234, 0.45)'
-                        },
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          right: 0,
-                          width: '100px',
-                          height: '100px',
-                          background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
-                          borderRadius: '50%',
-                          transform: 'translate(30%, -30%)'
-                        }
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
-                          <TimeIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
-                          <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
-                            FIRST PUNCH IN
-                          </Typography>
-                          <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
-                            {record.firstPunchIn 
-                              ? moment(record.firstPunchIn.time).format('h:mm A')
-                              : 'N/A'}
-                          </Typography>
-                          {record.firstPunchIn && (
-                            <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, textTransform: 'capitalize', fontSize: '0.7rem' }}>
-                              via {record.firstPunchIn.method || 'Unknown'}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
+                  {/* Section Header */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
+                      All Employee Punch Records
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
 
-                    <Grid item xs={12} md={4}>
-                      <Card sx={{ 
-                        background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)',
-                        color: 'white',
-                        borderRadius: 3,
-                        boxShadow: '0 8px 24px rgba(255, 107, 107, 0.35)',
-                        transition: 'all 0.3s ease',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 32px rgba(255, 107, 107, 0.45)'
-                        },
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          right: 0,
-                          width: '100px',
-                          height: '100px',
-                          background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
-                          borderRadius: '50%',
-                          transform: 'translate(30%, -30%)'
-                        }
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
-                          <TimeIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
-                          <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
-                            LAST PUNCH OUT
-                          </Typography>
-                          <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
-                            {record.lastPunchOut 
-                              ? moment(record.lastPunchOut.time).format('h:mm A')
-                              : record.isActiveSession ? 'Active' : 'N/A'}
-                          </Typography>
-                          {record.lastPunchOut && (
-                            <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, textTransform: 'capitalize', fontSize: '0.7rem' }}>
-                              via {record.lastPunchOut.method || 'Unknown'}
-                            </Typography>
-                          )}
-                          {record.isActiveSession && !record.lastPunchOut && (
-                            <Chip 
-                              label="Still In Office" 
-                              size="small"
-                              sx={{ 
-                                mt: 0.5,
-                                bgcolor: 'rgba(255,255,255,0.3)',
-                                color: 'white',
-                                fontWeight: 700,
-                                fontSize: '0.65rem',
-                                height: 22
-                              }}
-                            />
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-
-                    <Grid item xs={12} md={4}>
-                      <Card sx={{ 
-                        background: 'linear-gradient(135deg, #51cf66 0%, #37b24d 100%)',
-                        color: 'white',
-                        borderRadius: 3,
-                        boxShadow: '0 8px 24px rgba(81, 207, 102, 0.35)',
-                        transition: 'all 0.3s ease',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 32px rgba(81, 207, 102, 0.45)'
-                        },
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          right: 0,
-                          width: '100px',
-                          height: '100px',
-                          background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
-                          borderRadius: '50%',
-                          transform: 'translate(30%, -30%)'
-                        }
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
-                          <ScheduleIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
-                          <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
-                            TOTAL TIME IN OFFICE
-                          </Typography>
-                          <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
-                            {record.totalTimeFormatted || '0h 0m'}
-                          </Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, fontSize: '0.7rem' }}>
-                            {record.totalPunches || 0} punch{record.totalPunches !== 1 ? 'es' : ''} recorded
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  </Grid>
-
-                  {/* Punch Records Table */}
-                  {record.punchRecords && record.punchRecords.length > 0 && (
-                    <Card sx={{ 
-                      borderRadius: 3,
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                      border: '1px solid rgba(0,0,0,0.06)',
-                      overflow: 'hidden'
-                    }}>
-                      <CardContent sx={{ p: 0 }}>
-                        <Box sx={{ 
-                          p: 2, 
-                          background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
-                          borderBottom: '2px solid rgba(0,0,0,0.06)'
-                        }}>
-                          <Typography variant="h6" sx={{ 
-                            fontWeight: 700, 
-                            color: '#1a1a1a', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 1,
-                            letterSpacing: '-0.3px'
+              {punchRecords.map((record, index) => (
+                <Box key={record._id}>
+                  
+                  {/* Employee Card - Simplified */}
+                  <Card sx={{ 
+                    mb: 2.5, 
+                    borderRadius: 2,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                    border: '1px solid #e0e0e0',
+                    overflow: 'hidden',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      borderColor: '#1976d2'
+                    }
+                  }}>
+                    <CardContent sx={{ p: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                        {/* Left: Employee Info */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}>
+                          <Avatar sx={{ 
+                            width: 44, 
+                            height: 44, 
+                            bgcolor: '#1976d2',
+                            fontSize: '1rem',
+                            fontWeight: 700
                           }}>
-                            <AccessTime sx={{ color: '#667eea', fontSize: '1.3rem' }} />
-                            Punch In/Out History
-                            {record.isActiveSession && (
+                            {record.employee?.personalInfo?.firstName?.[0]}{record.employee?.personalInfo?.lastName?.[0]}
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="subtitle1" sx={{ 
+                              fontWeight: 700, 
+                              color: '#1a1a1a', 
+                              mb: 0.5,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {record.employee?.personalInfo?.firstName} {record.employee?.personalInfo?.lastName}
+                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                              <Typography variant="caption" sx={{ color: '#666', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <strong>ID:</strong> {record.employee?.employeeId || 'N/A'}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#666', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <strong>Att#:</strong> {record.employee?.attendanceNumber ? String(record.employee.attendanceNumber).padStart(6, '0') : 'N/A'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+
+                        {/* Right: Status & Time Info */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" sx={{ color: '#666', display: 'block', mb: 0.5, fontWeight: 600 }}>
+                              Total Time
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
+                              {record.totalTimeFormatted || '0h 0m'}
+                            </Typography>
+                          </Box>
+                          <Chip 
+                            label={record.status?.toUpperCase() || 'N/A'}
+                            size="small"
+                            sx={{
+                              bgcolor: record.status === 'present' ? '#4caf50' : 
+                                       record.status === 'late' ? '#ff9800' : 
+                                       record.status === 'absent' ? '#f44336' : '#9e9e9e',
+                              color: 'white',
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              height: 28,
+                              px: 1.5
+                            }}
+                          />
+                        </Box>
+                      </Box>
+                    </CardContent>
+                  </Card>
+
+                  {/* Summary Cards - Only show when viewing a single specific employee */}
+                  {!showingLatestPunch && punchRecords.length === 1 && (
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                      <Grid item xs={12} md={4}>
+                        <Card sx={{ 
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          color: 'white',
+                          borderRadius: 3,
+                          boxShadow: '0 8px 24px rgba(102, 126, 234, 0.35)',
+                          transition: 'all 0.3s ease',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                            boxShadow: '0 12px 32px rgba(102, 126, 234, 0.45)'
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            width: '100px',
+                            height: '100px',
+                            background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
+                            borderRadius: '50%',
+                            transform: 'translate(30%, -30%)'
+                          }
+                        }}>
+                          <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
+                            <TimeIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+                            <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
+                              FIRST PUNCH IN
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
+                              {record.firstPunchIn 
+                                ? moment(record.firstPunchIn.time).format('h:mm A')
+                                : 'N/A'}
+                            </Typography>
+                            {record.firstPunchIn && (
+                              <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, textTransform: 'capitalize', fontSize: '0.7rem' }}>
+                                via {record.firstPunchIn.method || 'Unknown'}
+                              </Typography>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+
+                      <Grid item xs={12} md={4}>
+                        <Card sx={{ 
+                          background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)',
+                          color: 'white',
+                          borderRadius: 3,
+                          boxShadow: '0 8px 24px rgba(255, 107, 107, 0.35)',
+                          transition: 'all 0.3s ease',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                            boxShadow: '0 12px 32px rgba(255, 107, 107, 0.45)'
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            width: '100px',
+                            height: '100px',
+                            background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
+                            borderRadius: '50%',
+                            transform: 'translate(30%, -30%)'
+                          }
+                        }}>
+                          <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
+                            <TimeIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+                            <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
+                              LAST PUNCH OUT
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
+                              {record.lastPunchOut 
+                                ? moment(record.lastPunchOut.time).format('h:mm A')
+                                : record.isActiveSession ? 'Active' : 'N/A'}
+                            </Typography>
+                            {record.lastPunchOut && (
+                              <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, textTransform: 'capitalize', fontSize: '0.7rem' }}>
+                                via {record.lastPunchOut.method || 'Unknown'}
+                              </Typography>
+                            )}
+                            {record.isActiveSession && !record.lastPunchOut && (
                               <Chip 
-                                label="Active Session" 
+                                label="Still In Office" 
                                 size="small"
                                 sx={{ 
-                                  background: 'linear-gradient(135deg, #51cf66 0%, #37b24d 100%)',
+                                  mt: 0.5,
+                                  bgcolor: 'rgba(255,255,255,0.3)',
                                   color: 'white',
                                   fontWeight: 700,
                                   fontSize: '0.65rem',
-                                  px: 1,
-                                  height: 22,
-                                  boxShadow: '0 1px 4px rgba(81, 207, 102, 0.25)',
-                                  animation: 'pulse 2s infinite'
+                                  height: 22
                                 }}
                               />
                             )}
-                          </Typography>
-                        </Box>
-                        <TableContainer>
-                          <Table>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+
+                      <Grid item xs={12} md={4}>
+                        <Card sx={{ 
+                          background: 'linear-gradient(135deg, #51cf66 0%, #37b24d 100%)',
+                          color: 'white',
+                          borderRadius: 3,
+                          boxShadow: '0 8px 24px rgba(81, 207, 102, 0.35)',
+                          transition: 'all 0.3s ease',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                            boxShadow: '0 12px 32px rgba(81, 207, 102, 0.45)'
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            width: '100px',
+                            height: '100px',
+                            background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
+                            borderRadius: '50%',
+                            transform: 'translate(30%, -30%)'
+                          }
+                        }}>
+                          <CardContent sx={{ textAlign: 'center', py: 2.5, position: 'relative', zIndex: 1 }}>
+                            <ScheduleIcon sx={{ fontSize: 32, mb: 1, opacity: 0.95, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+                            <Typography variant="overline" sx={{ display: 'block', mb: 1, opacity: 0.95, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '1.2px' }}>
+                              TOTAL TIME IN OFFICE
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5, textShadow: '0 1px 5px rgba(0,0,0,0.15)' }}>
+                              {record.totalTimeFormatted || '0h 0m'}
+                            </Typography>
+                            <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500, fontSize: '0.7rem' }}>
+                              {record.totalPunches || 0} punch{record.totalPunches !== 1 ? 'es' : ''} recorded
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+                  )}
+
+                  {/* Punch Records Table - Simplified */}
+                  {record.punchRecords && record.punchRecords.length > 0 && (
+                    <Box sx={{ mb: 3, mt: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                        <Typography variant="subtitle2" sx={{ 
+                          fontWeight: 700, 
+                          color: '#666',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1
+                        }}>
+                          <AccessTime sx={{ fontSize: '1.1rem' }} />
+                          Punch History ({record.punchRecords.length} records)
+                        </Typography>
+                        {record.isActiveSession && (
+                          <Chip 
+                            label="Active Session" 
+                            size="small"
+                            sx={{ 
+                              bgcolor: '#4caf50',
+                              color: 'white',
+                              fontWeight: 700,
+                              fontSize: '0.7rem',
+                              height: 22
+                            }}
+                          />
+                        )}
+                      </Box>
+
+                      <Box>
+                        {/* Info about total punches with expand button */}
+                        {record.totalPunches > 2 && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                            <Alert severity="info" sx={{ flex: 1, fontSize: '0.8rem' }}>
+                              <strong>{record.totalPunches} punch records</strong> recorded today. 
+                              {!showAllPunches && ' Showing first and last punch only.'} Total time: <strong>{record.totalTimeFormatted}</strong>
+                            </Alert>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              onClick={() => setShowAllPunches(!showAllPunches)}
+                              endIcon={showAllPunches ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                              sx={{ 
+                                minWidth: '140px',
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                fontSize: '0.75rem'
+                              }}
+                            >
+                              {showAllPunches ? 'Show Less' : 'View All'}
+                            </Button>
+                          </Box>
+                        )}
+                        
+                        <TableContainer component={Paper} sx={{ boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderRadius: 1 }}>
+                          <Table size="small">
                             <TableHead>
-                              <TableRow sx={{ 
-                                bgcolor: '#f8f9fa',
-                                borderBottom: '2px solid rgba(0,0,0,0.08)'
-                              }}>
-                                <TableCell sx={{ fontWeight: 700, color: '#444', fontSize: '0.8rem', py: 1.5 }}>#</TableCell>
-                                <TableCell sx={{ fontWeight: 700, color: '#444', fontSize: '0.8rem', py: 1.5 }}>Type</TableCell>
-                                <TableCell sx={{ fontWeight: 700, color: '#444', fontSize: '0.8rem', py: 1.5 }}>Time</TableCell>
-                                <TableCell sx={{ fontWeight: 700, color: '#444', fontSize: '0.8rem', py: 1.5 }}>Method</TableCell>
-                                <TableCell sx={{ fontWeight: 700, color: '#444', fontSize: '0.8rem', py: 1.5 }}>Device</TableCell>
+                              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                {showAllPunches && (
+                                  <TableCell sx={{ fontWeight: 700, color: '#666', fontSize: '0.75rem', py: 1 }}>#</TableCell>
+                                )}
+                                <TableCell sx={{ fontWeight: 700, color: '#666', fontSize: '0.75rem', py: 1 }}>Type</TableCell>
+                                <TableCell sx={{ fontWeight: 700, color: '#666', fontSize: '0.75rem', py: 1 }}>Time</TableCell>
+                                <TableCell sx={{ fontWeight: 700, color: '#666', fontSize: '0.75rem', py: 1 }}>Method</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
-                              {record.punchRecords.map((punch, index) => (
-                                <TableRow 
-                                  key={index}
-                                  sx={{ 
-                                    transition: 'all 0.2s ease',
-                                    '&:hover': { 
-                                      bgcolor: punch.type === 'in' ? 'rgba(102, 126, 234, 0.08)' : 'rgba(255, 107, 107, 0.08)',
-                                      transform: 'scale(1.01)'
-                                    },
-                                    bgcolor: punch.type === 'in' ? 'rgba(102, 126, 234, 0.03)' : 'rgba(255, 107, 107, 0.03)',
-                                    borderLeft: `4px solid ${punch.type === 'in' ? '#667eea' : '#ff6b6b'}`
-                                  }}
-                                >
-                                  <TableCell sx={{ 
-                                    fontWeight: 600, 
-                                    color: '#999',
-                                    fontSize: '0.85rem',
-                                    py: 1.5
-                                  }}>
-                                    {index + 1}
-                                  </TableCell>
-                                  <TableCell sx={{ py: 1.5 }}>
-                                    <Chip 
-                                      label={punch.type?.toUpperCase() || 'N/A'}
-                                      size="small"
-                                      icon={punch.type === 'in' ? <CheckCircleIcon /> : <CancelIcon />}
-                                      sx={{
-                                        bgcolor: punch.type === 'in' ? '#667eea' : '#ff6b6b',
-                                        color: 'white',
-                                        fontWeight: 700,
-                                        fontSize: '0.65rem',
-                                        px: 0.8,
-                                        height: 24,
-                                        boxShadow: punch.type === 'in' 
-                                          ? '0 1px 4px rgba(102, 126, 234, 0.25)' 
-                                          : '0 1px 4px rgba(255, 107, 107, 0.25)',
-                                        '& .MuiChip-icon': {
-                                          color: 'white',
-                                          fontSize: '1rem'
-                                        }
+                              {!showAllPunches ? (
+                                <>
+                                  {/* First Punch */}
+                                  {record.firstPunch && (
+                                    <TableRow 
+                                      sx={{ 
+                                        '&:hover': { bgcolor: '#f9f9f9' },
+                                        borderLeft: `3px solid ${record.firstPunch.type === 'in' ? '#4caf50' : '#f44336'}`
                                       }}
-                                    />
-                                  </TableCell>
-                                  <TableCell sx={{ 
-                                    fontWeight: 600, 
-                                    fontSize: '0.85rem',
-                                    color: '#1a1a1a',
-                                    py: 1.5
-                                  }}>
-                                    {moment(punch.time).format('h:mm:ss A')}
-                                  </TableCell>
-                                  <TableCell sx={{ 
-                                    color: '#666', 
-                                    textTransform: 'capitalize',
-                                    fontWeight: 500,
-                                    fontSize: '0.8rem',
-                                    py: 1.5
-                                  }}>
-                                    {punch.method || 'N/A'}
-                                  </TableCell>
-                                  <TableCell sx={{ 
-                                    color: '#999',
-                                    fontSize: '0.75rem',
-                                    py: 1.5
-                                  }}>
-                                    {punch.deviceName || punch.deviceSerialNumber || '-'}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
+                                    >
+                                      <TableCell sx={{ py: 1 }}>
+                                        <Chip 
+                                          label={record.firstPunch.type?.toUpperCase() || 'N/A'}
+                                          size="small"
+                                          sx={{
+                                            bgcolor: record.firstPunch.type === 'in' ? '#4caf50' : '#f44336',
+                                            color: 'white',
+                                            fontWeight: 600,
+                                            fontSize: '0.7rem',
+                                            height: 22,
+                                            minWidth: 50
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', color: '#1a1a1a', py: 1 }}>
+                                        {moment(record.firstPunch.time).format('h:mm:ss A')}
+                                      </TableCell>
+                                      <TableCell sx={{ color: '#666', fontSize: '0.8rem', textTransform: 'capitalize', py: 1 }}>
+                                        {record.firstPunch.method || 'N/A'}
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                  {/* Last Punch (only if different from first) */}
+                                  {record.lastPunch && record.totalPunches > 1 && (
+                                    <TableRow 
+                                      sx={{ 
+                                        '&:hover': { bgcolor: '#f9f9f9' },
+                                        borderLeft: `3px solid ${record.lastPunch.type === 'in' ? '#4caf50' : '#f44336'}`
+                                      }}
+                                    >
+                                      <TableCell sx={{ py: 1 }}>
+                                        <Chip 
+                                          label={record.lastPunch.type?.toUpperCase() || 'N/A'}
+                                          size="small"
+                                          sx={{
+                                            bgcolor: record.lastPunch.type === 'in' ? '#4caf50' : '#f44336',
+                                            color: 'white',
+                                            fontWeight: 600,
+                                            fontSize: '0.7rem',
+                                            height: 22,
+                                            minWidth: 50
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', color: '#1a1a1a', py: 1 }}>
+                                        {moment(record.lastPunch.time).format('h:mm:ss A')}
+                                      </TableCell>
+                                      <TableCell sx={{ color: '#666', fontSize: '0.8rem', textTransform: 'capitalize', py: 1 }}>
+                                        {record.lastPunch.method || 'N/A'}
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {/* Show all punch records */}
+                                  {record.punchRecords && record.punchRecords.map((punch, punchIndex) => (
+                                    <TableRow 
+                                      key={punchIndex}
+                                      sx={{ 
+                                        '&:hover': { bgcolor: '#f9f9f9' },
+                                        borderLeft: `3px solid ${punch.type === 'in' ? '#4caf50' : '#f44336'}`
+                                      }}
+                                    >
+                                      <TableCell sx={{ fontSize: '0.8rem', color: '#999', py: 1 }}>
+                                        {punchIndex + 1}
+                                      </TableCell>
+                                      <TableCell sx={{ py: 1 }}>
+                                        <Chip 
+                                          label={punch.type?.toUpperCase() || 'N/A'}
+                                          size="small"
+                                          sx={{
+                                            bgcolor: punch.type === 'in' ? '#4caf50' : '#f44336',
+                                            color: 'white',
+                                            fontWeight: 600,
+                                            fontSize: '0.7rem',
+                                            height: 22,
+                                            minWidth: 50
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', color: '#1a1a1a', py: 1 }}>
+                                        {moment(punch.time).format('h:mm:ss A')}
+                                      </TableCell>
+                                      <TableCell sx={{ color: '#666', fontSize: '0.8rem', textTransform: 'capitalize', py: 1 }}>
+                                        {punch.method || 'N/A'}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </>
+                              )}
                             </TableBody>
                           </Table>
                         </TableContainer>
-                      </CardContent>
-                    </Card>
+                      </Box>
+                    </Box>
                   )}
 
                   {/* Auto-refresh indicator */}

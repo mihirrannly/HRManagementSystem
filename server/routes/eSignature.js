@@ -3,21 +3,10 @@ const router = express.Router();
 const { authenticate: auth, authorize } = require('../middleware/auth');
 const eSignatureService = require('../services/eSignatureService');
 const { DocumentTemplate, ESignatureDocument, ESignatureConfig } = require('../models/ESignature');
-const multer = require('multer');
-const path = require('path');
+const { createUpload, getFileUrl } = require('../middleware/s3Upload');
 
-// Configure multer for document uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/esignature_templates/')
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname)
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
+// Configure S3-enabled upload for e-signature documents
+const upload = createUpload('esignature-templates', {
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf' || file.mimetype.startsWith('image/')) {
       cb(null, true);

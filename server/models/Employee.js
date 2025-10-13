@@ -321,6 +321,36 @@ employeeSchema.virtual('experience').get(function() {
   return 0;
 });
 
+// Virtual for probation status
+employeeSchema.virtual('isOnProbation').get(function() {
+  if (this.employmentInfo.dateOfJoining && this.employmentInfo.isActive) {
+    const threeMonthsInMs = 90 * 24 * 60 * 60 * 1000; // Approximately 90 days
+    const timeSinceJoining = Date.now() - this.employmentInfo.dateOfJoining.getTime();
+    return timeSinceJoining < threeMonthsInMs;
+  }
+  return false;
+});
+
+// Virtual for probation end date
+employeeSchema.virtual('probationCalculatedEndDate').get(function() {
+  if (this.employmentInfo.dateOfJoining) {
+    const endDate = new Date(this.employmentInfo.dateOfJoining);
+    endDate.setMonth(endDate.getMonth() + 3);
+    return endDate;
+  }
+  return null;
+});
+
+// Virtual for days remaining in probation
+employeeSchema.virtual('probationDaysRemaining').get(function() {
+  if (this.isOnProbation && this.employmentInfo.dateOfJoining) {
+    const endDate = this.probationCalculatedEndDate;
+    const daysRemaining = Math.ceil((endDate - Date.now()) / (1000 * 60 * 60 * 24));
+    return Math.max(0, daysRemaining);
+  }
+  return 0;
+});
+
 // Indexes for better query performance
 employeeSchema.index({ employeeId: 1 });
 employeeSchema.index({ attendanceNumber: 1 });

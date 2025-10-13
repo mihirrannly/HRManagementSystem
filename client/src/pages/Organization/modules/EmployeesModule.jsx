@@ -85,7 +85,7 @@ import { toast } from 'react-toastify';
 import moment from 'moment';
 
 // Full-Screen Employee Details View
-const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmployee, onEmployeeUpdate }) => {
+const EmployeeFullScreenView = ({ employee, onBack, onEditProfile, onSyncEmployee, onEmployeeUpdate, designations = [] }) => {
   const [activeTab, setActiveTab] = useState('ABOUT');
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedEmployee, setEditedEmployee] = useState(employee);
@@ -1199,7 +1199,10 @@ const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChang
                 fontSize: '0.875rem',
                 mb: 1
               }}>
-                {isEditable ? editedEmployee?.employmentInfo?.department : employee.employmentInfo?.department?.name || employee.additionalInfo?.Department || 'Department not specified'}
+                {isEditable 
+                  ? (editedEmployee?.employmentInfo?.department?.name || editedEmployee?.employmentInfo?.department || 'Department not specified')
+                  : (employee.employmentInfo?.department?.name || employee.additionalInfo?.Department || 'Department not specified')
+                }
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {getEmploymentStatusChip(isEditable ? editedEmployee?.employmentInfo?.employmentStatus : employee.employmentInfo?.employmentStatus || employee.additionalInfo?.['Employment Status'])}
@@ -1270,6 +1273,96 @@ const JobSection = ({ employee, isEditable = false, editedEmployee, onFieldChang
                   }}>
                     {isEditable ? editedEmployee?.employmentInfo?.workLocation : employee.employmentInfo?.workLocation || employee.additionalInfo?.Location || 'Not specified'}
                   </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: '#fef3c7', 
+                  borderRadius: 2,
+                  border: '1px solid #fde68a'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: '#92400e', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    📅 Date of Joining
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: '#78350f', 
+                    fontWeight: 600,
+                    fontSize: '0.95rem'
+                  }}>
+                    {isEditable 
+                      ? (editedEmployee?.employmentInfo?.dateOfJoining ? moment(editedEmployee.employmentInfo.dateOfJoining).format('DD MMM YYYY') : 'Not specified')
+                      : (employee.employmentInfo?.dateOfJoining 
+                        ? moment(employee.employmentInfo.dateOfJoining).format('DD MMM YYYY')
+                        : employee.additionalInfo?.['Date Joined'] 
+                          ? moment(employee.additionalInfo['Date Joined']).format('DD MMM YYYY')
+                          : '⚠️ Not specified - Please update')
+                    }
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: employee.employmentInfo?.dateOfJoining && 
+                    ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000))
+                    ? '#fef3c7' : '#f8fafc', 
+                  borderRadius: 2,
+                  border: employee.employmentInfo?.dateOfJoining && 
+                    ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000))
+                    ? '2px solid #f59e0b' : '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: employee.employmentInfo?.dateOfJoining && 
+                      ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000))
+                      ? '#92400e' : '#64748b', 
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    fontSize: '0.75rem',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Employment Status
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    color: employee.employmentInfo?.dateOfJoining && 
+                      ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000))
+                      ? '#78350f' : '#1e293b', 
+                    fontWeight: 600,
+                    fontSize: '0.95rem'
+                  }}>
+                    {employee.employmentInfo?.dateOfJoining && 
+                      ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000))
+                      ? '⏳ On Probation' 
+                      : employee.employmentInfo?.isActive 
+                        ? '✅ Confirmed' 
+                        : '❌ Inactive'}
+                  </Typography>
+                  {employee.employmentInfo?.dateOfJoining && 
+                    ((Date.now() - new Date(employee.employmentInfo.dateOfJoining).getTime()) < (90 * 24 * 60 * 60 * 1000)) && (
+                    <Typography variant="caption" sx={{ 
+                      color: '#92400e',
+                      fontSize: '0.7rem',
+                      display: 'block',
+                      mt: 0.5
+                    }}>
+                      {(() => {
+                        const threeMonths = new Date(employee.employmentInfo.dateOfJoining);
+                        threeMonths.setMonth(threeMonths.getMonth() + 3);
+                        const daysLeft = Math.ceil((threeMonths - Date.now()) / (1000 * 60 * 60 * 24));
+                        return `${daysLeft} days remaining`;
+                      })()}
+                    </Typography>
+                  )}
                 </Box>
               </Grid>
               <Grid item xs={12}>
@@ -4535,7 +4628,7 @@ const EmployeeDirectoryModule = () => {
 
   // Show full-screen employee details if selected
   if (showFullScreenView && selectedEmployee) {
-    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} onEditProfile={handleEditProfile} onSyncEmployee={handleSyncEmployee} onEmployeeUpdate={handleEmployeeUpdate} />;
+    return <EmployeeFullScreenView employee={selectedEmployee} onBack={handleBackToDirectory} onEditProfile={handleEditProfile} onSyncEmployee={handleSyncEmployee} onEmployeeUpdate={handleEmployeeUpdate} designations={designations} />;
   }
 
   return (

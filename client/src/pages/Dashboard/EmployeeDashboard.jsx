@@ -407,6 +407,7 @@ const OldStatCard = ({ title, value, subtitle, icon, color = 'primary', onClick,
 // Employee Overview Section Component
 const EmployeeOverviewSection = () => {
   const [exits, setExits] = useState([]);
+  const [recentExits, setRecentExits] = useState([]);
   const [onboarding, setOnboarding] = useState([]);
   const [probation, setProbation] = useState([]);
   const [birthdaysData, setBirthdaysData] = useState([]);
@@ -419,32 +420,44 @@ const EmployeeOverviewSection = () => {
 
   const fetchOverviewData = async () => {
     try {
-      const [exitsRes, onboardingRes, employeesRes, birthdaysRes, anniversariesRes] = await Promise.all([
+      console.log('🔥 EMPLOYEE DASHBOARD - FETCHING PROBATION DATA - NEW CODE! 🔥');
+      const [exitsRes, recentExitsRes, onboardingRes, recentOnboardingRes, probationRes, birthdaysRes, anniversariesRes] = await Promise.all([
         axios.get('/exit-management/').catch(() => ({ data: [] })),
+        axios.get('/exit-management/recent-exits').catch(() => ({ data: { success: false, exits: [] } })),
         axios.get('/onboarding/').catch(() => ({ data: [] })),
-        axios.get('/employees?page=1&limit=1000').catch(() => ({ data: { employees: [] } })),
+        axios.get('/onboarding/recent-onboarding').catch(() => ({ data: { success: false, onboarding: [] } })),
+        axios.get('/employees/on-probation').catch(() => ({ data: { success: false, employees: [] } })),
         axios.get('/employees/birthdays').catch(() => ({ data: { success: false } })),
         axios.get('/employees/anniversaries').catch(() => ({ data: { success: false } })),
       ]);
+      console.log('📊 Employee Dashboard Probation Response:', probationRes.data);
+      console.log('📊 Employee Dashboard Recent Exits Response:', recentExitsRes.data);
+      console.log('📊 Employee Dashboard Recent Onboarding Response:', recentOnboardingRes.data);
 
       // Process exits
       if (Array.isArray(exitsRes.data)) {
         setExits(exitsRes.data.filter(exit => exit.status !== 'completed' && exit.status !== 'cancelled'));
       }
 
-      // Process onboarding
-      if (Array.isArray(onboardingRes.data)) {
-        setOnboarding(onboardingRes.data.filter(item => item.status === 'pending' || item.status === 'in_progress'));
+      // Process recent exits (last 2 months)
+      if (recentExitsRes.data.success && Array.isArray(recentExitsRes.data.exits)) {
+        console.log('✅ Setting recent exits in Employee Dashboard:', recentExitsRes.data.exits.length, 'exits found');
+        setRecentExits(recentExitsRes.data.exits);
+      } else {
+        console.log('⚠️  Recent exits data format issue in Employee Dashboard:', recentExitsRes.data);
       }
 
-      // Process probation employees
-      if (employeesRes.data.employees) {
-        const currentDate = new Date();
-        const probationEmps = employeesRes.data.employees.filter(emp => {
-          const probationEndDate = emp.employmentInfo?.probationEndDate;
-          return probationEndDate && new Date(probationEndDate) >= currentDate && emp.status === 'active';
-        });
-        setProbation(probationEmps);
+      // Process recent onboarding (last 1 month)
+      if (recentOnboardingRes.data.success && Array.isArray(recentOnboardingRes.data.onboarding)) {
+        console.log('✅ Setting recent onboarding in Employee Dashboard:', recentOnboardingRes.data.onboarding.length, 'onboarding found');
+        setOnboarding(recentOnboardingRes.data.onboarding);
+      } else {
+        console.log('⚠️  Recent onboarding data format issue in Employee Dashboard:', recentOnboardingRes.data);
+      }
+
+      // Process probation employees (now from dedicated endpoint)
+      if (probationRes.data.success && probationRes.data.employees) {
+        setProbation(probationRes.data.employees);
       }
 
       // Process birthdays
@@ -487,7 +500,7 @@ const EmployeeOverviewSection = () => {
       </Box>
 
       <Grid container spacing={3}>
-        {/* Exits */}
+        {/* Exits - Last 2 Months */}
         <Grid item xs={12} md={3}>
           <Card
             elevation={0}
@@ -503,25 +516,49 @@ const EmployeeOverviewSection = () => {
                 <Typography variant="h6" fontWeight="700" color="#d32f2f">
                   Exits
                 </Typography>
-                <Chip label={exits.length} size="small" sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', fontWeight: 600 }} />
+                <Chip label={recentExits.length} size="small" sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', fontWeight: 600 }} />
               </Box>
               <Divider sx={{ mb: 2 }} />
               <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
-                {exits.length > 0 ? exits.map((exit, index) => (
-                  <Box key={exit._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < exits.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                {recentExits.length > 0 ? recentExits.map((exit, index) => (
+                  <Box key={exit._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < recentExits.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
                     <Typography variant="body2" fontWeight="600">
-                      {exit.employeeId?.personalInfo ? `${exit.employeeId.personalInfo.firstName} ${exit.employeeId.personalInfo.lastName}` : exit.employeeName || 'N/A'}
+                      {exit.employeeName}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      {exit.lastWorkingDay ? moment(exit.lastWorkingDay).format('DD MMM YYYY') : 'Date pending'}
+                      {moment(exit.lastWorkingDate).format('DD MMM YYYY')} ({exit.daysSinceExit} days ago)
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {exit.employeeId?.employmentInfo?.department || 'N/A'} - {exit.employeeId?.employmentInfo?.location || 'N/A'}
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {exit.department} - {exit.location}
                     </Typography>
+                    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Chip 
+                        label={exit.status.replace(/_/g, ' ').toUpperCase()}
+                        size="small"
+                        sx={{ 
+                          bgcolor: exit.status === 'completed' ? alpha('#4caf50', 0.1) : alpha('#ff9800', 0.1), 
+                          color: exit.status === 'completed' ? '#4caf50' : '#ff9800',
+                          fontWeight: 600,
+                          fontSize: '0.65rem',
+                          height: '18px'
+                        }} 
+                      />
+                      <Chip 
+                        label={`${exit.completionPercentage}%`}
+                        size="small"
+                        sx={{ 
+                          bgcolor: alpha('#2196f3', 0.1), 
+                          color: '#2196f3', 
+                          fontWeight: 600,
+                          fontSize: '0.65rem',
+                          height: '18px'
+                        }} 
+                      />
+                    </Box>
                   </Box>
                 )) : (
                   <Typography variant="body2" color="text.secondary" align="center">
-                    No active exits
+                    No exits in last 2 months
                   </Typography>
                 )}
               </Box>
@@ -529,7 +566,7 @@ const EmployeeOverviewSection = () => {
           </Card>
         </Grid>
 
-        {/* Onboarding */}
+        {/* Onboarding - Last 1 Month */}
         <Grid item xs={12} md={3}>
           <Card
             elevation={0}
@@ -552,18 +589,48 @@ const EmployeeOverviewSection = () => {
                 {onboarding.length > 0 ? onboarding.map((item, index) => (
                   <Box key={item._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < onboarding.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
                     <Typography variant="body2" fontWeight="600">
-                      {item.personalInfo?.firstName && item.personalInfo?.lastName ? `${item.personalInfo.firstName} ${item.personalInfo.lastName}` : item.name || 'N/A'}
+                      {item.employeeName}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      New Joiner
+                      {item.position} ({item.daysSinceCreated} days ago)
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {item.jobDetails?.department || 'N/A'} - {item.jobDetails?.location || 'N/A'}
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {item.department}
                     </Typography>
+                    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Chip 
+                        label={item.status.replace(/_/g, ' ').toUpperCase()}
+                        size="small"
+                        sx={{ 
+                          bgcolor: 
+                            item.status === 'completed' ? alpha('#4caf50', 0.1) :
+                            item.status === 'in_progress' ? alpha('#2196f3', 0.1) :
+                            alpha('#ff9800', 0.1), 
+                          color: 
+                            item.status === 'completed' ? '#4caf50' :
+                            item.status === 'in_progress' ? '#2196f3' :
+                            '#ff9800',
+                          fontWeight: 600,
+                          fontSize: '0.65rem',
+                          height: '18px'
+                        }} 
+                      />
+                      <Chip 
+                        label={`${item.completionPercentage}%`}
+                        size="small"
+                        sx={{ 
+                          bgcolor: alpha('#2196f3', 0.1), 
+                          color: '#2196f3', 
+                          fontWeight: 600,
+                          fontSize: '0.65rem',
+                          height: '18px'
+                        }} 
+                      />
+                    </Box>
                   </Box>
                 )) : (
                   <Typography variant="body2" color="text.secondary" align="center">
-                    No active onboarding
+                    No onboarding in last month
                   </Typography>
                 )}
               </Box>
@@ -585,7 +652,7 @@ const EmployeeOverviewSection = () => {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Typography variant="h6" fontWeight="700" color="#f57c00">
-                  Probation
+                  On Probation
                 </Typography>
                 <Chip label={probation.length} size="small" sx={{ bgcolor: alpha('#f57c00', 0.1), color: '#f57c00', fontWeight: 600 }} />
               </Box>
@@ -594,18 +661,34 @@ const EmployeeOverviewSection = () => {
                 {probation.length > 0 ? probation.map((emp, index) => (
                   <Box key={emp._id || index} sx={{ mb: 2, pb: 2, borderBottom: index < probation.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
                     <Typography variant="body2" fontWeight="600">
-                      {emp.personalInfo ? `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}` : 'N/A'}
+                      {emp.name || (emp.firstName && emp.lastName ? `${emp.firstName} ${emp.lastName}` : 'N/A')}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      In Probation
+                      {emp.designation || 'N/A'}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {emp.employmentInfo?.department || 'N/A'} - {emp.employmentInfo?.location || 'N/A'}
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {emp.department || 'N/A'}
+                    </Typography>
+                    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Chip 
+                        label={`${emp.daysRemaining || 0} days left`}
+                        size="small"
+                        sx={{ 
+                          bgcolor: alpha('#f57c00', 0.1), 
+                          color: '#f57c00', 
+                          fontWeight: 600,
+                          fontSize: '0.7rem',
+                          height: '20px'
+                        }} 
+                      />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                      Joined: {emp.joiningDate ? moment(emp.joiningDate).format('DD MMM YYYY') : 'N/A'}
                     </Typography>
                   </Box>
                 )) : (
                   <Typography variant="body2" color="text.secondary" align="center">
-                    No employees in probation
+                    No employees on probation
                   </Typography>
                 )}
               </Box>

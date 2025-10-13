@@ -2,53 +2,12 @@ console.log('🔥 CANDIDATE PORTAL ROUTES LOADED - NEW VERSION!');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const Onboarding = require('../models/Onboarding');
 const Employee = require('../models/Employee');
+const { uploads, getFileUrl } = require('../middleware/s3Upload');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'uploads/onboarding';
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename with original extension
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: function (req, file, cb) {
-    // Check file type
-    if (file.fieldname === 'bankStatement') {
-      // Allow images and PDFs for bank statements
-      if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-        cb(null, true);
-      } else {
-        cb(new Error('Bank statement must be an image or PDF file'));
-      }
-    } else {
-      // Allow only images for other uploads
-      if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Only image files are allowed'));
-      }
-    }
-  }
-});
+// Use S3-enabled upload middleware
+const upload = uploads.candidate;
 
 // Upload image file
 router.post('/:candidateId/upload-image', upload.single('image'), async (req, res) => {
@@ -73,8 +32,9 @@ router.post('/:candidateId/upload-image', upload.single('image'), async (req, re
     }
 
     // Create the image data object
-    // Extract timestamp from the generated filename to ensure consistency
-    const filenameTimestamp = req.file.filename.match(/(document|image)-(\d+)-/);
+    // Extract timestamp from the generated filename or key to ensure consistency
+    const filenameOrKey = req.file.filename || req.file.key || '';
+    const filenameTimestamp = filenameOrKey.match(/(document|image)-?(\d+)/);
     const documentId = filenameTimestamp ? filenameTimestamp[2] : Date.now().toString();
     
     const imageData = {
@@ -83,8 +43,9 @@ router.post('/:candidateId/upload-image', upload.single('image'), async (req, re
       size: req.file.size,
       uploadedAt: new Date(),
       status: 'uploaded',
-      url: `/uploads/onboarding/${req.file.filename}`, // Permanent URL
-      filename: req.file.filename // Store the actual filename for direct lookup
+      url: getFileUrl(req.file), // Works for both S3 and local storage
+      filename: req.file.filename || req.file.key, // Store the filename or S3 key
+      key: req.file.key || null // Store S3 key if using S3
     };
 
     // Initialize candidatePortal if it doesn't exist

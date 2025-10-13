@@ -1,8 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const Onboarding = require('../models/Onboarding');
 const { sendPortalCredentials } = require('../services/emailService');
@@ -10,39 +7,10 @@ const Employee = require('../models/Employee');
 const Department = require('../models/Department');
 const User = require('../models/User');
 const { authenticate: auth, authorize } = require('../middleware/auth');
+const { uploads, getFileUrl } = require('../middleware/s3Upload');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'uploads/onboarding';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'document-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
-  fileFilter: function (req, file, cb) {
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only images and documents are allowed'));
-    }
-  }
-});
+// Use S3-enabled upload middleware
+const upload = uploads.onboarding;
 
 // Helper function to generate random password
 function generateRandomPassword(length = 12) {
@@ -351,6 +319,68 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// Get recent onboarding (last 1 month)
+router.get('/recent-onboarding', auth, async (req, res) => {
+  try {
+    // Calculate date from 1 month ago
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    // Find all onboarding records created in the last month
+    const recentOnboarding = await Onboarding.find({
+      createdAt: {
+        $gte: oneMonthAgo,
+        $lte: new Date()
+      }
+    })
+      .populate('reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
+      .populate('createdBy', 'email profile')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Format the response
+    const formattedOnboarding = recentOnboarding.map(onboard => ({
+      _id: onboard._id,
+      employeeId: onboard.employeeId,
+      employeeName: onboard.employeeName,
+      email: onboard.email,
+      phone: onboard.phone,
+      position: onboard.position,
+      department: onboard.department,
+      joiningDate: onboard.joiningDate,
+      status: onboard.status,
+      reportingManager: onboard.reportingManager ? {
+        name: `${onboard.reportingManager.personalInfo.firstName} ${onboard.reportingManager.personalInfo.lastName}`,
+        employeeId: onboard.reportingManager.employeeId
+      } : null,
+      // Calculate completion percentage
+      completionPercentage: calculateOnboardingCompletion(onboard),
+      // Days since creation
+      daysSinceCreated: Math.floor((new Date() - new Date(onboard.createdAt)) / (1000 * 60 * 60 * 24)),
+      createdAt: onboard.createdAt
+    }));
+
+    res.json({
+      success: true,
+      count: formattedOnboarding.length,
+      onboarding: formattedOnboarding
+    });
+  } catch (error) {
+    console.error('Error fetching recent onboarding:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Helper function to calculate onboarding completion percentage
+function calculateOnboardingCompletion(onboard) {
+  const stepProgress = onboard.stepProgress || {};
+  const steps = Object.keys(stepProgress);
+  if (steps.length === 0) return 0;
+  
+  const completedSteps = steps.filter(step => stepProgress[step]?.completed === true).length;
+  return Math.round((completedSteps / steps.length) * 100);
+}
+
 // Get all completed onboarding records that haven't been converted to employees
 router.get('/ready-for-employee-creation', auth, authorize(['admin', 'hr']), async (req, res) => {
   try {
@@ -600,7 +630,8 @@ router.post('/:id/documents', auth, upload.array('documents', 10), async (req, r
     const uploadedDocs = req.files.map(file => ({
       type: req.body.type || 'other',
       name: file.originalname,
-      url: file.path,
+      url: getFileUrl(file),
+      key: file.key || null,
       uploadedAt: new Date(),
       status: 'uploaded'
     }));
@@ -886,7 +917,8 @@ router.post('/offer-acceptance/:token/documents', upload.array('documents', 10),
     const uploadedDocs = req.files.map(file => ({
       type: documentType || 'other',
       name: file.originalname,
-      url: file.path,
+      url: getFileUrl(file),
+      key: file.key || null,
       uploadedAt: new Date(),
       status: 'uploaded'
     }));
