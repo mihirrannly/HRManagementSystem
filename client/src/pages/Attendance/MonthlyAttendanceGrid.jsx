@@ -23,6 +23,15 @@ import {
   Avatar,
   Divider,
   LinearProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  FormLabel,
 } from '@mui/material';
 import {
   ChevronLeft as ChevronLeftIcon,
@@ -34,6 +43,8 @@ import {
   People as PeopleIcon,
   DateRange as DateRangeIcon,
   Assessment as AssessmentIcon,
+  PictureAsPdf as PdfIcon,
+  TableChart as ExcelIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import moment from 'moment';
@@ -55,6 +66,17 @@ const MonthlyAttendanceGrid = () => {
   const [monthDays, setMonthDays] = useState([]);
   const [importing, setImporting] = useState(false);
   const fileInputRef = React.useRef(null);
+  
+  // Export dialog state
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState('excel');
+  const [exportEmployee, setExportEmployee] = useState('all');
+  const [exportPeriod, setExportPeriod] = useState('monthly');
+  const [exportDateRange, setExportDateRange] = useState({
+    startDate: moment('2025-01-01').format('YYYY-MM-DD'),
+    endDate: moment('2025-10-31').format('YYYY-MM-DD')
+  });
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetchMonthlyData();
@@ -519,6 +541,104 @@ const MonthlyAttendanceGrid = () => {
     }
   };
 
+  const handleExportDialogOpen = () => {
+    // Set default date range based on current month
+    setExportDateRange({
+      startDate: selectedMonth.clone().startOf('month').format('YYYY-MM-DD'),
+      endDate: selectedMonth.clone().endOf('month').format('YYYY-MM-DD')
+    });
+    setExportDialogOpen(true);
+  };
+
+  const handleExportPeriodChange = (period) => {
+    setExportPeriod(period);
+    
+    // Update date range based on period
+    const now = moment();
+    let startDate, endDate;
+    
+    switch (period) {
+      case 'daily':
+        startDate = now.clone().startOf('day');
+        endDate = now.clone().endOf('day');
+        break;
+      case 'weekly':
+        startDate = now.clone().startOf('week');
+        endDate = now.clone().endOf('week');
+        break;
+      case 'monthly':
+        startDate = selectedMonth.clone().startOf('month');
+        endDate = selectedMonth.clone().endOf('month');
+        break;
+      case 'custom':
+        // Keep current custom range
+        return;
+      default:
+        startDate = selectedMonth.clone().startOf('month');
+        endDate = selectedMonth.clone().endOf('month');
+    }
+    
+    setExportDateRange({
+      startDate: startDate.format('YYYY-MM-DD'),
+      endDate: endDate.format('YYYY-MM-DD')
+    });
+  };
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const token = localStorage.getItem('token');
+      
+      // Build query parameters
+      const params = {
+        format: exportFormat,
+        startDate: exportDateRange.startDate,
+        endDate: exportDateRange.endDate,
+        period: exportPeriod
+      };
+      
+      if (exportEmployee !== 'all') {
+        params.employeeId = exportEmployee;
+      }
+      
+      console.log('📊 Exporting with params:', params);
+      
+      // Make request with responseType blob for file download
+      const response = await axios.get('/attendance/export', {
+        params,
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      
+      // Create blob and download
+      const blob = new Blob([response.data], {
+        type: exportFormat === 'excel' 
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'application/pdf'
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const filename = `Attendance_Report_${exportDateRange.startDate}_to_${exportDateRange.endDate}.${exportFormat === 'excel' ? 'xlsx' : 'pdf'}`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success(`Attendance report exported successfully as ${exportFormat.toUpperCase()}!`);
+      setExportDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Error exporting attendance:', error);
+      toast.error(error.response?.data?.message || 'Failed to export attendance report');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const renderAttendanceCell = (attendance, day) => {
     if (!attendance) {
       const isWeekend = day.day() === 0 || day.day() === 6;
@@ -720,11 +840,12 @@ const MonthlyAttendanceGrid = () => {
               <Button
                 variant="contained"
                 size="small"
+                color="primary"
                 startIcon={<DownloadIcon />}
-                onClick={exportToExcel}
+                onClick={handleExportDialogOpen}
                 disabled={loading || employees.length === 0}
               >
-                Export
+                Export Report
               </Button>
 
               <input
@@ -966,6 +1087,179 @@ const MonthlyAttendanceGrid = () => {
           </Button>
         </Paper>
       )}
+
+      {/* Export Dialog */}
+      <Dialog 
+        open={exportDialogOpen} 
+        onClose={() => setExportDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DownloadIcon color="primary" />
+            <Typography variant="h6">Export Attendance Report</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2 }}>
+            
+            {/* Export Format */}
+            <FormControl component="fieldset">
+              <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1 }}>
+                Export Format
+              </FormLabel>
+              <RadioGroup
+                row
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value)}
+              >
+                <FormControlLabel 
+                  value="excel" 
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <ExcelIcon color="success" />
+                      <Typography>Excel</Typography>
+                    </Box>
+                  } 
+                />
+                <FormControlLabel 
+                  value="pdf" 
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <PdfIcon color="error" />
+                      <Typography>PDF</Typography>
+                    </Box>
+                  } 
+                />
+              </RadioGroup>
+            </FormControl>
+
+            <Divider />
+
+            {/* Employee Selection */}
+            <FormControl fullWidth>
+              <InputLabel>Select Employee</InputLabel>
+              <Select
+                value={exportEmployee}
+                label="Select Employee"
+                onChange={(e) => setExportEmployee(e.target.value)}
+              >
+                <MenuItem value="all">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PeopleIcon fontSize="small" />
+                    <Typography>All Employees</Typography>
+                  </Box>
+                </MenuItem>
+                {employees.map((emp) => (
+                  <MenuItem key={emp._id} value={emp.employeeId}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
+                        {emp.name?.charAt(0)}
+                      </Avatar>
+                      <Typography>{emp.employeeId} - {emp.name}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <Divider />
+
+            {/* Period Selection */}
+            <FormControl component="fieldset">
+              <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1 }}>
+                Time Period
+              </FormLabel>
+              <RadioGroup
+                value={exportPeriod}
+                onChange={(e) => handleExportPeriodChange(e.target.value)}
+              >
+                <FormControlLabel 
+                  value="daily" 
+                  control={<Radio />} 
+                  label="Today" 
+                />
+                <FormControlLabel 
+                  value="weekly" 
+                  control={<Radio />} 
+                  label="This Week" 
+                />
+                <FormControlLabel 
+                  value="monthly" 
+                  control={<Radio />} 
+                  label="This Month" 
+                />
+                <FormControlLabel 
+                  value="custom" 
+                  control={<Radio />} 
+                  label="Custom Date Range" 
+                />
+              </RadioGroup>
+            </FormControl>
+
+            {/* Custom Date Range */}
+            {exportPeriod === 'custom' && (
+              <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                <TextField
+                  label="Start Date"
+                  type="date"
+                  value={exportDateRange.startDate}
+                  onChange={(e) => setExportDateRange({ ...exportDateRange, startDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField
+                  label="End Date"
+                  type="date"
+                  value={exportDateRange.endDate}
+                  onChange={(e) => setExportDateRange({ ...exportDateRange, endDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              </Box>
+            )}
+
+            {/* Date Range Preview */}
+            <Paper sx={{ p: 2, bgcolor: 'primary.50', borderLeft: '4px solid', borderColor: 'primary.main' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <DateRangeIcon color="primary" fontSize="small" />
+                <Typography variant="body2" fontWeight={600}>
+                  Export Range:
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {moment(exportDateRange.startDate).format('DD MMM YYYY')} to {moment(exportDateRange.endDate).format('DD MMM YYYY')}
+                ({moment(exportDateRange.endDate).diff(moment(exportDateRange.startDate), 'days') + 1} days)
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {exportEmployee === 'all' 
+                  ? `All Employees (${employees.length})` 
+                  : `Single Employee: ${exportEmployee}`}
+              </Typography>
+            </Paper>
+
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button 
+            onClick={() => setExportDialogOpen(false)}
+            disabled={exporting}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleExport}
+            variant="contained"
+            startIcon={exporting ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting...' : 'Export'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

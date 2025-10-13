@@ -123,49 +123,6 @@ router.get('/office-status', authenticate, async (req, res) => {
   }
 });
 
-// @route   GET /api/attendance/my-summary
-// @desc    Get attendance summary for current employee
-// @access  Private (Employee)
-router.get('/my-summary', authenticate, async (req, res) => {
-  try {
-    const employee = await Employee.findOne({ user: req.user._id });
-    if (!employee) {
-      return res.status(404).json({ message: 'Employee profile not found' });
-    }
-
-    // For now, return mock data since we don't have real attendance records
-    const currentDate = new Date();
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    
-    // Calculate working days in current month (including all 7 days)
-    let totalWorkingDays = 0;
-    let presentDays = 0;
-    let lateDays = 0;
-    
-    for (let d = new Date(startOfMonth); d <= currentDate; d.setDate(d.getDate() + 1)) {
-      // Include all days (7 days a week)
-      totalWorkingDays++;
-      if (Math.random() > 0.1) { // 90% attendance
-        presentDays++;
-        if (Math.random() > 0.8) { // 20% late when present
-          lateDays++;
-        }
-      }
-    }
-
-    res.json({
-      present: presentDays,
-      absent: totalWorkingDays - presentDays,
-      late: lateDays,
-      totalWorkingDays,
-      attendancePercentage: Math.round((presentDays / totalWorkingDays) * 100)
-    });
-  } catch (error) {
-    console.error('Get attendance summary error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
 // @route   GET /api/attendance/today
 // @desc    Get today's attendance status for current employee
 // @access  Private (Employee)
@@ -1257,27 +1214,40 @@ router.get('/my-summary', authenticate, async (req, res) => {
     }
 
     // Get current month dates
-    const startOfMonth = moment().startOf('month').toDate();
-    const endOfMonth = moment().endOf('month').toDate();
+    const currentDate = moment().tz('Asia/Kolkata');
+    const startOfMonth = currentDate.clone().startOf('month').toDate();
+    const endOfMonth = currentDate.clone().endOf('month').toDate();
 
-    // Fetch attendance records for current month
+    // Fetch real attendance records for current month
     const attendanceRecords = await Attendance.find({
       employee: employee._id,
       date: { $gte: startOfMonth, $lte: endOfMonth }
     });
 
-    // Calculate statistics (including all 7 days)
-    const totalWorkingDays = moment().daysInMonth(); // All days in month
-
-    const present = attendanceRecords.filter(record => record.status === 'present').length;
-    const absent = attendanceRecords.filter(record => record.status === 'absent').length;
-    const late = attendanceRecords.filter(record => record.status === 'late').length;
+    // Calculate statistics
+    const totalDaysInMonth = currentDate.daysInMonth();
+    const daysPassed = currentDate.date(); // Days that have passed in the month
+    
+    // Filter by status (present includes late and half-day)
+    const presentDays = attendanceRecords.filter(record => 
+      record.status === 'present' || record.status === 'late' || record.status === 'half-day'
+    ).length;
+    
+    const lateDays = attendanceRecords.filter(record => record.status === 'late').length;
+    const absentDays = attendanceRecords.filter(record => record.status === 'absent').length;
+    
+    // Calculate attendance percentage based on days passed
+    const attendancePercentage = daysPassed > 0 
+      ? Math.round((presentDays / daysPassed) * 100) 
+      : 0;
 
     res.json({
-      present,
-      absent,
-      late,
-      totalWorkingDays,
+      present: presentDays,
+      absent: absentDays,
+      late: lateDays,
+      totalWorkingDays: daysPassed, // Only count days that have passed
+      totalDaysInMonth: totalDaysInMonth,
+      attendancePercentage: attendancePercentage,
       monthlyCalendar: attendanceRecords.map(record => ({
         date: record.date,
         status: record.status,
@@ -1455,10 +1425,18 @@ router.get('/punch-records', [
     if (employeeId && employeeId !== '') {
       // Specific employee requested - check permissions
       if (!isAdminOrHR) {
-        const currentEmployee = await Employee.findOne({ userId });
+        const currentEmployee = await Employee.findOne({ user: userId });
+        console.log('🔐 Permission check:');
+        console.log('  - Current employee found:', currentEmployee ? currentEmployee.employeeId : 'NOT FOUND');
+        console.log('  - Current employee _id:', currentEmployee?._id.toString());
+        console.log('  - Requested employeeId:', employeeId);
+        console.log('  - Do they match?', currentEmployee?._id.toString() === employeeId);
+        
         if (!currentEmployee || currentEmployee._id.toString() !== employeeId) {
+          console.log('❌ Permission denied: Employee mismatch');
           return res.status(403).json({ message: 'Not authorized to view this data' });
         }
+        console.log('✅ Permission granted: Employee can view their own data');
       }
       queryFilter.employee = employeeId;
     } else {
@@ -1469,7 +1447,7 @@ router.get('/punch-records', [
         findLatestPunch = true;
       } else {
         // Regular employee - only show their own records
-        const employee = await Employee.findOne({ userId });
+        const employee = await Employee.findOne({ user: userId });
         if (!employee) {
           return res.status(404).json({ message: 'Employee not found' });
         }
@@ -1557,29 +1535,29 @@ router.get('/punch-records', [
         new Date(a.time) - new Date(b.time)
       );
       
-      // Calculate total hours based on punch pairs
+      // Get first and last punch (regardless of type)
+      const firstPunch = sortedPunches.length > 0 ? sortedPunches[0] : null;
+      const lastPunch = sortedPunches.length > 0 ? sortedPunches[sortedPunches.length - 1] : null;
+      
+      // Also get first IN and last OUT for backward compatibility
+      const inPunches = sortedPunches.filter(p => p.type === 'in');
+      const outPunches = sortedPunches.filter(p => p.type === 'out');
+      const firstPunchIn = inPunches.length > 0 ? inPunches[0] : null;
+      const lastPunchOut = outPunches.length > 0 ? outPunches[outPunches.length - 1] : null;
+      
+      // Calculate total hours between first and last punch (matches database calculation)
       let totalMinutes = 0;
-      for (let i = 0; i < sortedPunches.length - 1; i += 2) {
-        const punchIn = sortedPunches[i];
-        const punchOut = sortedPunches[i + 1];
+      let hasActivePunch = false;
+      
+      if (firstPunch && lastPunch) {
+        // Calculate time between first and last punch
+        const diff = new Date(lastPunch.time) - new Date(firstPunch.time);
+        totalMinutes = Math.floor(diff / (1000 * 60));
         
-        if (punchIn.type === 'in' && punchOut && punchOut.type === 'out') {
-          const diff = new Date(punchOut.time) - new Date(punchIn.time);
-          totalMinutes += Math.floor(diff / (1000 * 60));
+        // Check if still active (last punch is IN and it's the last punch overall)
+        if (lastPunch.type === 'in') {
+          hasActivePunch = true;
         }
-      }
-      
-      // If there's an odd number of punches, the last one is still active
-      const hasActivePunch = sortedPunches.length > 0 && 
-                            sortedPunches.length % 2 !== 0 &&
-                            sortedPunches[sortedPunches.length - 1].type === 'in';
-      
-      // Calculate hours from last active punch if exists
-      if (hasActivePunch) {
-        const lastPunch = sortedPunches[sortedPunches.length - 1];
-        const now = new Date();
-        const diff = now - new Date(lastPunch.time);
-        totalMinutes += Math.floor(diff / (1000 * 60));
       }
       
       const hours = Math.floor(totalMinutes / 60);
@@ -1589,10 +1567,10 @@ router.get('/punch-records', [
         _id: record._id,
         date: record.date,
         employee: record.employee,
-        firstPunchIn: sortedPunches.length > 0 ? sortedPunches[0] : null,
-        lastPunchOut: sortedPunches.length > 1 && sortedPunches[sortedPunches.length - 1].type === 'out' 
-          ? sortedPunches[sortedPunches.length - 1] 
-          : null,
+        firstPunch: firstPunch,           // NEW: First punch (any type)
+        lastPunch: lastPunch,             // NEW: Last punch (any type)
+        firstPunchIn: firstPunchIn,       // Keep for backward compatibility
+        lastPunchOut: lastPunchOut,       // Keep for backward compatibility
         punchRecords: sortedPunches,
         totalPunches: sortedPunches.length,
         totalHours: hours,
@@ -1605,25 +1583,29 @@ router.get('/punch-records', [
       };
     });
     
-    // If we need to find the latest punch, filter to only the most recent
+    // If we need to find the latest punch, return all records but mark the latest
     let finalRecords = processedRecords;
+    let latestPunchInfo = null;
+    
     if (findLatestPunch && processedRecords.length > 0) {
-      console.log('🔍 Finding record with latest punch across all employees...');
+      console.log('🔍 Finding latest punch across all employees...');
       console.log('📊 Total records to check:', processedRecords.length);
       
-      // Find the record with the most recent punch by checking ALL punches
-      let latestRecord = null;
+      // Find the most recent punch across ALL employees
       let latestPunchTime = null;
+      let latestPunchRecord = null;
+      let latestPunchData = null;
       
       for (const record of processedRecords) {
         if (record.punchRecords && record.punchRecords.length > 0) {
-          // Check ALL punches in this record, not just the last one
+          // Check ALL punches in this record
           for (const punch of record.punchRecords) {
             const punchTime = new Date(punch.time);
             
             if (!latestPunchTime || punchTime > latestPunchTime) {
               latestPunchTime = punchTime;
-              latestRecord = record;
+              latestPunchRecord = record;
+              latestPunchData = punch;
               console.log('   🆕 New latest:', record.employee.employeeId, 
                           '- Punch at', moment(punchTime).format('HH:mm:ss'),
                           'Type:', punch.type);
@@ -1632,11 +1614,20 @@ router.get('/punch-records', [
         }
       }
       
-      if (latestRecord) {
-        console.log('✅ FINAL RESULT - Latest punch:', latestRecord.employee.employeeId, 
-                    '(', latestRecord.employee.personalInfo.firstName, latestRecord.employee.personalInfo.lastName, ')',
+      if (latestPunchRecord) {
+        console.log('✅ FINAL RESULT - Latest punch:', latestPunchRecord.employee.employeeId, 
+                    '(', latestPunchRecord.employee.personalInfo.firstName, latestPunchRecord.employee.personalInfo.lastName, ')',
                     'at', moment(latestPunchTime).format('HH:mm:ss'));
-        finalRecords = [latestRecord];
+        
+        // Store info about the latest punch
+        latestPunchInfo = {
+          employee: latestPunchRecord.employee,
+          punch: latestPunchData,
+          time: latestPunchTime
+        };
+        
+        // Return ALL records, not just the latest
+        finalRecords = processedRecords;
       } else {
         console.log('❌ No latest punch found');
         finalRecords = [];
@@ -1652,7 +1643,8 @@ router.get('/punch-records', [
         start: dateFilter.date?.$gte || null,
         end: dateFilter.date?.$lte || null
       },
-      latestPunch: findLatestPunch
+      latestPunch: findLatestPunch,
+      latestPunchInfo: latestPunchInfo
     });
     
   } catch (error) {
@@ -2229,6 +2221,397 @@ router.post('/import-single',
         success: false,
         message: error.message || 'Server error',
         error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+});
+
+// @route   GET /api/attendance/export
+// @desc    Export attendance data to Excel or PDF
+// @access  Private (Admin, HR, Manager)
+router.get('/export', [
+  authenticate,
+  authorize(['admin', 'hr', 'manager']),
+  query('format').isIn(['excel', 'pdf']),
+  query('startDate').notEmpty().isISO8601(),
+  query('endDate').notEmpty().isISO8601(),
+  query('employeeId').optional().isString(),
+  query('period').optional().isIn(['daily', 'weekly', 'monthly', 'custom'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { format, startDate, endDate, employeeId, period = 'custom' } = req.query;
+    
+    console.log('📊 Export request:', { format, startDate, endDate, employeeId, period });
+
+    // Build employee filter
+    let employeeFilter = {};
+    if (employeeId && employeeId !== 'all') {
+      // Single employee
+      const employee = await Employee.findOne({ employeeId: employeeId });
+      if (!employee) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+      employeeFilter = { _id: employee._id };
+    } else if (req.user.role === 'manager') {
+      // Manager can only export their team's data
+      const managerEmployee = await Employee.findOne({ user: req.user._id });
+      if (!managerEmployee) {
+        return res.status(404).json({ message: 'Manager employee profile not found' });
+      }
+      
+      const teamMembers = await Employee.find({
+        'employmentInfo.reportingManager': managerEmployee._id,
+        'employmentInfo.isActive': true
+      }).select('_id');
+      
+      employeeFilter = { _id: { $in: teamMembers.map(emp => emp._id) } };
+    } else {
+      // Admin/HR can export all active employees
+      employeeFilter = { 'employmentInfo.isActive': true };
+    }
+
+    // Get employees
+    const employees = await Employee.find(employeeFilter)
+      .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department employmentInfo.designation')
+      .populate('employmentInfo.department', 'name')
+      .sort({ employeeId: 1 });
+
+    if (employees.length === 0) {
+      return res.status(404).json({ message: 'No employees found' });
+    }
+
+    // Parse date range
+    const start = moment(startDate).startOf('day').toDate();
+    const end = moment(endDate).endOf('day').toDate();
+
+    // Get attendance records
+    const attendanceRecords = await Attendance.find({
+      employee: { $in: employees.map(emp => emp._id) },
+      date: { $gte: start, $lte: end }
+    }).populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName');
+
+    // Create attendance map for quick lookup
+    const attendanceMap = {};
+    attendanceRecords.forEach(record => {
+      const dateKey = moment(record.date).format('YYYY-MM-DD');
+      const empId = record.employee._id.toString();
+      
+      if (!attendanceMap[empId]) {
+        attendanceMap[empId] = {};
+      }
+      
+      attendanceMap[empId][dateKey] = record;
+    });
+
+    // Generate days array
+    const days = [];
+    const currentDate = moment(start);
+    while (currentDate.isSameOrBefore(end, 'day')) {
+      days.push(currentDate.clone());
+      currentDate.add(1, 'day');
+    }
+
+    if (format === 'excel') {
+      // Generate Excel file with improved table format
+      const exportData = [];
+      
+      // Title row
+      exportData.push([`Attendance Report: ${moment(start).format('DD MMM YYYY')} to ${moment(end).format('DD MMM YYYY')}`]);
+      exportData.push([]); // Empty row for spacing
+      
+      // Build header rows
+      // Row 1: Main headers with date labels
+      const dateHeaders = ['Employee ID', 'Name', 'Department', 'Designation'];
+      days.forEach(day => {
+        dateHeaders.push(day.format('DD-MMM-YYYY'));
+        dateHeaders.push('', '', ''); // Placeholder for merged cells
+      });
+      dateHeaders.push('Summary', '', '', ''); // Summary header
+      exportData.push(dateHeaders);
+      
+      // Row 2: Sub-headers for each date column
+      const subHeaders = ['', '', '', '']; // Empty under employee info
+      days.forEach(() => {
+        subHeaders.push('Status', 'Check In', 'Check Out', 'Hours');
+      });
+      subHeaders.push('Present', 'Absent', 'Late', 'Total Hrs');
+      exportData.push(subHeaders);
+      
+      // Data rows - one row per employee
+      employees.forEach(emp => {
+        const row = [
+          emp.employeeId,
+          `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+          emp.employmentInfo.department?.name || 'N/A',
+          emp.employmentInfo.designation || 'N/A'
+        ];
+
+        let presentCount = 0;
+        let absentCount = 0;
+        let lateCount = 0;
+        let totalHours = 0;
+
+        // Add attendance data for each day (4 columns per day)
+        days.forEach(day => {
+          const dateKey = day.format('YYYY-MM-DD');
+          const attendance = attendanceMap[emp._id.toString()]?.[dateKey];
+          
+          if (attendance) {
+            const checkIn = attendance.checkIn?.time ? moment(attendance.checkIn.time).format('HH:mm') : '-';
+            const checkOut = attendance.checkOut?.time ? moment(attendance.checkOut.time).format('HH:mm') : '-';
+            const hours = attendance.totalHours ? attendance.totalHours.toFixed(2) : '0.00';
+            const status = attendance.status.toUpperCase();
+            
+            row.push(status, checkIn, checkOut, hours);
+            
+            // Update counts
+            if (attendance.status === 'present' || attendance.status === 'late') {
+              presentCount++;
+              totalHours += attendance.totalHours || 0;
+            }
+            if (attendance.status === 'absent') {
+              absentCount++;
+            }
+            if (attendance.status === 'late') {
+              lateCount++;
+            }
+          } else {
+            // Check if weekend
+            const dayOfWeek = day.day();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const status = isWeekend ? 'WEEKEND' : 'ABSENT';
+            row.push(status, '-', '-', '0.00');
+            if (!isWeekend) {
+              absentCount++;
+            }
+          }
+        });
+
+        // Add summary columns
+        row.push(presentCount, absentCount, lateCount, totalHours.toFixed(2));
+        exportData.push(row);
+      });
+
+      // Create workbook
+      const ws = xlsx.utils.aoa_to_sheet(exportData);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, 'Attendance');
+
+      // Set column widths - 4 columns per day plus employee info and summary
+      const colWidths = [
+        { wch: 12 },  // Employee ID
+        { wch: 25 },  // Employee Name
+        { wch: 18 },  // Department
+        { wch: 18 },  // Designation
+      ];
+      
+      // Add widths for each day (4 columns per day)
+      days.forEach(() => {
+        colWidths.push(
+          { wch: 10 },  // Status
+          { wch: 10 },  // Check In
+          { wch: 10 },  // Check Out
+          { wch: 8 }    // Hours
+        );
+      });
+      
+      // Summary column widths
+      colWidths.push(
+        { wch: 10 },  // Present
+        { wch: 10 },  // Absent
+        { wch: 10 },  // Late
+        { wch: 12 }   // Total Hours
+      );
+      
+      ws['!cols'] = colWidths;
+
+      // Generate buffer
+      const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      // Send file
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Attendance_Report_${moment(start).format('YYYY-MM-DD')}_to_${moment(end).format('YYYY-MM-DD')}.xlsx`);
+      res.send(buffer);
+
+    } else if (format === 'pdf') {
+      // Generate PDF file with table layout using PDFKit
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({ 
+        margin: 30, 
+        size: 'A4',
+        layout: 'landscape' 
+      });
+
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=Attendance_Report_${moment(start).format('YYYY-MM-DD')}_to_${moment(end).format('YYYY-MM-DD')}.pdf`);
+
+      // Pipe PDF to response
+      doc.pipe(res);
+
+      // Helper function to draw a table
+      const drawTable = (doc, data, startY, headers) => {
+        const colWidths = [60, 70, 70, 50]; // Date, Status, Check In, Check Out, Hours
+        const rowHeight = 18;
+        const startX = 30;
+        let currentY = startY;
+
+        // Draw header row
+        doc.fontSize(9).font('Helvetica-Bold');
+        doc.rect(startX, currentY, colWidths.reduce((a, b) => a + b, 0), rowHeight).fillAndStroke('#4472C4', '#000');
+        
+        let currentX = startX;
+        doc.fillColor('#ffffff');
+        headers.forEach((header, i) => {
+          doc.text(header, currentX + 5, currentY + 5, { width: colWidths[i] - 10, align: 'center' });
+          currentX += colWidths[i];
+        });
+        currentY += rowHeight;
+
+        // Draw data rows
+        doc.font('Helvetica').fontSize(8);
+        data.forEach((row, index) => {
+          // Check for page break
+          if (currentY > 500) {
+            doc.addPage();
+            currentY = 50;
+            
+            // Redraw header on new page
+            doc.fontSize(9).font('Helvetica-Bold');
+            doc.rect(startX, currentY, colWidths.reduce((a, b) => a + b, 0), rowHeight).fillAndStroke('#4472C4', '#000');
+            
+            currentX = startX;
+            doc.fillColor('#ffffff');
+            headers.forEach((header, i) => {
+              doc.text(header, currentX + 5, currentY + 5, { width: colWidths[i] - 10, align: 'center' });
+              currentX += colWidths[i];
+            });
+            currentY += rowHeight;
+            doc.font('Helvetica').fontSize(8);
+          }
+
+          // Alternate row colors
+          const fillColor = index % 2 === 0 ? '#f0f0f0' : '#ffffff';
+          doc.rect(startX, currentY, colWidths.reduce((a, b) => a + b, 0), rowHeight).fillAndStroke(fillColor, '#cccccc');
+          
+          currentX = startX;
+          doc.fillColor('#000000');
+          row.forEach((cell, i) => {
+            doc.text(String(cell), currentX + 5, currentY + 5, { width: colWidths[i] - 10, align: i === 0 ? 'left' : 'center' });
+            currentX += colWidths[i];
+          });
+          currentY += rowHeight;
+        });
+
+        return currentY;
+      };
+
+      // Add title
+      doc.fontSize(18).font('Helvetica-Bold').fillColor('#000000').text('Attendance Report', { align: 'center' });
+      doc.fontSize(12).font('Helvetica').text(`Period: ${moment(start).format('DD MMM YYYY')} to ${moment(end).format('DD MMM YYYY')}`, { align: 'center' });
+      doc.moveDown(2);
+
+      // Process each employee
+      employees.forEach((emp, empIndex) => {
+        // Check if we need a new page for employee header
+        if (doc.y > 480) {
+          doc.addPage();
+        }
+
+        // Employee header
+        doc.fontSize(12).font('Helvetica-Bold').fillColor('#000000')
+          .text(`${emp.employeeId} - ${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`, 30, doc.y);
+        doc.fontSize(9).font('Helvetica')
+          .text(`Department: ${emp.employmentInfo.department?.name || 'N/A'} | Designation: ${emp.employmentInfo.designation || 'N/A'}`, 30, doc.y);
+        doc.moveDown(0.5);
+
+        // Prepare attendance data for table
+        const tableData = [];
+        let presentCount = 0;
+        let absentCount = 0;
+        let lateCount = 0;
+        let totalHours = 0;
+
+        days.forEach(day => {
+          const dateKey = day.format('YYYY-MM-DD');
+          const attendance = attendanceMap[emp._id.toString()]?.[dateKey];
+          
+          if (attendance) {
+            const checkIn = attendance.checkIn?.time ? moment(attendance.checkIn.time).format('HH:mm') : '-';
+            const checkOut = attendance.checkOut?.time ? moment(attendance.checkOut.time).format('HH:mm') : '-';
+            const hours = attendance.totalHours ? attendance.totalHours.toFixed(2) : '0.00';
+            const status = attendance.status.toUpperCase();
+            
+            tableData.push([
+              day.format('DD-MMM-YYYY'),
+              status,
+              checkIn,
+              checkOut,
+              hours
+            ]);
+            
+            if (attendance.status === 'present' || attendance.status === 'late') {
+              presentCount++;
+              totalHours += attendance.totalHours || 0;
+            }
+            if (attendance.status === 'absent') {
+              absentCount++;
+            }
+            if (attendance.status === 'late') {
+              lateCount++;
+            }
+          } else {
+            const dayOfWeek = day.day();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const status = isWeekend ? 'WEEKEND' : 'ABSENT';
+            
+            tableData.push([
+              day.format('DD-MMM-YYYY'),
+              status,
+              '-',
+              '-',
+              '0.00'
+            ]);
+            
+            if (!isWeekend) {
+              absentCount++;
+            }
+          }
+        });
+
+        // Draw attendance table
+        const tableHeaders = ['Date', 'Status', 'Check In', 'Check Out', 'Hours'];
+        const endY = drawTable(doc, tableData, doc.y, tableHeaders);
+        doc.y = endY + 10;
+
+        // Add summary
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000')
+          .text(`Summary: Present: ${presentCount} | Absent: ${absentCount} | Late: ${lateCount} | Total Hours: ${totalHours.toFixed(2)}h`, 30, doc.y);
+        doc.moveDown(1.5);
+
+        // Add separator line between employees
+        if (empIndex < employees.length - 1) {
+          doc.strokeColor('#cccccc').lineWidth(1).moveTo(30, doc.y).lineTo(800, doc.y).stroke();
+          doc.moveDown(1);
+        }
+      });
+
+      // Finalize PDF
+      doc.end();
+    }
+
+  } catch (error) {
+    console.error('❌ Error exporting attendance:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false,
+        message: 'Error exporting attendance data',
+        error: error.message 
       });
     }
   }
