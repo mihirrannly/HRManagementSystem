@@ -37,6 +37,7 @@ import AssetManagement from './pages/Assets/AssetManagement';
 import ExitManagement from './pages/ExitManagement/ExitManagement';
 import SalaryManagement from './pages/SalaryManagement/SalaryManagement';
 import Settings from './pages/Settings/Settings';
+import AnnouncementManagement from './pages/Announcements/AnnouncementManagement';
 import OfferAcceptance from './pages/OfferAcceptance';
 import CandidateDocuments from './pages/CandidateDocuments';
 import DocumentLinkRecovery from './pages/DocumentLinkRecovery';
@@ -229,6 +230,7 @@ function App() {
                 <Route path="assets" element={<AssetManagement />} />
                 <Route path="exit-management" element={<ExitManagement />} />
                 <Route path="salary-management" element={<SalaryManagement />} />
+                <Route path="announcements" element={<AnnouncementManagement />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
 

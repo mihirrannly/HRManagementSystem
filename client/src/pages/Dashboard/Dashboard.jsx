@@ -30,6 +30,17 @@ import {
   Cancel as CancelIcon,
   Refresh as RefreshIcon,
   Business as BusinessIcon,
+  Campaign as CampaignIcon,
+  PushPin as PinIcon,
+  Poll as PollIcon,
+  ThumbUp as ThumbUpIcon,
+  Favorite as FavoriteIcon,
+  Celebration as CelebrationIcon,
+  SupportAgent as SupportIcon,
+  Lightbulb as LightbulbIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -134,8 +145,429 @@ const StatCard = ({ title, value, change, icon, color = '#1976d2', subtitle, onC
   );
 };
 
+// Announcements Section Component
+const AnnouncementsSection = () => {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedPoll, setExpandedPoll] = useState(null);
+  const [voterDetails, setVoterDetails] = useState({});
+  const [expandedReactions, setExpandedReactions] = useState(null);
+  const [reactionDetails, setReactionDetails] = useState({});
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
+
+  const fetchAnnouncements = async () => {
+    try {
+      const response = await axios.get('/announcements', {
+        params: { limit: 5 }
+      });
+      if (response.data.success) {
+        setAnnouncements(response.data.announcements);
+        // Fetch voter details for polls
+        await fetchVoterDetailsForPolls(response.data.announcements);
+      }
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchVoterDetailsForPolls = async (announcementsList) => {
+    const polls = announcementsList.filter(a => a.isPoll);
+    const details = {};
+    
+    for (const poll of polls) {
+      if (poll.pollOptions) {
+        details[poll._id] = {};
+        for (let i = 0; i < poll.pollOptions.length; i++) {
+          const option = poll.pollOptions[i];
+          if (option.votes && option.votes.length > 0) {
+            try {
+              const voterPromises = option.votes.map(async (vote) => {
+                try {
+                  const userResponse = await axios.get(`/employees/user/${vote.user}`);
+                  return {
+                    name: userResponse.data.employee 
+                      ? `${userResponse.data.employee.personalInfo.firstName} ${userResponse.data.employee.personalInfo.lastName}`
+                      : userResponse.data.user?.email || 'Unknown',
+                    email: userResponse.data.user?.email || 'N/A',
+                    employeeId: userResponse.data.employee?.employeeId || 'N/A',
+                    votedAt: vote.votedAt
+                  };
+                } catch (err) {
+                  return { name: 'Unknown User', email: 'N/A', employeeId: 'N/A', votedAt: vote.votedAt };
+                }
+              });
+              
+              details[poll._id][i] = await Promise.all(voterPromises);
+            } catch (err) {
+              console.error('Error fetching voter details:', err);
+              details[poll._id][i] = [];
+            }
+          } else {
+            details[poll._id][i] = [];
+          }
+        }
+      }
+    }
+    
+    setVoterDetails(details);
+    
+    // Fetch reaction details
+    await fetchReactionDetailsForAnnouncements(announcementsList);
+  };
+
+  const fetchReactionDetailsForAnnouncements = async (announcementsList) => {
+    const details = {};
+    
+    for (const announcement of announcementsList) {
+      if (announcement.reactions && announcement.reactions.length > 0) {
+        try {
+          const reactionPromises = announcement.reactions.map(async (reaction) => {
+            try {
+              const userResponse = await axios.get(`/employees/user/${reaction.user}`);
+              return {
+                name: userResponse.data.employee 
+                  ? `${userResponse.data.employee.personalInfo.firstName} ${userResponse.data.employee.personalInfo.lastName}`
+                  : userResponse.data.user?.email || 'Unknown',
+                email: userResponse.data.user?.email || 'N/A',
+                employeeId: userResponse.data.employee?.employeeId || 'N/A',
+                type: reaction.type,
+                reactedAt: reaction.reactedAt
+              };
+            } catch (err) {
+              return { 
+                name: 'Unknown User', 
+                email: 'N/A', 
+                employeeId: 'N/A', 
+                type: reaction.type,
+                reactedAt: reaction.reactedAt 
+              };
+            }
+          });
+          
+          details[announcement._id] = await Promise.all(reactionPromises);
+        } catch (err) {
+          console.error('Error fetching reaction details:', err);
+          details[announcement._id] = [];
+        }
+      } else {
+        details[announcement._id] = [];
+      }
+    }
+    
+    setReactionDetails(details);
+  };
+
+  const togglePollExpand = (pollId) => {
+    setExpandedPoll(expandedPoll === pollId ? null : pollId);
+  };
+
+  const toggleReactionsExpand = (announcementId) => {
+    setExpandedReactions(expandedReactions === announcementId ? null : announcementId);
+  };
+
+  const getReactionLabel = (type) => {
+    return type.charAt(0).toUpperCase() + type.slice(1);
+  };
+
+  const handleVote = async (announcementId, optionIndex) => {
+    try {
+      const response = await axios.post(`/announcements/${announcementId}/vote`, {
+        optionIndex
+      });
+      if (response.data.success) {
+        toast.success('Vote recorded successfully');
+        fetchAnnouncements();
+      }
+    } catch (error) {
+      console.error('Error voting:', error);
+      toast.error(error.response?.data?.message || 'Failed to vote');
+    }
+  };
+
+  const handleReact = async (announcementId, reactionType) => {
+    try {
+      const response = await axios.post(`/announcements/${announcementId}/react`, {
+        type: reactionType
+      });
+      if (response.data.success) {
+        fetchAnnouncements();
+      }
+    } catch (error) {
+      console.error('Error reacting:', error);
+      toast.error('Failed to add reaction');
+    }
+  };
+
+  const getReactionIcon = (type) => {
+    switch (type) {
+      case 'like': return <ThumbUpIcon sx={{ fontSize: 16 }} />;
+      case 'love': return <FavoriteIcon sx={{ fontSize: 16 }} />;
+      case 'celebrate': return <CelebrationIcon sx={{ fontSize: 16 }} />;
+      case 'support': return <SupportIcon sx={{ fontSize: 16 }} />;
+      case 'insightful': return <LightbulbIcon sx={{ fontSize: 16 }} />;
+      default: return null;
+    }
+  };
+
+  const getCategoryColor = (category) => {
+    const colors = {
+      general: '#2196f3',
+      policy: '#9c27b0',
+      event: '#ff9800',
+      update: '#00bcd4',
+      urgent: '#f44336',
+      celebration: '#4caf50',
+    };
+    return colors[category] || '#2196f3';
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ mt: 4, p: 3 }}>
+        <LinearProgress />
+      </Box>
+    );
+  }
+
+  if (announcements.length === 0) {
+    return null;
+  }
+
+  return (
+    <Box sx={{ mt: 4 }}>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="h5" fontWeight="700" gutterBottom>
+            <CampaignIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+            Announcements
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Important updates and company news
+          </Typography>
+        </Box>
+      </Box>
+
+      <Grid container spacing={3}>
+        {announcements.map((announcement) => (
+          <Grid item xs={12} md={6} key={announcement._id}>
+            <Card
+              elevation={announcement.isPinned ? 3 : 0}
+              sx={{
+                border: announcement.isPinned ? '2px solid #ff9800' : '1px solid #e0e0e0',
+                borderRadius: 2,
+                position: 'relative',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {announcement.isPinned && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 10,
+                    right: 10,
+                    bgcolor: '#ff9800',
+                    color: 'white',
+                    borderRadius: '50%',
+                    p: 0.5,
+                  }}
+                >
+                  <PinIcon sx={{ fontSize: 16 }} />
+                </Box>
+              )}
+              
+              <CardContent sx={{ flex: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                  <Chip
+                    label={announcement.category.toUpperCase()}
+                    size="small"
+                    sx={{
+                      bgcolor: getCategoryColor(announcement.category),
+                      color: 'white',
+                      fontWeight: 600,
+                    }}
+                  />
+                  {announcement.isPoll && (
+                    <Chip
+                      icon={<PollIcon />}
+                      label="Poll"
+                      size="small"
+                      color="primary"
+                    />
+                  )}
+                  <Chip
+                    label={announcement.priority.toUpperCase()}
+                    size="small"
+                    color={
+                      announcement.priority === 'urgent' ? 'error' :
+                      announcement.priority === 'high' ? 'warning' :
+                      announcement.priority === 'medium' ? 'info' : 'default'
+                    }
+                  />
+                </Box>
+
+                <Typography variant="h6" fontWeight="600" gutterBottom>
+                  {announcement.title}
+                </Typography>
+
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {announcement.content}
+                </Typography>
+
+                {announcement.isPoll && announcement.pollOptions && (
+                  <Box sx={{ mt: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="body2" fontWeight="600" color="primary">
+                        Poll Results
+                      </Typography>
+                      <IconButton 
+                        size="small" 
+                        onClick={() => togglePollExpand(announcement._id)}
+                        sx={{ p: 0.5 }}
+                      >
+                        {expandedPoll === announcement._id ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </IconButton>
+                    </Box>
+                    {announcement.pollResults.map((result, index) => (
+                      <Box key={index} sx={{ mb: 1.5 }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            mb: 0.5,
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight="500">
+                            {result.option}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {result.votes} votes ({result.percentage}%)
+                          </Typography>
+                        </Box>
+                        <Box sx={{ position: 'relative', height: 8, bgcolor: '#e0e0e0', borderRadius: 1 }}>
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              height: '100%',
+                              width: `${result.percentage}%`,
+                              bgcolor: 'primary.main',
+                              borderRadius: 1,
+                              transition: 'width 0.3s ease',
+                            }}
+                          />
+                        </Box>
+                        
+                        {expandedPoll === announcement._id && voterDetails[announcement._id]?.[index]?.length > 0 && (
+                          <Box sx={{ mt: 1, ml: 1, p: 1, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                            <Typography variant="caption" fontWeight="600" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                              Voted by:
+                            </Typography>
+                            {voterDetails[announcement._id][index].map((voter, vIdx) => (
+                              <Box key={vIdx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.3 }}>
+                                <PersonIcon sx={{ fontSize: 14, color: 'primary.main' }} />
+                                <Typography variant="caption" color="text.secondary">
+                                  {voter.name} ({voter.employeeId})
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
+                        
+                        {!announcement.hasVoted && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleVote(announcement._id, index)}
+                            sx={{ mt: 0.5 }}
+                          >
+                            Vote for this
+                          </Button>
+                        )}
+                      </Box>
+                    ))}
+                    {announcement.hasVoted && (
+                      <Chip
+                        label="You voted"
+                        size="small"
+                        color="success"
+                        sx={{ mt: 1 }}
+                      />
+                    )}
+                  </Box>
+                )}
+
+                <Divider sx={{ my: 2 }} />
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    {['like', 'love', 'celebrate', 'support', 'insightful'].map((type) => (
+                      <Tooltip key={type} title={type}>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleReact(announcement._id, type)}
+                          sx={{
+                            color: announcement.userReaction === type ? 'primary.main' : 'text.secondary',
+                          }}
+                        >
+                          {getReactionIcon(type)}
+                        </IconButton>
+                      </Tooltip>
+                    ))}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Typography 
+                      variant="caption" 
+                      color="text.secondary"
+                      sx={{ cursor: 'pointer', '&:hover': { color: 'primary.main' } }}
+                      onClick={() => toggleReactionsExpand(announcement._id)}
+                    >
+                      {Object.values(announcement.reactionCounts || {}).reduce((a, b) => a + b, 0)} reactions
+                      {expandedReactions === announcement._id ? ' ▲' : ' ▼'}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {expandedReactions === announcement._id && reactionDetails[announcement._id]?.length > 0 && (
+                  <Box sx={{ mt: 1, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #e0e0e0' }}>
+                    <Typography variant="caption" fontWeight="600" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                      Reactions:
+                    </Typography>
+                    {reactionDetails[announcement._id].map((reactor, idx) => (
+                      <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.3 }}>
+                        <Typography variant="caption" sx={{ fontSize: 14 }}>
+                          {['👍', '❤️', '🎉', '🤝', '💡'][['like', 'love', 'celebrate', 'support', 'insightful'].indexOf(reactor.type)]}
+                        </Typography>
+                        <PersonIcon sx={{ fontSize: 14, color: 'primary.main' }} />
+                        <Typography variant="caption" color="text.secondary">
+                          {reactor.name} ({reactor.employeeId}) - {getReactionLabel(reactor.type)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                  Posted by {announcement.createdByName} • {moment(announcement.createdAt).fromNow()}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+};
+
 // Employee Overview Section Component
-const EmployeeOverviewSection = () => {
+const EmployeeOverviewSection = ({ userRole }) => {
   const [exits, setExits] = useState([]);
   const [recentExits, setRecentExits] = useState([]);
   const [onboarding, setOnboarding] = useState([]);
@@ -143,6 +575,9 @@ const EmployeeOverviewSection = () => {
   const [birthdaysData, setBirthdaysData] = useState([]);
   const [anniversariesData, setAnniversariesData] = useState({ thisMonth: [], upcoming: [] });
   const [loading, setLoading] = useState(true);
+
+  // Check if user is Admin or HR
+  const isAdminOrHR = userRole === 'admin' || userRole === 'hr';
 
   useEffect(() => {
     fetchOverviewData();
@@ -230,7 +665,8 @@ const EmployeeOverviewSection = () => {
       </Box>
 
       <Grid container spacing={3}>
-        {/* Exits - Last 2 Months */}
+        {/* Exits - Last 2 Months - Only for Admin/HR */}
+        {isAdminOrHR && (
         <Grid item xs={12} md={3}>
           <Card
             elevation={0}
@@ -295,8 +731,10 @@ const EmployeeOverviewSection = () => {
             </CardContent>
           </Card>
         </Grid>
+        )}
 
-        {/* Onboarding - Last 1 Month */}
+        {/* Onboarding - Last 1 Month - Only for Admin/HR */}
+        {isAdminOrHR && (
         <Grid item xs={12} md={3}>
           <Card
             elevation={0}
@@ -367,8 +805,10 @@ const EmployeeOverviewSection = () => {
             </CardContent>
           </Card>
         </Grid>
+        )}
 
-        {/* Probation */}
+        {/* Probation - Only for Admin/HR */}
+        {isAdminOrHR && (
         <Grid item xs={12} md={3}>
           <Card
             elevation={0}
@@ -425,6 +865,7 @@ const EmployeeOverviewSection = () => {
             </CardContent>
           </Card>
         </Grid>
+        )}
 
         {/* Birthdays */}
         <Grid item xs={12} md={3}>
@@ -1015,8 +1456,11 @@ const Dashboard = () => {
         </Grid>
       </Grid>
 
+      {/* Announcements Section */}
+      <AnnouncementsSection />
+
       {/* Employee Overview Section */}
-      <EmployeeOverviewSection />
+      <EmployeeOverviewSection userRole={user?.role} />
     </Box>
   );
 };

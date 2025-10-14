@@ -171,3 +171,4 @@ const response = await axios.get('/api/employees?status=all');
 
 The fix is minimal, focused, and doesn't require any frontend changes. All employee lists will now automatically exclude exited employees.
 
+

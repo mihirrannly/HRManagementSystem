@@ -33,6 +33,7 @@ import {
   Computer as ComputerIcon,
   Settings as SettingsIcon,
   SupervisorAccount as SupervisorAccountIcon,
+  Campaign as CampaignIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -76,6 +77,12 @@ const menuItems = [
     icon: <AssessmentIcon />,
     path: '/reports',
     roles: ['admin', 'hr', 'manager']
+  },
+  {
+    text: 'Announcements',
+    icon: <CampaignIcon />,
+    path: '/announcements',
+    roles: ['admin', 'hr']
   },
   {
     text: 'Permissions',

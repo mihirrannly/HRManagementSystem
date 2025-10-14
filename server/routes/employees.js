@@ -237,6 +237,41 @@ router.get('/on-probation', authenticate, async (req, res) => {
   }
 });
 
+// @route   GET /api/employees/user/:userId
+// @desc    Get employee and user details by user ID
+// @access  Private
+router.get('/user/:userId', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Fetch user details
+    const user = await User.findById(userId).select('email role');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Fetch employee details if exists
+    const employee = await Employee.findOne({ user: userId })
+      .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department employmentInfo.designation profilePicture');
+    
+    res.json({
+      success: true,
+      user,
+      employee
+    });
+  } catch (error) {
+    console.error('Error fetching user details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user details',
+      error: error.message
+    });
+  }
+});
+
 // @route   GET /api/employees
 // @desc    Get all employees with filtering, sorting, and pagination
 // @access  Private (HR, Admin, Manager)

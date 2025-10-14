@@ -29,6 +29,7 @@ const exitManagementRoutes = require('./routes/exitManagement');
 const salaryManagementRoutes = require('./routes/salaryManagement');
 const designationRoutes = require('./routes/designations');
 const webhookRoutes = require('./routes/webhook');
+const announcementRoutes = require('./routes/announcements');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -155,6 +156,7 @@ app.use('/api/exit-management', exitManagementRoutes);
 app.use('/api/salary-management', salaryManagementRoutes);
 app.use('/api/designations', designationRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/announcements', announcementRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
