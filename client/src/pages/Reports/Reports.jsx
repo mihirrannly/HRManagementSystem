@@ -17,12 +17,25 @@ import {
   TableHead,
   TableRow,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  FormControl,
+  FormLabel,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
   Refresh as RefreshIcon,
   Person as PersonIcon,
   People as PeopleIcon,
+  AccessTime as AccessTimeIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -42,6 +55,15 @@ const Reports = () => {
   // Employee selection for individual reports
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [employeesList, setEmployeesList] = useState([]);
+  
+  // Late employees report state
+  const [lateReportDialogOpen, setLateReportDialogOpen] = useState(false);
+  const [lateReportFormat, setLateReportFormat] = useState('excel');
+  const [lateReportDateRange, setLateReportDateRange] = useState({
+    startDate: moment().startOf('month').format('YYYY-MM-DD'),
+    endDate: moment().endOf('month').format('YYYY-MM-DD')
+  });
+  const [exportingLateReport, setExportingLateReport] = useState(false);
   
   // Real data states
   const [attendanceTrendData, setAttendanceTrendData] = useState([]);
@@ -269,6 +291,58 @@ const Reports = () => {
     toast.info('Export functionality coming soon!');
   };
 
+  const handleLateReportDownload = async () => {
+    try {
+      setExportingLateReport(true);
+      const token = localStorage.getItem('token');
+      
+      console.log('📊 Downloading late employees report:', lateReportDateRange);
+      
+      const params = {
+        format: lateReportFormat,
+        startDate: lateReportDateRange.startDate,
+        endDate: lateReportDateRange.endDate
+      };
+      
+      const response = await axios.get('/attendance/late-employees-report', {
+        params,
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      
+      // Create blob and download
+      const blob = new Blob([response.data], {
+        type: lateReportFormat === 'excel' 
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'application/pdf'
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const filename = `Late_Employees_Report_${lateReportDateRange.startDate}_to_${lateReportDateRange.endDate}.${lateReportFormat === 'excel' ? 'xlsx' : 'pdf'}`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success(`Late employees report downloaded successfully!`);
+      setLateReportDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Error downloading late employees report:', error);
+      if (error.response?.status === 404) {
+        toast.warning('No employees found who came late (after 10:00 AM) and did not complete 9 hours during this period');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to download late employees report');
+      }
+    } finally {
+      setExportingLateReport(false);
+    }
+  };
+
   if (!isHR && !isAdmin && !isManager) {
     return (
       <Box sx={{ textAlign: 'center', mt: 4 }}>
@@ -285,7 +359,16 @@ const Reports = () => {
         <Typography variant="h4" fontWeight="bold">
           Reports & Analytics
         </Typography>
-        <Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<WarningIcon />}
+            onClick={() => setLateReportDialogOpen(true)}
+            sx={{ mr: 1 }}
+          >
+            Late Employees Report
+          </Button>
           <Button
             variant="outlined"
             startIcon={<DownloadIcon />}
@@ -801,6 +884,125 @@ const Reports = () => {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Late Employees Report Dialog */}
+      <Dialog 
+        open={lateReportDialogOpen} 
+        onClose={() => setLateReportDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningIcon color="warning" />
+            <Typography variant="h6">Late Employees Report</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            This report shows employees who came after 10:00 AM and did not complete 9 hours of work.
+          </Alert>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
+            
+            {/* Export Format */}
+            <FormControl component="fieldset">
+              <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1 }}>
+                Export Format
+              </FormLabel>
+              <RadioGroup
+                row
+                value={lateReportFormat}
+                onChange={(e) => setLateReportFormat(e.target.value)}
+              >
+                <FormControlLabel 
+                  value="excel" 
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <DownloadIcon color="success" />
+                      <Typography>Excel</Typography>
+                    </Box>
+                  } 
+                />
+                <FormControlLabel 
+                  value="pdf" 
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <DownloadIcon color="error" />
+                      <Typography>PDF</Typography>
+                    </Box>
+                  } 
+                />
+              </RadioGroup>
+            </FormControl>
+
+            {/* Date Range */}
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
+                Select Date Range
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="Start Date"
+                  type="date"
+                  value={lateReportDateRange.startDate}
+                  onChange={(e) => setLateReportDateRange({ ...lateReportDateRange, startDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField
+                  label="End Date"
+                  type="date"
+                  value={lateReportDateRange.endDate}
+                  onChange={(e) => setLateReportDateRange({ ...lateReportDateRange, endDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              </Box>
+            </Box>
+
+            {/* Preview */}
+            <Paper sx={{ p: 2, bgcolor: 'warning.50', borderLeft: '4px solid', borderColor: 'warning.main' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <AccessTimeIcon color="warning" fontSize="small" />
+                <Typography variant="body2" fontWeight={600}>
+                  Report Criteria:
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                • Check-in time: After 10:00 AM
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                • Total hours worked: Less than 9 hours
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Period: {moment(lateReportDateRange.startDate).format('DD MMM YYYY')} to {moment(lateReportDateRange.endDate).format('DD MMM YYYY')}
+                ({moment(lateReportDateRange.endDate).diff(moment(lateReportDateRange.startDate), 'days') + 1} days)
+              </Typography>
+            </Paper>
+
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button 
+            onClick={() => setLateReportDialogOpen(false)}
+            disabled={exportingLateReport}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleLateReportDownload}
+            variant="contained"
+            color="warning"
+            startIcon={exportingLateReport ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+            disabled={exportingLateReport}
+          >
+            {exportingLateReport ? 'Downloading...' : 'Download Report'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -73,10 +73,16 @@ const menuItems = [
     roles: ['admin', 'hr', 'manager', 'employee']
   },
   {
+    text: 'Expense & Travel',
+    icon: <LocalAirportIcon />,
+    path: '/expenses',
+    roles: ['admin', 'hr', 'manager', 'employee']
+  },
+  {
     text: 'Reports',
     icon: <AssessmentIcon />,
     path: '/reports',
-    roles: ['admin', 'hr', 'manager']
+    roles: ['admin', 'hr'] // Restricted to Admin and HR only
   },
   {
     text: 'Announcements',
@@ -94,13 +100,13 @@ const menuItems = [
     text: 'Asset Management',
     icon: <ComputerIcon />,
     path: '/assets',
-    roles: ['admin', 'hr', 'manager']
+    roles: ['admin', 'hr'] // Restricted to Admin and HR only
   },
   {
     text: 'Exit Management',
     icon: <ExitToAppIcon />,
     path: '/exit-management',
-    roles: ['admin', 'hr', 'manager']
+    roles: ['admin', 'hr'] // Restricted to Admin and HR only
   },
   {
     text: 'Salary Management',
@@ -137,8 +143,11 @@ const Layout = () => {
   };
 
   const filteredMenuItems = menuItems.filter(item => {
+    // Use effectiveRole if available, otherwise fall back to role
+    const userRole = user?.effectiveRole || user?.role;
+    
     // Check if user has the required role
-    const hasRole = item.roles.includes(user?.role);
+    const hasRole = item.roles.includes(userRole);
     
     // Check if user has special access (like Prajwal)
     const hasSpecialAccess = item.specialAccess && item.specialAccess.includes(user?.email?.toLowerCase());

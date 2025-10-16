@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const Employee = require('../models/Employee');
+const { UserRole } = require('../models/Permission');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
@@ -220,11 +221,55 @@ router.get('/me', authenticate, async (req, res) => {
       .populate('employmentInfo.reportingManager', 'personalInfo.firstName personalInfo.lastName employeeId')
       .select('employeeId personalInfo contactInfo employmentInfo salaryInfo profilePicture');
 
+    // Get assigned roles from UserRole collection
+    let effectiveRole = req.user.role; // Start with base role
+    let assignedRolesData = [];
+    
+    try {
+      const roleAssignments = await UserRole.find({
+        user: req.user._id,
+        isActive: true,
+        $or: [
+          { expiresAt: { $exists: false } },
+          { expiresAt: null },
+          { expiresAt: { $gt: new Date() } }
+        ]
+      }).populate('role', 'name displayName permissions');
+
+      // Filter out any assignments where role didn't populate (deleted roles)
+      const validAssignments = roleAssignments.filter(ra => ra.role && ra.role.name);
+      const assignedRoleNames = validAssignments.map(ra => ra.role.name);
+      
+      // If user has HR-related roles, upgrade effective role
+      if (assignedRoleNames.some(name => ['hr', 'hr_manager', 'hr_executive'].includes(name))) {
+        effectiveRole = 'hr';
+      }
+      // If user has admin roles, upgrade to admin
+      if (assignedRoleNames.some(name => ['admin', 'super_admin', 'global_admin'].includes(name))) {
+        effectiveRole = 'admin';
+      }
+
+      // Format assigned roles for response
+      assignedRolesData = validAssignments.map(ra => ({
+        id: ra.role._id,
+        name: ra.role.name,
+        displayName: ra.role.displayName
+      }));
+
+      console.log('🎭 Assigned roles:', assignedRoleNames);
+      console.log('🎯 Effective role:', effectiveRole);
+    } catch (roleError) {
+      console.error('Error fetching user roles in /me endpoint:', roleError.message);
+      // Continue with base role if role fetching fails
+    }
+
     res.json({
       user: {
         id: req.user._id,
         email: req.user.email,
-        role: req.user.role,
+        role: req.user.role, // Original role
+        effectiveRole: effectiveRole, // Computed based on assigned roles
+        assignedRoles: assignedRolesData,
         permissions: req.user.permissions,
         isActive: req.user.isActive,
         lastLogin: req.user.lastLogin

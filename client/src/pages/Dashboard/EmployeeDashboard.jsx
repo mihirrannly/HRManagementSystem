@@ -107,6 +107,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { formatMinutesToHoursAndMinutes, formatLateStatus } from '../../utils/timeUtils';
 
 // TabPanel component
 function TabPanel(props) {
@@ -1815,7 +1816,13 @@ const EmployeeDashboard = () => {
   const fetchLeaveBalance = async () => {
     try {
       const response = await axios.get('/leave/balance');
-      setLeaveBalance(response.data);
+      // Handle new response format with balances array
+      if (response.data.balances) {
+        setLeaveBalance(response.data.balances);
+      } else {
+        // Fallback for old format (direct array)
+        setLeaveBalance(response.data);
+      }
     } catch (error) {
       console.error('Error fetching leave balance:', error);
       // Set default leave types if API fails
@@ -2327,50 +2334,68 @@ const EmployeeDashboard = () => {
           </Box>
           
           <Box sx={{ display: 'flex', gap: 1, mt: { xs: 2, md: 0 }, flexDirection: 'column', alignItems: { xs: 'flex-start', md: 'flex-end' } }}>
-            {officeStatus && (
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Chip
-                  label={officeStatus.isOfficeIP ? 'Office Network' : 'Outside Office'}
-                  size="small"
-                  color={officeStatus.isOfficeIP ? 'success' : 'error'}
-                  variant="outlined"
-                  sx={{ fontSize: '0.7rem' }}
-                />
+            {/* Check-in Status Display - Top Right */}
+            {attendanceStatus?.checkedIn && (
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                p: 1.5,
+                bgcolor: attendanceStatus?.isLate ? 'rgba(255, 152, 0, 0.1)' : 'rgba(76, 175, 80, 0.1)',
+                borderRadius: 2,
+                border: `2px solid ${attendanceStatus?.isLate ? '#ff9800' : '#4caf50'}`,
+                minWidth: 180
+              }}>
+                <Typography variant="body2" sx={{ 
+                  fontWeight: 700,
+                  color: attendanceStatus?.isLate ? '#e65100' : '#2e7d32',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5
+                }}>
+                  <CheckCircleIcon sx={{ fontSize: 16 }} />
+                  Check In: {moment(attendanceStatus.checkIn).format('hh:mm A')}
+                </Typography>
+                <Typography variant="caption" sx={{ 
+                  fontWeight: 600,
+                  color: attendanceStatus?.isLate ? '#e65100' : '#2e7d32',
+                  mt: 0.5
+                }}>
+                  {attendanceStatus?.isLate ? formatLateStatus(attendanceStatus.lateMinutes) : 'On time ✓'}
+                </Typography>
+                {attendanceStatus?.checkedOut && (
+                  <>
+                    <Divider sx={{ width: '100%', my: 1, borderColor: attendanceStatus?.isLate ? 'rgba(255, 152, 0, 0.3)' : 'rgba(76, 175, 80, 0.3)' }} />
+                    <Typography variant="body2" sx={{ 
+                      fontWeight: 700,
+                      color: '#1976d2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5
+                    }}>
+                      <ScheduleIcon sx={{ fontSize: 16 }} />
+                      Check Out: {moment(attendanceStatus.checkOut).format('hh:mm A')}
+                    </Typography>
+                    <Typography variant="caption" sx={{ 
+                      fontWeight: 600,
+                      color: '#1976d2',
+                      mt: 0.5
+                    }}>
+                      {attendanceStatus.totalHours ? `${Math.floor(attendanceStatus.totalHours)}h ${Math.round((attendanceStatus.totalHours % 1) * 60)}m worked` : 'Calculating...'}
+                    </Typography>
+                  </>
+                )}
               </Box>
             )}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              {!attendanceStatus?.checkedIn && attendanceStatus?.status !== 'weekend' && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={() => markAttendance('check-in')}
-                  disabled={!officeStatus?.isOfficeIP}
-                  title={!officeStatus?.isOfficeIP ? 'Check-in only allowed from office premises' : ''}
-                >
-                  Check In
-                </Button>
-              )}
-              {attendanceStatus?.status === 'weekend' && (
-                <Chip
-                  label="Weekend - No Check-in Required"
-                  size="small"
-                  sx={{ bgcolor: '#9e9e9e', color: 'white', fontSize: '0.7rem' }}
-                />
-              )}
-              {attendanceStatus?.checkedIn && !attendanceStatus?.checkedOut && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<ScheduleIcon />}
-                  onClick={() => markAttendance('check-out')}
-                  disabled={!officeStatus?.isOfficeIP}
-                  title={!officeStatus?.isOfficeIP ? 'Check-out only allowed from office premises' : ''}
-                >
-                  Check Out
-                </Button>
-              )}
-            </Box>
+            
+            {/* Check-in/Check-out removed - handled by biometric system */}
+            {attendanceStatus?.status === 'weekend' && (
+              <Chip
+                label="Weekend"
+                size="small"
+                sx={{ bgcolor: '#9e9e9e', color: 'white', fontSize: '0.75rem', fontWeight: 600 }}
+              />
+            )}
           </Box>
         </Box>
       </Paper>
@@ -3564,7 +3589,7 @@ const EmployeeDashboard = () => {
                             </Typography>
                             {attendanceStatus.isLate && (
                               <Chip 
-                                label={`Late by ${attendanceStatus.lateMinutes} min`} 
+                                label={formatLateStatus(attendanceStatus.lateMinutes)} 
                                 size="small" 
                                 color="warning" 
                                 sx={{ mt: 1 }} 
@@ -3870,7 +3895,7 @@ const EmployeeDashboard = () => {
                                   </Typography>
                                   {data.isLate && (
                                     <Typography variant="body2" color="warning.main">
-                                      Late by {data.lateMinutes} min
+                                      {formatLateStatus(data.lateMinutes)}
                                     </Typography>
                                   )}
                                 </Paper>

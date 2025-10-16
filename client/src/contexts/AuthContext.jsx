@@ -242,6 +242,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Use effectiveRole if available, otherwise fall back to role
+  const userRole = user?.effectiveRole || user?.role;
+
   const value = {
     user,
     employee,
@@ -253,10 +256,10 @@ export const AuthProvider = ({ children }) => {
     register,
     updateProfile,
     changePassword,
-    isAdmin: user?.role === 'admin' || user?.role === 'hr', // HR now has admin privileges
-    isHR: user?.role === 'hr' || user?.role === 'admin',
-    isManager: user?.role === 'manager' || user?.role === 'hr' || user?.role === 'admin',
-    isEmployee: user?.role === 'employee'
+    isAdmin: userRole === 'admin' || userRole === 'hr', // HR now has admin privileges
+    isHR: userRole === 'hr' || userRole === 'admin',
+    isManager: userRole === 'manager' || userRole === 'hr' || userRole === 'admin',
+    isEmployee: userRole === 'employee'
   };
 
   return (

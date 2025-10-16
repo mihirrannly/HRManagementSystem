@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -75,7 +75,8 @@ import EngageModule from './modules/EngageModule';
 import AssetsModule from './modules/AssetsModule';
 import SettingsModule from './modules/SettingsModule';
 
-const organizationModules = [
+// Base module configuration (without dynamic stats)
+const baseOrganizationModules = [
   {
     id: 'dashboard',
     title: 'Organization Dashboard',
@@ -83,7 +84,7 @@ const organizationModules = [
     icon: <DashboardIcon />,
     color: '#1976d2',
     component: OrganizationDashboardModule,
-    stats: { primary: 'Analytics', secondary: 'Overview' }
+    stats: { primary: '...', secondary: 'Loading...' } // Will be populated dynamically
   },
   {
     id: 'employees',
@@ -198,19 +199,77 @@ const OrganizationAdvanced = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // Additional module data
+  const [expenseStats, setExpenseStats] = useState(null);
+  const [onboardingStats, setOnboardingStats] = useState(null);
+  const [exitStats, setExitStats] = useState(null);
+  const [payrollStats, setPayrollStats] = useState(null);
+  const [engagementStats, setEngagementStats] = useState(null);
+
   useEffect(() => {
     if (!isAdmin) {
       toast.error('Access denied. Admin privileges required.');
       return;
     }
     
-    fetchAnalytics();
+    fetchAllAnalytics();
   }, [isAdmin]);
 
-  const fetchAnalytics = async () => {
+  const fetchAllAnalytics = async () => {
+    setLoading(true);
     try {
-      const response = await axios.get('/organization/analytics');
-      setAnalytics(response.data);
+      // Fetch all analytics data in parallel
+      const [
+        orgResponse,
+        expenseResponse,
+        onboardingResponse,
+        exitResponse,
+        payrollResponse,
+        engagementResponse
+      ] = await Promise.allSettled([
+        axios.get('/organization/analytics'),
+        axios.get('/expenses/stats'),
+        axios.get('/onboarding/analytics/dashboard'),
+        axios.get('/exit-management/dashboard/stats'),
+        axios.get('/salary-management/stats/overview', { 
+          params: { 
+            month: new Date().getMonth() + 1, 
+            year: new Date().getFullYear() 
+          } 
+        }),
+        axios.get('/announcements/stats/dashboard')
+      ]);
+
+      // Set organization analytics
+      if (orgResponse.status === 'fulfilled') {
+        setAnalytics(orgResponse.value.data);
+      }
+
+      // Set expense stats
+      if (expenseResponse.status === 'fulfilled') {
+        setExpenseStats(expenseResponse.value.data);
+      }
+
+      // Set onboarding stats
+      if (onboardingResponse.status === 'fulfilled') {
+        setOnboardingStats(onboardingResponse.value.data);
+      }
+
+      // Set exit stats
+      if (exitResponse.status === 'fulfilled') {
+        setExitStats(exitResponse.value.data);
+      }
+
+      // Set payroll stats
+      if (payrollResponse.status === 'fulfilled') {
+        setPayrollStats(payrollResponse.value.data);
+      }
+
+      // Set engagement stats
+      if (engagementResponse.status === 'fulfilled') {
+        setEngagementStats(engagementResponse.value.data);
+      }
+
     } catch (error) {
       console.error('Error fetching analytics:', error);
       toast.error('Failed to fetch organization analytics');
@@ -218,6 +277,151 @@ const OrganizationAdvanced = () => {
       setLoading(false);
     }
   };
+
+  const fetchAnalytics = async () => {
+    // Wrapper for backward compatibility
+    await fetchAllAnalytics();
+  };
+
+  // Generate organization modules with dynamic stats (memoized to re-compute when any data changes)
+  const organizationModules = useMemo(() => {
+    return baseOrganizationModules.map(module => {
+      switch (module.id) {
+        case 'dashboard':
+          if (analytics) {
+            const totalEmployees = analytics.summary?.totalEmployees || '0';
+            return {
+              ...module,
+              stats: { 
+                primary: totalEmployees, 
+                secondary: 'Total Employees' 
+              }
+            };
+          }
+          break;
+          
+        case 'employees':
+          if (analytics) {
+            return {
+              ...module,
+              stats: { 
+                primary: analytics.summary?.totalEmployees || '0', 
+                secondary: 'Total Employees' 
+              }
+            };
+          }
+          break;
+          
+        case 'structure':
+          if (analytics) {
+            return {
+              ...module,
+              stats: { 
+                primary: analytics.breakdowns?.departments?.length || '0', 
+                secondary: 'Departments' 
+              }
+            };
+          }
+          break;
+          
+        case 'onboarding':
+          if (onboardingStats) {
+            return {
+              ...module,
+              stats: { 
+                primary: onboardingStats.summary?.active || '0', 
+                secondary: 'Active Onboardings' 
+              }
+            };
+          }
+          break;
+          
+        case 'exits':
+          if (exitStats) {
+            return {
+              ...module,
+              stats: { 
+                primary: exitStats.pendingExits || '0', 
+                secondary: 'Pending Exits' 
+              }
+            };
+          }
+          break;
+          
+        case 'expenses':
+          if (expenseStats) {
+            // Calculate total approved + pending expenses this month
+            const statusStats = expenseStats.statusStats || [];
+            const approvedStats = statusStats.find(s => s._id === 'approved') || {};
+            const pendingStats = statusStats.find(s => s._id === 'pending') || {};
+            const totalAmount = (approvedStats.totalAmount || 0) + (pendingStats.totalAmount || 0);
+            
+            // Format currency in Indian Rupees (Lakhs/Thousands)
+            const formatCurrency = (amount) => {
+              if (amount >= 100000) {
+                return `₹${(amount / 100000).toFixed(1)}L`;
+              } else if (amount >= 1000) {
+                return `₹${(amount / 1000).toFixed(1)}K`;
+              }
+              return `₹${amount}`;
+            };
+            
+            return {
+              ...module,
+              stats: { 
+                primary: formatCurrency(totalAmount), 
+                secondary: 'This Month' 
+              }
+            };
+          }
+          break;
+          
+        case 'payroll':
+          if (payrollStats) {
+            const totalPayable = payrollStats.totalPayable || 0;
+            
+            // Format currency in Indian Rupees (Lakhs)
+            const formatCurrency = (amount) => {
+              if (amount >= 100000) {
+                return `₹${(amount / 100000).toFixed(1)}L`;
+              } else if (amount >= 1000) {
+                return `₹${(amount / 1000).toFixed(1)}K`;
+              }
+              return `₹${amount}`;
+            };
+            
+            return {
+              ...module,
+              stats: { 
+                primary: formatCurrency(totalPayable), 
+                secondary: 'Monthly Payroll' 
+              }
+            };
+          }
+          break;
+          
+        case 'engagement':
+          if (engagementStats && engagementStats.stats) {
+            const stats = engagementStats.stats;
+            return {
+              ...module,
+              stats: { 
+                primary: `${stats.active || 0}`, 
+                secondary: 'Active Announcements' 
+              }
+            };
+          }
+          break;
+          
+        default:
+          // Keep original stats for modules without real data yet
+          return module;
+      }
+      
+      // Return module with original stats if data not available yet
+      return module;
+    });
+  }, [analytics, expenseStats, onboardingStats, exitStats, payrollStats, engagementStats]);
 
   const handleModuleSelect = (moduleId) => {
     setSelectedModule(moduleId);
@@ -423,8 +627,8 @@ const OrganizationAdvanced = () => {
         severity: 'success'
       });
 
-      // Refresh analytics after import
-      fetchAnalytics();
+      // Refresh all analytics after import
+      await fetchAllAnalytics();
       
       // Trigger refresh for dashboard modules
       setRefreshTrigger(prev => prev + 1);

@@ -81,3 +81,4 @@ notificationSchema.methods.markAsRead = async function() {
 module.exports = mongoose.model('Notification', notificationSchema);
 
 
+

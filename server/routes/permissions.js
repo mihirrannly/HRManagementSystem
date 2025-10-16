@@ -480,6 +480,7 @@ router.get('/user-permissions/:userId', [authenticate, authorize(['admin', 'hr']
     // Combine all permissions from all roles
     const allPermissions = new Map();
     
+    // Add permissions from role assignments
     roleAssignments.forEach(assignment => {
       assignment.role.permissions.forEach(perm => {
         const key = perm.module;
@@ -493,6 +494,21 @@ router.get('/user-permissions/:userId', [authenticate, authorize(['admin', 'hr']
         }
       });
     });
+
+    // Add direct custom permissions from user.permissions array
+    if (user.permissions && user.permissions.length > 0) {
+      user.permissions.forEach(perm => {
+        const key = perm.module;
+        if (allPermissions.has(key)) {
+          // Merge actions (union)
+          const existing = allPermissions.get(key);
+          const combined = [...new Set([...existing.actions, ...perm.actions])];
+          allPermissions.set(key, { module: perm.module, actions: combined });
+        } else {
+          allPermissions.set(key, { module: perm.module, actions: [...perm.actions] });
+        }
+      });
+    }
 
     const effectivePermissions = Array.from(allPermissions.values());
 

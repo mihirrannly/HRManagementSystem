@@ -38,6 +38,7 @@ import ExitManagement from './pages/ExitManagement/ExitManagement';
 import SalaryManagement from './pages/SalaryManagement/SalaryManagement';
 import Settings from './pages/Settings/Settings';
 import AnnouncementManagement from './pages/Announcements/AnnouncementManagement';
+import Expenses from './pages/Expenses/Expenses';
 import OfferAcceptance from './pages/OfferAcceptance';
 import CandidateDocuments from './pages/CandidateDocuments';
 import DocumentLinkRecovery from './pages/DocumentLinkRecovery';
@@ -46,6 +47,8 @@ import SubmissionSuccess from './pages/CandidatePortal/SubmissionSuccess';
 import CandidateReview from './pages/CandidateReview';
 import DocumentSigning from './pages/DocumentSigning';
 import Reportee from './pages/Reportee/Reportee';
+import EmployeeFeedbackForm from './pages/ProbationFeedback/EmployeeFeedbackForm';
+import ManagerFeedbackForm from './pages/ProbationFeedback/ManagerFeedbackForm';
 
 // Theme configuration
 const theme = createTheme({
@@ -225,6 +228,7 @@ function App() {
                 <Route path="attendance/import" element={<AttendanceImport />} />
                 <Route path="attendance/import-rannkly" element={<RannklyAttendanceImport />} />
                 <Route path="leave" element={<Leave />} />
+                <Route path="expenses" element={<Expenses />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="permissions" element={<PermissionsManagement />} />
                 <Route path="assets" element={<AssetManagement />} />
@@ -232,6 +236,8 @@ function App() {
                 <Route path="salary-management" element={<SalaryManagement />} />
                 <Route path="announcements" element={<AnnouncementManagement />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="probation-feedback/:id" element={<EmployeeFeedbackForm />} />
+                <Route path="probation-feedback/manager/:id" element={<ManagerFeedbackForm />} />
               </Route>
 
               {/* Fallback route */}

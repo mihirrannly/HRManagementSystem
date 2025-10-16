@@ -63,6 +63,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import IdleDetector from '../../components/IdleDetector';
 import MonthlyAttendanceGrid from './MonthlyAttendanceGrid';
+import { formatLateStatus } from '../../utils/timeUtils';
 
 const Attendance = () => {
   const { user, isEmployee, forceLogout } = useAuth();
@@ -681,7 +682,7 @@ const Attendance = () => {
                     </Typography>
                     {attendanceStatus.isLate && (
                       <Chip
-                        label={`Late by ${attendanceStatus.lateMinutes} mins`}
+                        label={formatLateStatus(attendanceStatus.lateMinutes)}
                         size="small"
                         variant="outlined"
                         color="warning"

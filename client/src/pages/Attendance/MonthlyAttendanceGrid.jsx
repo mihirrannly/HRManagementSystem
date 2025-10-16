@@ -50,6 +50,7 @@ import axios from 'axios';
 import moment from 'moment';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
+import { formatLateStatus } from '../../utils/timeUtils';
 
 const MonthlyAttendanceGrid = () => {
   const [loading, setLoading] = useState(false);
@@ -697,7 +698,7 @@ const MonthlyAttendanceGrid = () => {
               <Typography variant="caption" display="block"><strong>Hours:</strong> {hours}h</Typography>
               {attendance.isLate && (
                 <Typography variant="caption" display="block" color="warning.main">
-                  Late by {attendance.lateMinutes} min
+                  {formatLateStatus(attendance.lateMinutes)}
                 </Typography>
               )}
             </Box>

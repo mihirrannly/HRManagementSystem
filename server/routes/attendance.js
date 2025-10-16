@@ -2617,4 +2617,403 @@ router.get('/export', [
   }
 });
 
+// @route   GET /api/attendance/late-employees-report
+// @desc    Export report of employees who came late (after 10:00 AM) and did not complete 9 hours
+// @access  Private (Admin, HR, Manager)
+router.get('/late-employees-report', [
+  authenticate,
+  authorize(['admin', 'hr', 'manager']),
+  query('format').optional().isIn(['excel', 'pdf']).withMessage('Format must be excel or pdf'),
+  query('startDate').notEmpty().isISO8601().withMessage('Start date is required'),
+  query('endDate').notEmpty().isISO8601().withMessage('End date is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { format = 'excel', startDate, endDate } = req.query;
+    const start = moment(startDate).startOf('day').toDate();
+    const end = moment(endDate).endOf('day').toDate();
+    
+    console.log('📊 Late employees report request:', { format, startDate, endDate });
+
+    // Build employee filter based on role
+    let employeeFilter = { 'employmentInfo.isActive': true };
+    if (req.user.role === 'manager') {
+      const managerEmployee = await Employee.findOne({ user: req.user._id });
+      if (!managerEmployee) {
+        return res.status(404).json({ message: 'Manager employee profile not found' });
+      }
+      
+      const teamMembers = await Employee.find({
+        'employmentInfo.reportingManager': managerEmployee._id,
+        'employmentInfo.isActive': true
+      }).select('_id');
+      
+      employeeFilter = { _id: { $in: teamMembers.map(emp => emp._id) } };
+    }
+
+    // Get employees
+    const employees = await Employee.find(employeeFilter)
+      .select('employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department employmentInfo.designation')
+      .populate('employmentInfo.department', 'name');
+
+    // Get attendance records for the date range
+    const attendanceRecords = await Attendance.find({
+      employee: { $in: employees.map(emp => emp._id) },
+      date: { $gte: start, $lte: end }
+    }).populate('employee', 'employeeId personalInfo.firstName personalInfo.lastName employmentInfo.department employmentInfo.designation');
+
+    // Filter for late arrivals (after 10:00 AM) and incomplete hours (< 9)
+    const lateEmployeeRecords = [];
+    const employeeStatsMap = new Map(); // Track stats per employee
+    
+    attendanceRecords.forEach(record => {
+      if (!record.employee) {
+        return; // Skip if no employee
+      }
+
+      // Get first and last punch times (this is how totalHours is calculated)
+      let firstPunchTime = null;
+      let lastPunchTime = null;
+      let checkInTime = null;
+      
+      if (record.punchRecords && record.punchRecords.length > 0) {
+        // Sort punches by time
+        const sortedPunches = [...record.punchRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
+        firstPunchTime = moment(sortedPunches[0].time);
+        lastPunchTime = moment(sortedPunches[sortedPunches.length - 1].time);
+        
+        // Get first IN punch for late calculation
+        const firstInPunch = sortedPunches.find(p => p.type === 'in');
+        checkInTime = firstInPunch ? moment(firstInPunch.time) : firstPunchTime;
+      } else if (record.checkIn && record.checkIn.time) {
+        // Fallback to old checkIn/checkOut if no punch records
+        firstPunchTime = moment(record.checkIn.time);
+        lastPunchTime = record.checkOut?.time ? moment(record.checkOut.time) : firstPunchTime;
+        checkInTime = firstPunchTime;
+      } else {
+        return; // Skip if no punch data at all
+      }
+
+      const checkInHour = checkInTime.hour();
+      const checkInMinute = checkInTime.minute();
+      const totalHours = record.totalHours || 0;
+      
+      // Check if came after 10:00 AM
+      const isLateCheckIn = checkInHour > 10 || (checkInHour === 10 && checkInMinute > 0);
+      
+      // Check if did not complete 9 hours
+      const incompleteHours = totalHours < 9;
+      
+      // Include only if both conditions are met
+      if (isLateCheckIn && incompleteHours) {
+        const empId = record.employee._id.toString();
+        const empKey = record.employee.employeeId || empId;
+        
+        // Update employee stats
+        if (!employeeStatsMap.has(empKey)) {
+          employeeStatsMap.set(empKey, {
+            employeeId: record.employee.employeeId,
+            name: `${record.employee.personalInfo.firstName} ${record.employee.personalInfo.lastName}`,
+            department: record.employee.employmentInfo?.department?.name || 'N/A',
+            designation: record.employee.employmentInfo?.designation || 'N/A',
+            totalLateDays: 0,
+            totalIncompleteHours: 0,
+            records: []
+          });
+        }
+        
+        const stats = employeeStatsMap.get(empKey);
+        stats.totalLateDays += 1;
+        stats.totalIncompleteHours += (9 - totalHours);
+        
+        lateEmployeeRecords.push({
+          employeeId: record.employee.employeeId,
+          employeeName: `${record.employee.personalInfo.firstName} ${record.employee.personalInfo.lastName}`,
+          department: record.employee.employmentInfo?.department?.name || 'N/A',
+          designation: record.employee.employmentInfo?.designation || 'N/A',
+          date: moment(record.date).format('YYYY-MM-DD'),
+          checkInTime: checkInTime.format('HH:mm'),
+          firstPunchTime: firstPunchTime.format('HH:mm'),
+          lastPunchTime: lastPunchTime.format('HH:mm'),
+          checkOutTime: record.checkOut?.time ? moment(record.checkOut.time).format('HH:mm') : 'N/A',
+          totalPunches: record.punchRecords?.length || 0,
+          totalHours: totalHours.toFixed(2),
+          hoursShort: (9 - totalHours).toFixed(2),
+          minutesLate: isLateCheckIn ? ((checkInHour - 10) * 60 + checkInMinute) : 0
+        });
+        
+        stats.records.push({
+          date: moment(record.date).format('YYYY-MM-DD'),
+          checkInTime: checkInTime.format('HH:mm'),
+          firstPunchTime: firstPunchTime.format('HH:mm'),
+          lastPunchTime: lastPunchTime.format('HH:mm'),
+          totalHours: totalHours.toFixed(2),
+          hoursShort: (9 - totalHours).toFixed(2)
+        });
+      }
+    });
+
+    console.log(`📋 Found ${lateEmployeeRecords.length} records of late arrivals with incomplete hours`);
+
+    if (lateEmployeeRecords.length === 0) {
+      return res.status(404).json({ 
+        message: 'No employees found who came late (after 10:00 AM) and did not complete 9 hours during this period' 
+      });
+    }
+
+    // Generate Excel report
+    if (format === 'excel') {
+      const exportData = [];
+      
+      // Title row
+      exportData.push(['Late Employees Report (After 10:00 AM & < 9 Hours)']);
+      exportData.push([`Period: ${moment(start).format('DD MMM YYYY')} to ${moment(end).format('DD MMM YYYY')}`]);
+      exportData.push([`Generated on: ${moment().format('DD MMM YYYY HH:mm')}`]);
+      exportData.push([`Total Records: ${lateEmployeeRecords.length}`]);
+      exportData.push([]); // Empty row
+      exportData.push(['NOTE: Total Hours is calculated from First Punch to Last Punch (includes all IN/OUT punches)']);
+      exportData.push(['Late calculation is based on Check-In time (first IN punch after 10:00 AM)']);
+      exportData.push([]); // Empty row
+      
+      // Headers
+      exportData.push([
+        'Employee ID',
+        'Employee Name',
+        'Department',
+        'Designation',
+        'Date',
+        'First Punch',
+        'Last Punch',
+        'Total Punches',
+        'Total Hours',
+        'Hours Short of 9',
+        'Check-In (First IN)',
+        'Minutes Late'
+      ]);
+      
+      // Data rows
+      lateEmployeeRecords.forEach(record => {
+        exportData.push([
+          record.employeeId,
+          record.employeeName,
+          record.department,
+          record.designation,
+          record.date,
+          record.firstPunchTime,
+          record.lastPunchTime,
+          record.totalPunches,
+          record.totalHours,
+          record.hoursShort,
+          record.checkInTime,
+          record.minutesLate
+        ]);
+      });
+      
+      // Add summary section
+      exportData.push([]); // Empty row
+      exportData.push(['EMPLOYEE SUMMARY']);
+      exportData.push([
+        'Employee ID',
+        'Employee Name',
+        'Department',
+        'Total Late Days',
+        'Total Hours Short'
+      ]);
+      
+      // Sort by total late days descending
+      const sortedStats = Array.from(employeeStatsMap.values()).sort((a, b) => b.totalLateDays - a.totalLateDays);
+      
+      sortedStats.forEach(stats => {
+        exportData.push([
+          stats.employeeId,
+          stats.name,
+          stats.department,
+          stats.totalLateDays,
+          stats.totalIncompleteHours.toFixed(2)
+        ]);
+      });
+
+      // Create workbook
+      const ws = xlsx.utils.aoa_to_sheet(exportData);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, 'Late Employees');
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 15 },  // Employee ID
+        { wch: 25 },  // Employee Name
+        { wch: 20 },  // Department
+        { wch: 20 },  // Designation
+        { wch: 12 },  // Date
+        { wch: 12 },  // First Punch
+        { wch: 12 },  // Last Punch
+        { wch: 12 },  // Total Punches
+        { wch: 12 },  // Total Hours
+        { wch: 15 },  // Hours Short
+        { wch: 15 },  // Check-In (First IN)
+        { wch: 12 }   // Minutes Late
+      ];
+
+      // Generate buffer
+      const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      // Send file
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Late_Employees_Report_${moment(start).format('YYYY-MM-DD')}_to_${moment(end).format('YYYY-MM-DD')}.xlsx`);
+      res.send(buffer);
+
+    } else if (format === 'pdf') {
+      // Generate PDF
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({ 
+        size: 'A4', 
+        layout: 'landscape',
+        margin: 40 
+      });
+
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=Late_Employees_Report_${moment(start).format('YYYY-MM-DD')}_to_${moment(end).format('YYYY-MM-DD')}.pdf`);
+
+      // Pipe to response
+      doc.pipe(res);
+
+      // Title
+      doc.fontSize(18).font('Helvetica-Bold').text('Late Employees Report', { align: 'center' });
+      doc.fontSize(10).font('Helvetica').text('(Arrived after 10:00 AM & Did not complete 9 hours)', { align: 'center' });
+      doc.moveDown(0.5);
+      doc.fontSize(10).text(`Period: ${moment(start).format('DD MMM YYYY')} to ${moment(end).format('DD MMM YYYY')}`, { align: 'center' });
+      doc.text(`Generated on: ${moment().format('DD MMM YYYY HH:mm')}`, { align: 'center' });
+      doc.text(`Total Records: ${lateEmployeeRecords.length}`, { align: 'center' });
+      doc.moveDown(0.5);
+      doc.fontSize(8).font('Helvetica-Oblique').text('Note: Total Hours calculated from First Punch to Last Punch', { align: 'center' });
+      doc.moveDown(1);
+
+      // Table configuration
+      const tableTop = doc.y;
+      const tableLeft = 40;
+      const colWidths = [80, 120, 100, 80, 70, 70, 60, 60];
+      let yPosition = tableTop;
+
+      // Draw table headers
+      doc.fontSize(8).font('Helvetica-Bold');
+      const headers = ['Employee ID', 'Name', 'Department', 'Date', 'First Punch', 'Last Punch', 'Hours', 'Short'];
+      let xPos = tableLeft;
+      headers.forEach((header, i) => {
+        doc.text(header, xPos, yPosition, { width: colWidths[i], align: 'left' });
+        xPos += colWidths[i];
+      });
+      
+      yPosition += 20;
+      doc.moveTo(tableLeft, yPosition).lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), yPosition).stroke();
+      yPosition += 5;
+
+      // Draw table rows
+      doc.font('Helvetica').fontSize(7);
+      lateEmployeeRecords.forEach((record, index) => {
+        if (yPosition > 520) { // Check if we need a new page
+          doc.addPage({ size: 'A4', layout: 'landscape', margin: 40 });
+          yPosition = 40;
+          
+          // Redraw headers on new page
+          doc.fontSize(8).font('Helvetica-Bold');
+          xPos = tableLeft;
+          headers.forEach((header, i) => {
+            doc.text(header, xPos, yPosition, { width: colWidths[i], align: 'left' });
+            xPos += colWidths[i];
+          });
+          yPosition += 20;
+          doc.moveTo(tableLeft, yPosition).lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), yPosition).stroke();
+          yPosition += 5;
+          doc.font('Helvetica').fontSize(7);
+        }
+
+        xPos = tableLeft;
+        const rowData = [
+          record.employeeId,
+          record.employeeName,
+          record.department,
+          moment(record.date).format('DD MMM'),
+          record.firstPunchTime,
+          record.lastPunchTime,
+          record.totalHours,
+          record.hoursShort
+        ];
+        
+        rowData.forEach((data, i) => {
+          doc.text(data || 'N/A', xPos, yPosition, { width: colWidths[i], align: 'left' });
+          xPos += colWidths[i];
+        });
+        
+        yPosition += 15;
+      });
+
+      // Add summary section on new page
+      doc.addPage({ size: 'A4', layout: 'portrait', margin: 40 });
+      doc.fontSize(14).font('Helvetica-Bold').text('Employee Summary', 40, 40);
+      doc.moveDown(1);
+
+      yPosition = doc.y;
+      const summaryColWidths = [100, 150, 120, 80, 100];
+      
+      // Summary headers
+      doc.fontSize(9).font('Helvetica-Bold');
+      const summaryHeaders = ['Employee ID', 'Name', 'Department', 'Late Days', 'Hours Short'];
+      xPos = 40;
+      summaryHeaders.forEach((header, i) => {
+        doc.text(header, xPos, yPosition, { width: summaryColWidths[i], align: 'left' });
+        xPos += summaryColWidths[i];
+      });
+      
+      yPosition += 20;
+      doc.moveTo(40, yPosition).lineTo(40 + summaryColWidths.reduce((a, b) => a + b, 0), yPosition).stroke();
+      yPosition += 5;
+
+      // Summary data
+      doc.font('Helvetica').fontSize(8);
+      const sortedStats = Array.from(employeeStatsMap.values()).sort((a, b) => b.totalLateDays - a.totalLateDays);
+      
+      sortedStats.forEach(stats => {
+        if (yPosition > 720) {
+          doc.addPage({ size: 'A4', layout: 'portrait', margin: 40 });
+          yPosition = 40;
+        }
+
+        xPos = 40;
+        const summaryData = [
+          stats.employeeId,
+          stats.name,
+          stats.department,
+          stats.totalLateDays.toString(),
+          stats.totalIncompleteHours.toFixed(2)
+        ];
+        
+        summaryData.forEach((data, i) => {
+          doc.text(data || 'N/A', xPos, yPosition, { width: summaryColWidths[i], align: 'left' });
+          xPos += summaryColWidths[i];
+        });
+        
+        yPosition += 18;
+      });
+
+      // Finalize PDF
+      doc.end();
+    }
+
+  } catch (error) {
+    console.error('❌ Error generating late employees report:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false,
+        message: 'Error generating late employees report',
+        error: error.message 
+      });
+    }
+  }
+});
+
 module.exports = router;

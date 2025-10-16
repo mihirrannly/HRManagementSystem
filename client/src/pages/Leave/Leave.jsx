@@ -61,6 +61,8 @@ const Leave = () => {
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [leaveBalances, setLeaveBalances] = useState([]);
+  const [currentMonth, setCurrentMonth] = useState('');
+  const [currentYear, setCurrentYear] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requestFilter, setRequestFilter] = useState('all'); // 'all', 'own', 'others'
   const [openDialog, setOpenDialog] = useState(false);
@@ -86,7 +88,16 @@ const Leave = () => {
 
       setLeaveRequests(requestsRes.data.requests || []);
       setLeaveTypes(typesRes.data || []);
-      setLeaveBalances(balancesRes.data || []);
+      
+      // Handle new response format with monthly data
+      if (balancesRes.data.balances) {
+        setLeaveBalances(balancesRes.data.balances);
+        setCurrentMonth(balancesRes.data.currentMonth);
+        setCurrentYear(balancesRes.data.currentYear);
+      } else {
+        // Fallback for old format
+        setLeaveBalances(balancesRes.data || []);
+      }
     } catch (error) {
       console.error('Error fetching leave data:', error);
       toast.error('Failed to fetch leave data');
@@ -314,9 +325,19 @@ const Leave = () => {
         {loading && <LinearProgress sx={{ mb: 3 }} />}
 
         {/* Leave Balances */}
-        <Typography variant="h6" gutterBottom sx={{ mt: 4, mb: 2 }}>
-          Leave Balances
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 4, mb: 2 }}>
+          <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>
+            Leave Balances
+          </Typography>
+          {currentMonth && (
+            <Chip 
+              label={`Current Month: ${currentMonth} ${currentYear}`} 
+              color="primary" 
+              variant="outlined"
+              size="small"
+            />
+          )}
+        </Box>
         <Grid container spacing={3} sx={{ mb: 4 }}>
           {leaveBalances.map((balance) => (
             <Grid item xs={12} sm={6} md={4} key={balance._id}>
@@ -336,13 +357,60 @@ const Leave = () => {
                       {balance.leaveType?.name}
                     </Typography>
                   </Box>
-                  <Typography variant="h3" fontWeight="bold" color="text.primary" sx={{ mb: 1 }}>
-                    {balance.available}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Available out of {balance.allocated}
-                  </Typography>
+
+                  {/* Monthly allocation display for Casual and Sick leaves */}
+                  {balance.monthly && (
+                    <Box sx={{ mb: 2, p: 1.5, bgcolor: `${balance.leaveType?.color}10`, borderRadius: 1 }}>
+                      <Typography variant="caption" display="block" fontWeight="bold" color="text.primary" sx={{ mb: 0.5 }}>
+                        This Month ({currentMonth})
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mb: 0.5 }}>
+                        <Typography variant="h4" fontWeight="bold" color="primary">
+                          {balance.monthly.available}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          / {balance.monthly.total} available
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5 }}>
+                        Base: {balance.monthly.base} 
+                        {balance.monthly.carryForward > 0 && (
+                          <span style={{ color: balance.leaveType?.color, fontWeight: 'bold' }}>
+                            {' '}+ {balance.monthly.carryForward} carry forward
+                          </span>
+                        )}
+                      </Typography>
+                      {balance.monthly.used > 0 || balance.monthly.pending > 0 ? (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                          Used: {balance.monthly.used || 0}
+                          {balance.monthly.pending > 0 && (
+                            <span style={{ color: 'orange', fontWeight: 'bold' }}>
+                              {' '}| Pending: {balance.monthly.pending}
+                            </span>
+                          )}
+                        </Typography>
+                      ) : null}
+                      {balance.monthly.carryForward > 0 && (
+                        <Box sx={{ mt: 1, p: 1, bgcolor: 'success.lighter', borderRadius: 0.5, border: '1px solid', borderColor: 'success.main' }}>
+                          <Typography variant="caption" color="success.dark" fontWeight="bold">
+                            🎉 Extra {balance.monthly.carryForward} leave(s) carried forward!
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Yearly allocation display */}
                   <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" display="block" fontWeight="bold" color="text.primary" sx={{ mb: 0.5 }}>
+                      Yearly Balance
+                    </Typography>
+                    <Typography variant="h5" fontWeight="bold" color="text.primary" sx={{ mb: 0.5 }}>
+                      {balance.available}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Available out of {balance.allocated}
+                    </Typography>
                     <Typography variant="caption" display="block" sx={{ mb: 1 }}>
                       Used: {balance.used} | Pending: {balance.pending}
                     </Typography>
@@ -359,6 +427,7 @@ const Leave = () => {
                       }}
                     />
                   </Box>
+
                   {balance._id === 'special' && (
                     <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                       Includes Marriage & Bereavement Leave

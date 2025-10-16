@@ -83,8 +83,14 @@ const leaveBalanceSchema = new mongoose.Schema({
   monthlyUsage: [{
     month: { type: Number, required: true }, // 1-12
     casualUsed: { type: Number, default: 0 },
+    casualPending: { type: Number, default: 0 }, // Track pending leaves
     sickUsed: { type: Number, default: 0 },
-    specialUsed: { type: Number, default: 0 }
+    sickPending: { type: Number, default: 0 }, // Track pending leaves
+    specialUsed: { type: Number, default: 0 },
+    specialPending: { type: Number, default: 0 }, // Track pending leaves
+    casualAllocated: { type: Number, default: 1 }, // Base monthly allocation
+    casualCarryForward: { type: Number, default: 0 }, // Carry forward from previous months
+    sickAllocated: { type: Number, default: 1 } // Base monthly allocation (always 1, no carry forward)
   }],
   createdAt: {
     type: Date,

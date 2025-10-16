@@ -30,6 +30,7 @@ import {
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import moment from 'moment';
+import { formatLateStatus } from '../utils/timeUtils';
 
 const FaceDetectionAttendance = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -486,7 +487,7 @@ const FaceDetectionAttendance = () => {
                 </Box>
                 {detectionResult.isLate && (
                   <Chip
-                    label={`Late by ${detectionResult.lateMinutes} minutes`}
+                    label={formatLateStatus(detectionResult.lateMinutes)}
                     color="warning"
                     size="small"
                     sx={{ mt: 1 }}

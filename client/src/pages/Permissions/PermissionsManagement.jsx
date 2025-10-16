@@ -153,17 +153,19 @@ const PermissionsManagement = () => {
 
   const handleEditPermissions = async (user) => {
     setSelectedUser(user);
-    
-    // Get current role IDs
-    const roleIds = user.assignedRoles?.map(r => r.role?._id).filter(Boolean) || [];
-    setSelectedRoles(roleIds);
 
-    // Get user's effective permissions
+    // Get user's effective permissions AND assigned roles
     try {
       const response = await axios.get(`/permissions/user-permissions/${user._id}`);
-      const effectivePerms = response.data.effectivePermissions || [];
       
-      // Convert to object format for easy lookup
+      const effectivePerms = response.data.effectivePermissions || [];
+      const assignedRoles = response.data.roles || [];
+      
+      // Set the selected roles based on what the user actually has
+      const roleIds = assignedRoles.map(r => r._id);
+      setSelectedRoles(roleIds);
+      
+      // Convert permissions to object format for easy lookup
       const permsObj = {};
       effectivePerms.forEach(perm => {
         permsObj[perm.module] = perm.actions || [];
@@ -172,6 +174,9 @@ const PermissionsManagement = () => {
     } catch (error) {
       console.error('Error fetching user permissions:', error);
       setCustomPermissions({});
+      // Fallback: try to get role IDs from user object
+      const roleIds = user.assignedRoles?.map(r => r.role?._id).filter(Boolean) || [];
+      setSelectedRoles(roleIds);
     }
 
     setEditDialog(true);
@@ -574,12 +579,14 @@ const PermissionsManagement = () => {
               Assign Roles
             </Typography>
             <Grid container spacing={2}>
-              {roles.map((role) => (
+              {roles.map((role) => {
+                const isChecked = selectedRoles.includes(role._id);
+                return (
                 <Grid item xs={12} sm={6} key={role._id}>
                   <Card
                     elevation={0}
                     sx={{
-                      border: selectedRoles.includes(role._id) ? '2px solid #2196f3' : '1px solid #e0e0e0',
+                      border: isChecked ? '2px solid #2196f3' : '1px solid #e0e0e0',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                       '&:hover': { borderColor: '#2196f3' }
@@ -602,7 +609,7 @@ const PermissionsManagement = () => {
                           </Box>
                         </Box>
                         <Checkbox
-                          checked={selectedRoles.includes(role._id)}
+                          checked={isChecked}
                           onChange={(e) => {
                             e.stopPropagation();
                             handleRoleToggle(role._id);
@@ -613,30 +620,36 @@ const PermissionsManagement = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-              ))}
+              )})}
             </Grid>
           </Box>
 
           <Divider sx={{ my: 3 }} />
 
-          {/* Module Permissions Preview */}
+          {/* Current Permissions Display */}
           <Box>
             <Typography variant="subtitle1" fontWeight="600" sx={{ mb: 2 }}>
-              Effective Permissions Preview
+              Current Permissions
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>
-              Below are the permissions that will be granted based on the selected roles
+              Below are the permissions currently granted to this user
             </Alert>
             {modules.map((module) => {
-              // Calculate effective permissions from selected roles
-              const effectiveActions = new Set();
+              // Get user's actual permissions for this module
+              const userModulePerms = customPermissions[module] || [];
+              
+              // Also calculate what permissions would come from selected roles
+              const roleActions = new Set();
               selectedRoles.forEach(roleId => {
                 const role = roles.find(r => r._id === roleId);
                 const modulePerm = role?.permissions?.find(p => p.module === module);
-                modulePerm?.actions?.forEach(action => effectiveActions.add(action));
+                modulePerm?.actions?.forEach(action => roleActions.add(action));
               });
 
-              if (effectiveActions.size === 0) return null;
+              // Combine both: actual user permissions + role-based permissions
+              const allActions = new Set([...userModulePerms, ...Array.from(roleActions)]);
+
+              if (allActions.size === 0) return null;
 
               return (
                 <Card key={module} elevation={0} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
@@ -645,26 +658,38 @@ const PermissionsManagement = () => {
                       {moduleDisplayNames[module] || module}
                     </Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {Array.from(effectiveActions).map((action) => (
-                        <Chip
-                          key={action}
-                          label={actionDisplayNames[action] || action}
-                          size="small"
-                          sx={{
-                            bgcolor: alpha(actionColors[action] || '#757575', 0.1),
-                            color: actionColors[action] || '#757575',
-                            fontWeight: 600
-                          }}
-                        />
-                      ))}
+                      {Array.from(allActions).map((action) => {
+                        const isFromUser = userModulePerms.includes(action);
+                        const isFromRole = roleActions.has(action);
+                        
+                        return (
+                          <Chip
+                            key={action}
+                            label={actionDisplayNames[action] || action}
+                            size="small"
+                            icon={isFromUser && !isFromRole ? <span style={{fontSize: '10px', marginLeft: '4px'}}>✓</span> : undefined}
+                            sx={{
+                              bgcolor: alpha(actionColors[action] || '#757575', 0.1),
+                              color: actionColors[action] || '#757575',
+                              fontWeight: 600,
+                              border: isFromUser ? '2px solid currentColor' : 'none'
+                            }}
+                          />
+                        );
+                      })}
                     </Box>
+                    {userModulePerms.length > 0 && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        ✓ = Custom permission | Border = Currently granted
+                      </Typography>
+                    )}
                   </CardContent>
                 </Card>
               );
             })}
-            {selectedRoles.length === 0 && (
+            {Object.keys(customPermissions).length === 0 && selectedRoles.length === 0 && (
               <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
-                No roles selected. Select roles above to see permissions.
+                No permissions assigned. Select roles above to grant permissions.
               </Typography>
             )}
           </Box>

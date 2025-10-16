@@ -4,11 +4,12 @@ const moment = require('moment');
 const { LeaveType, LeaveBalance, LeaveRequest, Holiday } = require('../models/Leave');
 const Employee = require('../models/Employee');
 const { authenticate, authorize } = require('../middleware/auth');
+const { calculateMonthlyAvailableLeaves, getMonthlyLeaveSummary, validateMonthlyLeaveRequest } = require('../utils/leaveUtils');
 
 const router = express.Router();
 
 // @route   GET /api/leave/balance
-// @desc    Get leave balance for current employee
+// @desc    Get leave balance for current employee with monthly limits
 // @access  Private (Employee)
 router.get('/balance', authenticate, async (req, res) => {
   try {
@@ -18,6 +19,7 @@ router.get('/balance', authenticate, async (req, res) => {
     }
 
     const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1; // 1-12
     
     // Try to get real leave balance data
     let leaveBalance = await LeaveBalance.findOne({ 
@@ -37,6 +39,9 @@ router.get('/balance', authenticate, async (req, res) => {
       await leaveBalance.save();
     }
 
+    // Get monthly leave summary with carry-forward logic
+    const monthlySummary = getMonthlyLeaveSummary(leaveBalance, currentMonth, currentYear);
+
     // Format response for frontend compatibility
     const formattedBalance = [
       {
@@ -45,7 +50,16 @@ router.get('/balance', authenticate, async (req, res) => {
         allocated: leaveBalance.casualLeave.allocated,
         used: leaveBalance.casualLeave.used,
         pending: leaveBalance.casualLeave.pending,
-        available: leaveBalance.casualLeave.available
+        available: leaveBalance.casualLeave.available,
+        // Monthly data with carry-forward
+        monthly: {
+          total: monthlySummary.casual.total,
+          available: monthlySummary.casual.available,
+          used: monthlySummary.casual.used,
+          pending: monthlySummary.casual.pending,
+          carryForward: monthlySummary.casual.carryForward,
+          base: monthlySummary.casual.base
+        }
       },
       {
         _id: 'sick',
@@ -53,7 +67,15 @@ router.get('/balance', authenticate, async (req, res) => {
         allocated: leaveBalance.sickLeave.allocated,
         used: leaveBalance.sickLeave.used,
         pending: leaveBalance.sickLeave.pending,
-        available: leaveBalance.sickLeave.available
+        available: leaveBalance.sickLeave.available,
+        // Monthly data (no carry-forward for sick leave)
+        monthly: {
+          total: monthlySummary.sick.total,
+          available: monthlySummary.sick.available,
+          used: monthlySummary.sick.used,
+          pending: monthlySummary.sick.pending,
+          base: monthlySummary.sick.base
+        }
       },
       {
         _id: 'special',
@@ -65,7 +87,11 @@ router.get('/balance', authenticate, async (req, res) => {
       }
     ];
 
-    res.json(formattedBalance);
+    res.json({
+      balances: formattedBalance,
+      currentMonth: monthlySummary.currentMonth,
+      currentYear: currentYear
+    });
   } catch (error) {
     console.error('Get leave balance error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -304,50 +330,16 @@ router.post('/request', [
       await balance.save();
     }
 
-    // Validate leave limits and monthly restrictions
-    const currentMonth = start.month() + 1; // moment months are 0-indexed
-    const monthlyUsage = balance.monthlyUsage.find(m => m.month === currentMonth) || 
-      { month: currentMonth, casualUsed: 0, sickUsed: 0, specialUsed: 0 };
-
-    // Check balance availability
-    let availableBalance = 0;
-    let balanceType = '';
+    // Validate leave limits and monthly restrictions using new carry-forward logic
+    const requestMonth = start.month() + 1; // moment months are 0-indexed
+    const requestYear = start.year();
     
-    if (leaveType === 'casual') {
-      availableBalance = balance.casualLeave.available;
-      balanceType = 'casual leave';
-      
-      // Check monthly limit (1 casual leave per month normally, max 4 in special cases)
-      if (monthlyUsage.casualUsed + totalDays > (totalDays <= 4 ? 4 : 1)) {
-        return res.status(400).json({ 
-          message: `Monthly casual leave limit exceeded. You can take max 1 casual leave per month (or max 4 in special cases)` 
-        });
-      }
-    } else if (leaveType === 'sick') {
-      availableBalance = balance.sickLeave.available;
-      balanceType = 'sick leave';
-      
-      // Check monthly limit (1 sick leave per month normally, max 4 in special cases)
-      if (monthlyUsage.sickUsed + totalDays > (totalDays <= 4 ? 4 : 1)) {
-        return res.status(400).json({ 
-          message: `Monthly sick leave limit exceeded. You can take max 1 sick leave per month (or max 4 in special cases)` 
-        });
-      }
-    } else if (leaveType === 'marriage' || leaveType === 'bereavement') {
-      availableBalance = balance.specialLeave.available;
-      balanceType = 'special leave';
-      
-      // Special leaves can be taken max 3 days per year
-      if (totalDays > 3) {
-        return res.status(400).json({ 
-          message: `Special leave cannot exceed 3 days per request` 
-        });
-      }
-    }
-
-    if (availableBalance < totalDays) {
+    const validation = validateMonthlyLeaveRequest(balance, leaveType, totalDays, requestMonth, requestYear);
+    
+    if (!validation.valid) {
       return res.status(400).json({ 
-        message: `Insufficient ${balanceType} balance. Available: ${availableBalance}, Requested: ${totalDays}` 
+        message: validation.message,
+        availableBalance: validation.availableBalance
       });
     }
 
@@ -465,13 +457,72 @@ router.post('/request', [
 
     await leaveRequest.save();
 
-    // Update pending balance
+    // Update pending balance (yearly and monthly)
     if (leaveType === 'casual') {
       balance.casualLeave.pending += totalDays;
+      
+      // Update monthly pending
+      let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+      if (!monthlyUsage) {
+        monthlyUsage = { 
+          month: requestMonth, 
+          casualUsed: 0, 
+          casualPending: 0,
+          sickUsed: 0, 
+          sickPending: 0,
+          specialUsed: 0,
+          specialPending: 0,
+          casualAllocated: 1,
+          casualCarryForward: 0,
+          sickAllocated: 1
+        };
+        balance.monthlyUsage.push(monthlyUsage);
+      }
+      monthlyUsage.casualPending = (monthlyUsage.casualPending || 0) + totalDays;
+      
     } else if (leaveType === 'sick') {
       balance.sickLeave.pending += totalDays;
+      
+      // Update monthly pending
+      let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+      if (!monthlyUsage) {
+        monthlyUsage = { 
+          month: requestMonth, 
+          casualUsed: 0,
+          casualPending: 0, 
+          sickUsed: 0,
+          sickPending: 0, 
+          specialUsed: 0,
+          specialPending: 0,
+          casualAllocated: 1,
+          casualCarryForward: 0,
+          sickAllocated: 1
+        };
+        balance.monthlyUsage.push(monthlyUsage);
+      }
+      monthlyUsage.sickPending = (monthlyUsage.sickPending || 0) + totalDays;
+      
     } else if (leaveType === 'marriage' || leaveType === 'bereavement') {
       balance.specialLeave.pending += totalDays;
+      
+      // Update monthly pending
+      let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+      if (!monthlyUsage) {
+        monthlyUsage = { 
+          month: requestMonth, 
+          casualUsed: 0,
+          casualPending: 0, 
+          sickUsed: 0,
+          sickPending: 0, 
+          specialUsed: 0,
+          specialPending: 0,
+          casualAllocated: 1,
+          casualCarryForward: 0,
+          sickAllocated: 1
+        };
+        balance.monthlyUsage.push(monthlyUsage);
+      }
+      monthlyUsage.specialPending = (monthlyUsage.specialPending || 0) + totalDays;
     }
 
     await balance.save();
@@ -864,19 +915,33 @@ router.put('/requests/:id/approve', [
             balance.specialLeave.pending -= leaveRequest.totalDays;
           }
 
-          // Update monthly usage
+          // Update monthly usage (move from pending to used)
           let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
           if (!monthlyUsage) {
-            monthlyUsage = { month: requestMonth, casualUsed: 0, sickUsed: 0, specialUsed: 0 };
+            monthlyUsage = { 
+              month: requestMonth, 
+              casualUsed: 0,
+              casualPending: 0, 
+              sickUsed: 0,
+              sickPending: 0, 
+              specialUsed: 0,
+              specialPending: 0,
+              casualAllocated: 1,
+              casualCarryForward: 0,
+              sickAllocated: 1
+            };
             balance.monthlyUsage.push(monthlyUsage);
           }
 
           if (leaveRequest.leaveType === 'casual') {
             monthlyUsage.casualUsed += leaveRequest.totalDays;
+            monthlyUsage.casualPending = Math.max(0, (monthlyUsage.casualPending || 0) - leaveRequest.totalDays);
           } else if (leaveRequest.leaveType === 'sick') {
             monthlyUsage.sickUsed += leaveRequest.totalDays;
+            monthlyUsage.sickPending = Math.max(0, (monthlyUsage.sickPending || 0) - leaveRequest.totalDays);
           } else if (leaveRequest.leaveType === 'marriage' || leaveRequest.leaveType === 'bereavement') {
             monthlyUsage.specialUsed += leaveRequest.totalDays;
+            monthlyUsage.specialPending = Math.max(0, (monthlyUsage.specialPending || 0) - leaveRequest.totalDays);
           }
 
           await balance.save();
@@ -892,20 +957,40 @@ router.put('/requests/:id/approve', [
       leaveRequest.status = 'rejected';
       leaveRequest.rejectionReason = comments;
 
-      // Return pending balance
+      // Return pending balance (yearly and monthly)
       const balance = await LeaveBalance.findOne({
         employee: leaveRequest.employee._id,
         year: new Date(leaveRequest.startDate).getFullYear()
       });
 
       if (balance) {
-        // Return pending balance based on leave type
+        const requestMonth = new Date(leaveRequest.startDate).getMonth() + 1;
+        
+        // Return yearly pending balance based on leave type
         if (leaveRequest.leaveType === 'casual') {
           balance.casualLeave.pending -= leaveRequest.totalDays;
+          
+          // Return monthly pending
+          let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+          if (monthlyUsage) {
+            monthlyUsage.casualPending = Math.max(0, (monthlyUsage.casualPending || 0) - leaveRequest.totalDays);
+          }
         } else if (leaveRequest.leaveType === 'sick') {
           balance.sickLeave.pending -= leaveRequest.totalDays;
+          
+          // Return monthly pending
+          let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+          if (monthlyUsage) {
+            monthlyUsage.sickPending = Math.max(0, (monthlyUsage.sickPending || 0) - leaveRequest.totalDays);
+          }
         } else if (leaveRequest.leaveType === 'marriage' || leaveRequest.leaveType === 'bereavement') {
           balance.specialLeave.pending -= leaveRequest.totalDays;
+          
+          // Return monthly pending
+          let monthlyUsage = balance.monthlyUsage.find(m => m.month === requestMonth);
+          if (monthlyUsage) {
+            monthlyUsage.specialPending = Math.max(0, (monthlyUsage.specialPending || 0) - leaveRequest.totalDays);
+          }
         }
         await balance.save();
       }
