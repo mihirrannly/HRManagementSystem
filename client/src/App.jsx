@@ -36,6 +36,7 @@ import AuthTest from './pages/Permissions/AuthTest';
 import AssetManagement from './pages/Assets/AssetManagement';
 import ExitManagement from './pages/ExitManagement/ExitManagement';
 import SalaryManagement from './pages/SalaryManagement/SalaryManagement';
+import FinanceManagement from './pages/FinanceManagement/FinanceManagement';
 import Settings from './pages/Settings/Settings';
 import AnnouncementManagement from './pages/Announcements/AnnouncementManagement';
 import Expenses from './pages/Expenses/Expenses';
@@ -228,11 +229,14 @@ function App() {
                 <Route path="attendance/import" element={<AttendanceImport />} />
                 <Route path="attendance/import-rannkly" element={<RannklyAttendanceImport />} />
                 <Route path="leave" element={<Leave />} />
+                <Route path="payroll" element={<Payroll />} />
                 <Route path="expenses" element={<Expenses />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="permissions" element={<PermissionsManagement />} />
                 <Route path="assets" element={<AssetManagement />} />
                 <Route path="exit-management" element={<ExitManagement />} />
+                <Route path="finance-management" element={<FinanceManagement />} />
+                <Route path="finance-management/salary-management" element={<SalaryManagement />} />
                 <Route path="salary-management" element={<SalaryManagement />} />
                 <Route path="announcements" element={<AnnouncementManagement />} />
                 <Route path="settings" element={<Settings />} />

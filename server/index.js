@@ -32,6 +32,7 @@ const webhookRoutes = require('./routes/webhook');
 const announcementRoutes = require('./routes/announcements');
 const expenseRoutes = require('./routes/expenses');
 const probationFeedbackRoutes = require('./routes/probationFeedback');
+const salaryCalculatorRoutes = require('./routes/salaryCalculator');
 
 // Import services
 const attendanceScheduler = require('./services/attendanceScheduler');
@@ -162,6 +163,7 @@ app.use('/api/webhook', webhookRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/probation-feedback', probationFeedbackRoutes);
+app.use('/api/salary-calculator', salaryCalculatorRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

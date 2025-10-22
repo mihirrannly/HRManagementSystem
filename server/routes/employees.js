@@ -992,6 +992,58 @@ router.put('/:id/document/:documentId/name', [
   }
 });
 
+// @route   GET /api/employees/pending-documents
+// @desc    Get pending documents for current employee
+// @access  Private (Employee)
+router.get('/pending-documents', authenticate, async (req, res) => {
+  try {
+    const employee = await Employee.findOne({ user: req.user.id });
+    
+    if (!employee) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Employee not found' 
+      });
+    }
+
+    // Define required documents for employees
+    const requiredDocuments = [
+      { type: 'id-proof', name: 'ID Proof (Aadhaar/PAN)', required: true, description: 'Government issued ID proof' },
+      { type: 'address-proof', name: 'Address Proof', required: true, description: 'Utility bill or bank statement' },
+      { type: 'educational', name: 'Educational Certificates', required: true, description: 'Degree certificates and mark sheets' },
+      { type: 'experience', name: 'Experience Certificates', required: false, description: 'Previous employment certificates' },
+      { type: 'cancelled_cheque', name: 'Cancelled Cheque', required: true, description: 'For salary account verification' },
+      { type: 'passbook', name: 'Bank Passbook', required: false, description: 'Bank account details' },
+      { type: 'resume', name: 'Updated Resume', required: true, description: 'Current resume with latest information' },
+      { type: 'offer-letter', name: 'Signed Offer Letter', required: true, description: 'Signed copy of offer letter' }
+    ];
+
+    // Check which documents are missing
+    const existingDocuments = employee.documents || [];
+    const missingDocuments = requiredDocuments.filter(required => {
+      const hasDocument = existingDocuments.some(doc => 
+        doc.type === required.type || 
+        (required.type === 'id-proof' && (doc.type === 'aadhaar' || doc.type === 'pan'))
+      );
+      return !hasDocument;
+    });
+
+    res.json({
+      success: true,
+      pendingDocuments: missingDocuments,
+      totalRequired: requiredDocuments.filter(doc => doc.required).length,
+      totalSubmitted: existingDocuments.length,
+      completionPercentage: Math.round(((requiredDocuments.filter(doc => doc.required).length - missingDocuments.filter(doc => doc.required).length) / requiredDocuments.filter(doc => doc.required).length) * 100)
+    });
+  } catch (error) {
+    console.error('Get pending documents error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
+  }
+});
+
 // @route   DELETE /api/employees/:id/document/:documentId
 // @desc    Delete employee document
 // @access  Private

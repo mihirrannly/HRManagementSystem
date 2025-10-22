@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { calculateSalaryBreakdown } = require('../utils/salaryCalculator');
 
 const salaryDetailsSchema = new mongoose.Schema({
   employee: {
@@ -308,6 +309,80 @@ salaryDetailsSchema.virtual('salaryPeriod').get(function() {
 // Enable virtuals in JSON
 salaryDetailsSchema.set('toJSON', { virtuals: true });
 salaryDetailsSchema.set('toObject', { virtuals: true });
+
+// Static method to create salary details from CTC
+salaryDetailsSchema.statics.createFromCTC = async function(employeeId, ctc, month, year, additionalData = {}) {
+  try {
+    // Calculate salary breakdown using our calculator
+    const breakdown = calculateSalaryBreakdown(ctc);
+    
+    // Create salary details object
+    const salaryDetails = {
+      employee: employeeId,
+      employeeId: employeeId,
+      month: month,
+      year: year,
+      totalCTC: ctc,
+      earnings: {
+        basicSalary: breakdown.monthly.basic,
+        hra: breakdown.monthly.hra,
+        conveyanceAllowance: breakdown.monthly.conveyanceAllowance,
+        specialAllowance: breakdown.monthly.specialAllowance,
+        medicalAllowance: 0, // Not in our breakdown
+        performanceBonus: 0, // Not in our breakdown
+        overtimePay: 0, // Not in our breakdown
+        otherAllowances: 0 // Not in our breakdown
+      },
+      deductions: {
+        providentFund: 0, // Will be calculated separately
+        employeeStateInsurance: 0, // Will be calculated separately
+        professionalTax: 0, // Will be calculated separately
+        incomeTax: 0, // Will be calculated separately
+        loanRepayment: 0,
+        advanceDeduction: 0,
+        lopAmount: 0,
+        otherDeductions: 0
+      },
+      grossSalary: breakdown.monthly.gross,
+      totalCTC: ctc,
+      ...additionalData
+    };
+    
+    // Create or update the salary details
+    const result = await this.findOneAndUpdate(
+      { employee: employeeId, month: month, year: year },
+      salaryDetails,
+      { upsert: true, new: true }
+    );
+    
+    return result;
+  } catch (error) {
+    console.error('Error creating salary details from CTC:', error);
+    throw error;
+  }
+};
+
+// Instance method to recalculate from CTC
+salaryDetailsSchema.methods.recalculateFromCTC = function(ctc) {
+  try {
+    const breakdown = calculateSalaryBreakdown(ctc);
+    
+    // Update earnings
+    this.earnings.basicSalary = breakdown.monthly.basic;
+    this.earnings.hra = breakdown.monthly.hra;
+    this.earnings.conveyanceAllowance = breakdown.monthly.conveyanceAllowance;
+    this.earnings.specialAllowance = breakdown.monthly.specialAllowance;
+    
+    // Update totals
+    this.grossSalary = breakdown.monthly.gross;
+    this.totalCTC = ctc;
+    
+    return this;
+  } catch (error) {
+    console.error('Error recalculating salary from CTC:', error);
+    throw error;
+  }
+};
 
 module.exports = mongoose.model('SalaryDetails', salaryDetailsSchema);
 

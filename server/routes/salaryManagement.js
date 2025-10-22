@@ -255,16 +255,151 @@ router.put('/:id', [authenticate, authorize(['admin', 'hr', 'finance'])], async 
   }
 });
 
-// DELETE salary record
-router.delete('/:id', [authenticate, authorize(['admin', 'finance'])], async (req, res) => {
+// DELETE all salary records
+router.delete('/delete-all', [authenticate, authorize(['admin', 'hr', 'finance'])], async (req, res) => {
+  console.log('🔥 DELETE ALL ENDPOINT HIT - Route is working!');
   try {
-    const salaryRecord = await SalaryDetails.findByIdAndDelete(req.params.id);
+    // Import payroll models for cleanup
+    const { Payslip, PayrollCycle, SalaryRevision } = require('../models/Payroll');
+    
+    // Get count of ALL payroll-related records before deletion
+    const [salaryCount, payslipCount, cycleCount, revisionCount] = await Promise.all([
+      SalaryDetails.countDocuments(),
+      Payslip.countDocuments(),
+      PayrollCycle.countDocuments(),
+      SalaryRevision.countDocuments()
+    ]);
+    
+    const totalRecords = salaryCount + payslipCount + cycleCount + revisionCount;
+    
+    if (totalRecords === 0) {
+      return res.json({ 
+        message: 'No payroll data found to delete',
+        deletedCount: 0
+      });
+    }
+    
+    console.log(`🗑️ Found ${totalRecords} total records to delete:`, {
+      salaryRecords: salaryCount,
+      payslips: payslipCount,
+      payrollCycles: cycleCount,
+      salaryRevisions: revisionCount
+    });
+    
+    console.log('🔍 DELETE ALL ENDPOINT HIT - Updated logic is working!');
+
+    // Start transaction for data consistency
+    const session = await SalaryDetails.startSession();
+    session.startTransaction();
+
+    try {
+      // 1. Delete all salary records
+      const salaryResult = await SalaryDetails.deleteMany({}, { session });
+      console.log(`🗑️ Deleted ${salaryResult.deletedCount} salary records`);
+
+      // 2. Delete all related payslips
+      const payslipResult = await Payslip.deleteMany({}, { session });
+      console.log(`🗑️ Deleted ${payslipResult.deletedCount} payslips`);
+
+      // 3. Delete all payroll cycles
+      const payrollCycleResult = await PayrollCycle.deleteMany({}, { session });
+      console.log(`🗑️ Deleted ${payrollCycleResult.deletedCount} payroll cycles`);
+
+      // 4. Delete all salary revisions
+      const salaryRevisionResult = await SalaryRevision.deleteMany({}, { session });
+      console.log(`🗑️ Deleted ${salaryRevisionResult.deletedCount} salary revisions`);
+
+      // Commit transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      const totalDeleted = salaryResult.deletedCount + payslipResult.deletedCount + 
+                          payrollCycleResult.deletedCount + salaryRevisionResult.deletedCount;
+
+      console.log(`✅ Successfully deleted ${totalDeleted} total records across all payroll-related collections`);
+      
+      res.json({
+        message: `Successfully deleted all salary and payroll data`,
+        deletedCount: totalDeleted,
+        breakdown: {
+          salaryRecords: salaryResult.deletedCount,
+          payslips: payslipResult.deletedCount,
+          payrollCycles: payrollCycleResult.deletedCount,
+          salaryRevisions: salaryRevisionResult.deletedCount
+        }
+      });
+
+    } catch (transactionError) {
+      // Rollback transaction on error
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionError;
+    }
+
+  } catch (error) {
+    console.error('Error deleting all salary records:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete all salary records', 
+      error: error.message 
+    });
+  }
+});
+
+// DELETE salary record
+router.delete('/:id', [authenticate, authorize(['admin', 'hr', 'finance'])], async (req, res) => {
+  try {
+    const salaryRecord = await SalaryDetails.findById(req.params.id);
 
     if (!salaryRecord) {
       return res.status(404).json({ message: 'Salary record not found' });
     }
 
-    res.json({ message: 'Salary record deleted successfully' });
+    // Import payroll models for cleanup
+    const { Payslip, SalaryRevision } = require('../models/Payroll');
+
+    // Start transaction for data consistency
+    const session = await SalaryDetails.startSession();
+    session.startTransaction();
+
+    try {
+      // 1. Delete related payslips for this employee and month/year
+      const payslipResult = await Payslip.deleteMany({
+        employee: salaryRecord.employee,
+        month: salaryRecord.month,
+        year: salaryRecord.year
+      }, { session });
+
+      // 2. Delete related salary revisions for this employee
+      const salaryRevisionResult = await SalaryRevision.deleteMany({
+        employee: salaryRecord.employee
+      }, { session });
+
+      // 3. Delete the salary record
+      await SalaryDetails.findByIdAndDelete(req.params.id, { session });
+
+      // Commit transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      console.log(`🗑️ Deleted salary record and ${payslipResult.deletedCount} related payslips, ${salaryRevisionResult.deletedCount} salary revisions`);
+
+      res.json({ 
+        message: 'Salary record and related payroll data deleted successfully',
+        deletedCount: 1 + payslipResult.deletedCount + salaryRevisionResult.deletedCount,
+        breakdown: {
+          salaryRecords: 1,
+          payslips: payslipResult.deletedCount,
+          salaryRevisions: salaryRevisionResult.deletedCount
+        }
+      });
+
+    } catch (transactionError) {
+      // Rollback transaction on error
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionError;
+    }
+
   } catch (error) {
     console.error('Error deleting salary record:', error);
     res.status(500).json({ 
@@ -461,22 +596,34 @@ router.post('/import/csv', [authenticate, authorize(['admin', 'hr', 'finance']),
         }
 
         // Parse salary data from CSV
+        const earnings = {
+          basicSalary: parseFloat(row.basicSalary || row.basic_salary || row.Basic || 0),
+          hra: parseFloat(row.hra || row.HRA || 0),
+          conveyanceAllowance: parseFloat(row.conveyanceAllowance || row.conveyance_allowance || row.Conveyance || 0),
+          medicalAllowance: parseFloat(row.medicalAllowance || row.medical_allowance || row.Medical || 0),
+          specialAllowance: parseFloat(row.specialAllowance || row.special_allowance || row.Special || 0),
+          performanceBonus: parseFloat(row.performanceBonus || row.performance_bonus || row.Bonus || 0),
+          overtimePay: parseFloat(row.overtimePay || row.overtime_pay || row.Overtime || 0),
+          otherAllowances: parseFloat(row.otherAllowances || row.other_allowances || row.Others || 0)
+        };
+
+        // Calculate gross salary from earnings
+        const grossSalary = Object.values(earnings).reduce((sum, amount) => sum + (amount || 0), 0);
+
+        // Parse CTC from CSV (this should be the annual CTC)
+        const totalCTC = parseFloat(row.totalCTC || row.total_ctc || row.CTC || row.ctc || 0);
+
         const salaryData = {
           employee: employee._id,
           employeeId: employee.employeeId,
           month: parseInt(row.month || row.Month),
           year: parseInt(row.year || row.Year),
           
-          earnings: {
-            basicSalary: parseFloat(row.basicSalary || row.basic_salary || row.Basic || 0),
-            hra: parseFloat(row.hra || row.HRA || 0),
-            conveyanceAllowance: parseFloat(row.conveyanceAllowance || row.conveyance_allowance || row.Conveyance || 0),
-            medicalAllowance: parseFloat(row.medicalAllowance || row.medical_allowance || row.Medical || 0),
-            specialAllowance: parseFloat(row.specialAllowance || row.special_allowance || row.Special || 0),
-            performanceBonus: parseFloat(row.performanceBonus || row.performance_bonus || row.Bonus || 0),
-            overtimePay: parseFloat(row.overtimePay || row.overtime_pay || row.Overtime || 0),
-            otherAllowances: parseFloat(row.otherAllowances || row.other_allowances || row.Others || 0)
-          },
+          // Add CTC and gross salary
+          totalCTC: totalCTC,
+          grossSalary: grossSalary,
+          
+          earnings: earnings,
           
           deductions: {
             providentFund: parseFloat(row.providentFund || row.pf || row.PF || 0),
@@ -633,6 +780,7 @@ router.get('/stats/overview', [authenticate, authorize(['admin', 'hr', 'finance'
     });
   }
 });
+
 
 module.exports = router;
 

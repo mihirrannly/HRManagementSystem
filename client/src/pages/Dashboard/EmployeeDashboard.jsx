@@ -100,6 +100,12 @@ import {
   Celebration as CelebrationIcon,
   SupportAgent as SupportAgentIcon,
   Lightbulb as LightbulbIcon,
+  Warning as WarningIcon,
+  Upload as UploadIcon,
+  CloudUpload as CloudUploadIcon,
+  PictureAsPdf as PictureAsPdfIcon,
+  Image as ImageIcon,
+  TextSnippet as TextSnippetIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import moment from 'moment';
@@ -832,6 +838,201 @@ const AnnouncementsSection = () => {
         ))}
       </Grid>
     </Box>
+  );
+};
+
+// Pending Documents Section Component
+const PendingDocumentsSection = () => {
+  const [pendingDocuments, setPendingDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    fetchPendingDocuments();
+  }, []);
+
+  const fetchPendingDocuments = async () => {
+    try {
+      const response = await axios.get('/employees/pending-documents');
+      
+      if (response.data.success) {
+        setPendingDocuments(response.data.pendingDocuments);
+      } else {
+        console.error('Failed to fetch pending documents:', response.data.message);
+        setPendingDocuments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching pending documents:', error);
+      setPendingDocuments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getDocumentIcon = (type) => {
+    const iconMap = {
+      'id-proof': <DescriptionIcon />,
+      'address-proof': <HomeIcon />,
+      'educational': <AssignmentIcon />,
+      'experience': <BusinessIcon />,
+      'cancelled_cheque': <CreditCardIcon />,
+      'passbook': <AccountBalanceIcon />,
+      'resume': <TextSnippetIcon />,
+      'offer-letter': <PictureAsPdfIcon />
+    };
+    return iconMap[type] || <DescriptionIcon />;
+  };
+
+  const getDocumentColor = (type) => {
+    const colorMap = {
+      'id-proof': 'error',
+      'address-proof': 'warning',
+      'educational': 'info',
+      'experience': 'default',
+      'cancelled_cheque': 'success',
+      'passbook': 'primary',
+      'resume': 'secondary',
+      'offer-letter': 'error'
+    };
+    return colorMap[type] || 'default';
+  };
+
+  if (loading) {
+    return (
+      <Card sx={{ mb: 2 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <WarningIcon color="warning" />
+            <Typography variant="h6" fontWeight="600">
+              Pending Documents
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Chip label="Loading..." size="small" color="info" />
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (pendingDocuments.length === 0) {
+    return (
+      <Card sx={{ mb: 2, border: '1px solid', borderColor: 'success.main' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <CheckCircleIcon color="success" />
+            <Typography variant="h6" fontWeight="600" color="success.main">
+              All Documents Submitted
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            Great! You have submitted all required documents.
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card sx={{ mb: 2, border: '1px solid', borderColor: 'warning.main' }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <WarningIcon color="warning" />
+          <Typography variant="h6" fontWeight="600" color="warning.main">
+            Pending Documents ({pendingDocuments.length})
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <IconButton 
+            size="small" 
+            onClick={() => setExpanded(!expanded)}
+            sx={{ color: 'warning.main' }}
+          >
+            {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
+        </Box>
+
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="body2" fontWeight="600">
+            Please submit the following required documents to complete your profile:
+          </Typography>
+        </Alert>
+
+        {expanded && (
+          <Box>
+            <List sx={{ py: 0 }}>
+              {pendingDocuments.map((doc, index) => (
+                <ListItem key={index} sx={{ py: 1, px: 0 }}>
+                  <ListItemIcon sx={{ minWidth: 40 }}>
+                    <Avatar 
+                      sx={{ 
+                        bgcolor: `${getDocumentColor(doc.type)}.main`, 
+                        width: 32, 
+                        height: 32 
+                      }}
+                    >
+                      {React.cloneElement(getDocumentIcon(doc.type), { sx: { fontSize: 16 } })}
+                    </Avatar>
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" fontWeight="600">
+                          {doc.name}
+                        </Typography>
+                        {doc.required && (
+                          <Chip 
+                            label="Required" 
+                            size="small" 
+                            color="error" 
+                            sx={{ height: 20, fontSize: '0.65rem' }}
+                          />
+                        )}
+                      </Box>
+                    }
+                    secondary={
+                      <Typography variant="caption" color="text.secondary">
+                        {doc.description}
+                      </Typography>
+                    }
+                  />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<UploadIcon />}
+                    sx={{ 
+                      ml: 1,
+                      borderColor: 'warning.main',
+                      color: 'warning.main',
+                      '&:hover': {
+                        borderColor: 'warning.dark',
+                        backgroundColor: 'warning.light'
+                      }
+                    }}
+                    onClick={() => {
+                      // Navigate to document upload or show upload dialog
+                      toast.info('Document upload feature will be implemented');
+                    }}
+                  >
+                    Upload
+                  </Button>
+                </ListItem>
+              ))}
+            </List>
+
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+              <Typography variant="body2" fontWeight="600" color="warning.dark" gutterBottom>
+                📋 Document Submission Guidelines:
+              </Typography>
+              <Typography variant="caption" color="text.secondary" component="div">
+                • Ensure all documents are clear and readable<br/>
+                • File formats: PDF, JPG, PNG (Max 5MB each)<br/>
+                • All required documents must be submitted for profile completion<br/>
+                • Contact HR if you need assistance with document submission
+              </Typography>
+            </Box>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -1734,6 +1935,7 @@ const EmployeeDashboard = () => {
   });
   const [reportingStructure, setReportingStructure] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [pendingDocumentsCount, setPendingDocumentsCount] = useState(0);
   
   // Report data states
   const [reportPeriod, setReportPeriod] = useState('month'); // 'week' or 'month'
@@ -1760,6 +1962,7 @@ const EmployeeDashboard = () => {
     fetchOfficeStatus();
     fetchLeaveBalance();
     fetchDetailedReports();
+    fetchPendingDocumentsCount();
   }, []);
 
   // Refresh employee data when component becomes visible (e.g., when navigating back from employee management)
@@ -2006,6 +2209,18 @@ const EmployeeDashboard = () => {
         assets: []
       }));
       // Don't show error to user as assets might not be available for all employees
+    }
+  };
+
+  const fetchPendingDocumentsCount = async () => {
+    try {
+      const response = await axios.get('/employees/pending-documents');
+      if (response.data.success) {
+        setPendingDocumentsCount(response.data.pendingDocuments.length);
+      }
+    } catch (error) {
+      console.error('Error fetching pending documents count:', error);
+      setPendingDocumentsCount(0);
     }
   };
 
@@ -2334,6 +2549,36 @@ const EmployeeDashboard = () => {
           </Box>
           
           <Box sx={{ display: 'flex', gap: 1, mt: { xs: 2, md: 0 }, flexDirection: 'column', alignItems: { xs: 'flex-start', md: 'flex-end' } }}>
+            {/* Pending Documents Notification */}
+            {pendingDocumentsCount > 0 && (
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                p: 1.5,
+                bgcolor: 'warning.light',
+                borderRadius: 2,
+                border: '2px solid #ff9800',
+                minWidth: 200,
+                mb: 1
+              }}>
+                <WarningIcon sx={{ color: 'warning.main', mr: 1, fontSize: 20 }} />
+                <Box>
+                  <Typography variant="body2" sx={{ 
+                    fontWeight: 700,
+                    color: 'warning.dark'
+                  }}>
+                    {pendingDocumentsCount} Document{pendingDocumentsCount > 1 ? 's' : ''} Pending
+                  </Typography>
+                  <Typography variant="caption" sx={{ 
+                    color: 'warning.dark',
+                    display: 'block'
+                  }}>
+                    Complete your profile
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+            
             {/* Check-in Status Display - Top Right */}
             {attendanceStatus?.checkedIn && (
               <Box sx={{ 
@@ -4502,6 +4747,11 @@ const EmployeeDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pending Documents Section */}
+      <Box sx={{ px: 3, pb: 3 }}>
+        <PendingDocumentsSection />
+      </Box>
 
       {/* Announcements Section */}
       <Box sx={{ px: 3, pb: 3 }}>

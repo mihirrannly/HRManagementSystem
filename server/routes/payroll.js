@@ -8,9 +8,117 @@ const { SalaryComponent, PayrollCycle, Payslip, SalaryRevision } = require('../m
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
 const { LeaveRequest } = require('../models/Leave');
+const SalaryDetails = require('../models/SalaryDetails');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
+
+// @route   GET /api/payroll/employee-salaries
+// @desc    Get all employee salary data for payroll processing
+// @access  Private (HR, Admin)
+router.get('/employee-salaries', [
+  authenticate,
+  authorize(['admin', 'hr', 'finance'])
+], async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    
+    // Get all active employees
+    const employees = await Employee.find({ 'employmentInfo.isActive': true })
+      .populate('employmentInfo.department', 'name')
+      .select('employeeId personalInfo employmentInfo salaryInfo');
+
+    const employeeSalaries = [];
+
+    for (const employee of employees) {
+      // Try to get salary data from SalaryDetails for the specified month/year
+      let salaryData = null;
+      if (month && year) {
+        salaryData = await SalaryDetails.findOne({
+          employee: employee._id,
+          month: parseInt(month),
+          year: parseInt(year)
+        });
+      }
+
+      // Build salary information
+      let salaryInfo = {
+        employeeId: employee.employeeId,
+        name: `${employee.personalInfo?.firstName || ''} ${employee.personalInfo?.lastName || ''}`.trim(),
+        department: employee.employmentInfo?.department?.name || 'N/A',
+        designation: employee.employmentInfo?.designation || 'N/A'
+      };
+
+      if (salaryData && salaryData.earnings) {
+        // Use detailed salary data from CSV
+        salaryInfo.basicSalary = salaryData.earnings.basicSalary || 0;
+        salaryInfo.hra = salaryData.earnings.hra || 0;
+        salaryInfo.conveyanceAllowance = salaryData.earnings.conveyanceAllowance || 0;
+        salaryInfo.medicalAllowance = salaryData.earnings.medicalAllowance || 0;
+        salaryInfo.specialAllowance = salaryData.earnings.specialAllowance || 0;
+        salaryInfo.performanceBonus = salaryData.earnings.performanceBonus || 0;
+        salaryInfo.overtimePay = salaryData.earnings.overtimePay || 0;
+        salaryInfo.otherAllowances = salaryData.earnings.otherAllowances || 0;
+        salaryInfo.grossSalary = salaryData.grossSalary || 0;
+        
+        // totalCTC from CSV is the ANNUAL CTC - this is the correct value
+        salaryInfo.totalCTC = salaryData.totalCTC || 0;
+        
+        // Calculate net salary (gross - deductions)
+        const totalDeductions = (salaryData.deductions?.providentFund || 0) +
+                               (salaryData.deductions?.employeeStateInsurance || 0) +
+                               (salaryData.deductions?.professionalTax || 0) +
+                               (salaryData.deductions?.incomeTax || 0) +
+                               (salaryData.deductions?.loanRepayment || 0) +
+                               (salaryData.deductions?.lopAmount || 0) +
+                               (salaryData.deductions?.otherDeductions || 0);
+        salaryInfo.netSalary = Math.max(0, salaryInfo.grossSalary - totalDeductions);
+        
+        // Add deductions for display
+        salaryInfo.deductions = salaryData.deductions || {};
+        
+        salaryInfo.dataSource = 'salary_details';
+      } else {
+        // No salary data available - return zero values to maintain synchronization
+        salaryInfo.basicSalary = 0;
+        salaryInfo.hra = 0;
+        salaryInfo.conveyanceAllowance = 0;
+        salaryInfo.medicalAllowance = 0;
+        salaryInfo.specialAllowance = 0;
+        salaryInfo.performanceBonus = 0;
+        salaryInfo.overtimePay = 0;
+        salaryInfo.otherAllowances = 0;
+        salaryInfo.grossSalary = 0;
+        salaryInfo.totalCTC = 0;
+        salaryInfo.netSalary = 0;
+        salaryInfo.deductions = {};
+        
+        salaryInfo.dataSource = 'no_data';
+      }
+
+      employeeSalaries.push(salaryInfo);
+    }
+
+    // Filter out employees with no salary data for complete synchronization
+    const employeesWithSalaryData = employeeSalaries.filter(emp => emp.dataSource !== 'no_data');
+    
+    res.json({
+      employeeSalaries: employeesWithSalaryData,
+      totalEmployees: employeesWithSalaryData.length,
+      month: month || new Date().getMonth() + 1,
+      year: year || new Date().getFullYear(),
+      synchronization: {
+        totalEmployees: employeeSalaries.length,
+        employeesWithSalaryData: employeesWithSalaryData.length,
+        employeesWithoutSalaryData: employeeSalaries.length - employeesWithSalaryData.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching employee salaries:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // @route   GET /api/payroll/my-info
 // @desc    Get payroll info for current employee
@@ -272,44 +380,100 @@ router.post('/cycles/:id/process', [
           return total + Math.max(0, overlapDays);
         }, 0);
 
-        // Calculate salary components
-        const basicSalary = employee.salaryInfo.currentSalary.basic || 0;
-        const hra = employee.salaryInfo.currentSalary.hra || 0;
-        const allowances = employee.salaryInfo.currentSalary.allowances || 0;
+        // Get salary data from SalaryDetails for the current month/year
+        let salaryData = null;
+        try {
+          salaryData = await SalaryDetails.findOne({
+            employee: employee._id,
+            month: cycle.month,
+            year: cycle.year
+          });
+        } catch (error) {
+          console.log(`No salary data found for employee ${employee.employeeId} for ${cycle.month}/${cycle.year}`);
+        }
+
+        // Fallback to employee's current salary if no salary details found
+        let basicSalary, hra, allowances, grossSalary;
+        
+        if (salaryData && salaryData.earnings) {
+          // Use detailed salary data from SalaryDetails
+          basicSalary = salaryData.earnings.basicSalary || 0;
+          hra = salaryData.earnings.hra || 0;
+          allowances = (salaryData.earnings.conveyanceAllowance || 0) + 
+                      (salaryData.earnings.medicalAllowance || 0) + 
+                      (salaryData.earnings.specialAllowance || 0) + 
+                      (salaryData.earnings.performanceBonus || 0) + 
+                      (salaryData.earnings.overtimePay || 0) + 
+                      (salaryData.earnings.otherAllowances || 0);
+          grossSalary = salaryData.grossSalary || (basicSalary + hra + allowances);
+        } else {
+          // Fallback to employee's current salary
+          basicSalary = employee.salaryInfo?.currentSalary?.basic || 0;
+          hra = employee.salaryInfo?.currentSalary?.hra || 0;
+          allowances = employee.salaryInfo?.currentSalary?.allowances || 0;
+          grossSalary = employee.salaryInfo?.currentSalary?.grossSalary || (basicSalary + hra + allowances);
+        }
 
         // Prorate salary based on attendance
         const effectiveDays = presentDays + paidLeaveDays;
         const prorationFactor = effectiveDays / workingDays;
 
-        const earnings = [
-          { name: 'Basic Salary', amount: basicSalary * prorationFactor },
-          { name: 'HRA', amount: hra * prorationFactor },
-          { name: 'Allowances', amount: allowances * prorationFactor }
-        ];
+        // Build detailed earnings array
+        const earnings = [];
+        
+        if (salaryData && salaryData.earnings) {
+          // Use detailed salary components from SalaryDetails
+          if (basicSalary > 0) earnings.push({ name: 'Basic Salary', amount: basicSalary * prorationFactor });
+          if (hra > 0) earnings.push({ name: 'HRA', amount: hra * prorationFactor });
+          if (salaryData.earnings.conveyanceAllowance > 0) earnings.push({ name: 'Conveyance Allowance', amount: salaryData.earnings.conveyanceAllowance * prorationFactor });
+          if (salaryData.earnings.medicalAllowance > 0) earnings.push({ name: 'Medical Allowance', amount: salaryData.earnings.medicalAllowance * prorationFactor });
+          if (salaryData.earnings.specialAllowance > 0) earnings.push({ name: 'Special Allowance', amount: salaryData.earnings.specialAllowance * prorationFactor });
+          if (salaryData.earnings.performanceBonus > 0) earnings.push({ name: 'Performance Bonus', amount: salaryData.earnings.performanceBonus * prorationFactor });
+          if (salaryData.earnings.overtimePay > 0) earnings.push({ name: 'Overtime Pay', amount: salaryData.earnings.overtimePay * prorationFactor });
+          if (salaryData.earnings.otherAllowances > 0) earnings.push({ name: 'Other Allowances', amount: salaryData.earnings.otherAllowances * prorationFactor });
+        } else {
+          // Fallback to basic salary structure
+          if (basicSalary > 0) earnings.push({ name: 'Basic Salary', amount: basicSalary * prorationFactor });
+          if (hra > 0) earnings.push({ name: 'HRA', amount: hra * prorationFactor });
+          if (allowances > 0) earnings.push({ name: 'Allowances', amount: allowances * prorationFactor });
+        }
 
         // Calculate deductions
         const grossPay = earnings.reduce((total, earning) => total + earning.amount, 0);
         
-        // PF calculation (12% of basic)
-        const pfEmployee = basicSalary * 0.12 * prorationFactor;
-        const pfEmployer = basicSalary * 0.12 * prorationFactor;
+        // Calculate deductions - use detailed data if available
+        let deductions = [];
+        
+        if (salaryData && salaryData.deductions) {
+          // Use detailed deductions from SalaryDetails
+          if (salaryData.deductions.providentFund > 0) deductions.push({ name: 'Provident Fund', amount: salaryData.deductions.providentFund * prorationFactor });
+          if (salaryData.deductions.employeeStateInsurance > 0) deductions.push({ name: 'ESI Employee', amount: salaryData.deductions.employeeStateInsurance * prorationFactor });
+          if (salaryData.deductions.professionalTax > 0) deductions.push({ name: 'Professional Tax', amount: salaryData.deductions.professionalTax * prorationFactor });
+          if (salaryData.deductions.incomeTax > 0) deductions.push({ name: 'Income Tax', amount: salaryData.deductions.incomeTax * prorationFactor });
+          if (salaryData.deductions.loanRepayment > 0) deductions.push({ name: 'Loan Repayment', amount: salaryData.deductions.loanRepayment * prorationFactor });
+          if (salaryData.deductions.advanceDeduction > 0) deductions.push({ name: 'Advance Deduction', amount: salaryData.deductions.advanceDeduction * prorationFactor });
+          if (salaryData.deductions.lopAmount > 0) deductions.push({ name: 'Loss of Pay', amount: salaryData.deductions.lopAmount * prorationFactor });
+          if (salaryData.deductions.otherDeductions > 0) deductions.push({ name: 'Other Deductions', amount: salaryData.deductions.otherDeductions * prorationFactor });
+        } else {
+          // Fallback to standard calculations
+          const pfEmployee = basicSalary * 0.12 * prorationFactor;
+          const pfEmployer = basicSalary * 0.12 * prorationFactor;
+          const esiEmployee = grossPay <= 25000 ? grossPay * 0.0075 : 0;
+          const esiEmployer = grossPay <= 25000 ? grossPay * 0.0325 : 0;
+          
+          // Tax calculation (simplified)
+          const taxableIncome = grossPay;
+          let taxDeducted = 0;
+          if (taxableIncome > 250000 / 12) { // Basic exemption limit per month
+            taxDeducted = (taxableIncome - 250000 / 12) * 0.05; // 5% tax
+          }
 
-        // ESI calculation (0.75% of gross if gross <= 25000)
-        const esiEmployee = grossPay <= 25000 ? grossPay * 0.0075 : 0;
-        const esiEmployer = grossPay <= 25000 ? grossPay * 0.0325 : 0;
-
-        // Tax calculation (simplified)
-        const taxableIncome = grossPay;
-        let taxDeducted = 0;
-        if (taxableIncome > 250000 / 12) { // Basic exemption limit per month
-          taxDeducted = (taxableIncome - 250000 / 12) * 0.05; // 5% tax
+          deductions = [
+            { name: 'PF Employee', amount: pfEmployee },
+            { name: 'ESI Employee', amount: esiEmployee },
+            { name: 'TDS', amount: taxDeducted }
+          ];
         }
-
-        const deductions = [
-          { name: 'PF Employee', amount: pfEmployee },
-          { name: 'ESI Employee', amount: esiEmployee },
-          { name: 'TDS', amount: taxDeducted }
-        ];
 
         const totalDeduction = deductions.reduce((total, deduction) => total + deduction.amount, 0);
         const netPay = grossPay - totalDeduction;

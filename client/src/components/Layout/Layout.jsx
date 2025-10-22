@@ -34,6 +34,7 @@ import {
   Settings as SettingsIcon,
   SupervisorAccount as SupervisorAccountIcon,
   Campaign as CampaignIcon,
+  AccountBalance as AccountBalanceIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -73,6 +74,12 @@ const menuItems = [
     roles: ['admin', 'hr', 'manager', 'employee']
   },
   {
+    text: 'Payroll',
+    icon: <AttachMoneyIcon />,
+    path: '/payroll',
+    roles: ['admin', 'hr', 'finance']
+  },
+  {
     text: 'Expense & Travel',
     icon: <LocalAirportIcon />,
     path: '/expenses',
@@ -109,9 +116,9 @@ const menuItems = [
     roles: ['admin', 'hr'] // Restricted to Admin and HR only
   },
   {
-    text: 'Salary Management',
-    icon: <AttachMoneyIcon />,
-    path: '/salary-management',
+    text: 'Finance Management',
+    icon: <AccountBalanceIcon />,
+    path: '/finance-management',
     roles: ['admin', 'hr', 'finance']
   },
   {

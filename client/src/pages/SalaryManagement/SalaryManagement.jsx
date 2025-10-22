@@ -74,6 +74,7 @@ const SalaryManagement = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
   const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
+  const [openDeleteAllDialog, setOpenDeleteAllDialog] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [formData, setFormData] = useState({});
@@ -298,18 +299,58 @@ const SalaryManagement = () => {
 
   // Handle delete
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this salary record?')) {
+    if (!window.confirm('Are you sure you want to delete this salary record and all related payroll data?')) {
       return;
     }
 
     try {
-      await axios.delete(`/salary-management/${id}`);
-      toast.success('Salary record deleted successfully');
+      const response = await axios.delete(`/salary-management/${id}`);
+      
+      // Show detailed success message with breakdown
+      const { deletedCount, breakdown } = response.data;
+      let message = `Successfully deleted ${deletedCount} records:\n`;
+      
+      if (breakdown) {
+        if (breakdown.salaryRecords > 0) message += `• ${breakdown.salaryRecords} salary record\n`;
+        if (breakdown.payslips > 0) message += `• ${breakdown.payslips} payslips\n`;
+        if (breakdown.salaryRevisions > 0) message += `• ${breakdown.salaryRevisions} salary revisions\n`;
+      }
+      
+      toast.success(message, { duration: 4000 });
       fetchSalaryRecords();
       fetchStats();
     } catch (error) {
       console.error('Error deleting salary record:', error);
       toast.error('Failed to delete salary record');
+    }
+  };
+
+  // Handle delete all records
+  const handleDeleteAll = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.delete('/salary-management/delete-all');
+      
+      // Show detailed success message with breakdown
+      const { deletedCount, breakdown } = response.data;
+      let message = `Successfully deleted ${deletedCount} total records:\n`;
+      
+      if (breakdown) {
+        if (breakdown.salaryRecords > 0) message += `• ${breakdown.salaryRecords} salary records\n`;
+        if (breakdown.payslips > 0) message += `• ${breakdown.payslips} payslips\n`;
+        if (breakdown.payrollCycles > 0) message += `• ${breakdown.payrollCycles} payroll cycles\n`;
+        if (breakdown.salaryRevisions > 0) message += `• ${breakdown.salaryRevisions} salary revisions\n`;
+      }
+      
+      toast.success(message, { duration: 5000 });
+      fetchSalaryRecords();
+      fetchStats();
+      setOpenDeleteAllDialog(false);
+    } catch (error) {
+      console.error('Error deleting all salary records:', error);
+      toast.error('Failed to delete all salary records');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1054,6 +1095,23 @@ const SalaryManagement = () => {
             onClick={downloadCSVTemplate}
           >
             Download CSV Template
+          </Button>
+
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteIcon />}
+            onClick={() => setOpenDeleteAllDialog(true)}
+            sx={{ 
+              borderColor: '#d32f2f',
+              color: '#d32f2f',
+              '&:hover': { 
+                borderColor: '#b71c1c',
+                bgcolor: '#ffebee'
+              }
+            }}
+          >
+            Delete All Records
           </Button>
         </Box>
       </Paper>
@@ -2091,6 +2149,65 @@ const SalaryManagement = () => {
             sx={{ borderRadius: 2 }}
           >
             Edit Record
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete All Records Dialog */}
+      <Dialog
+        open={openDeleteAllDialog}
+        onClose={() => setOpenDeleteAllDialog(false)}
+        maxWidth="sm"
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: '#d32f2f', color: 'white', fontWeight: '700' }}>
+          ⚠️ Delete All Salary Records
+        </DialogTitle>
+        <DialogContent sx={{ mt: 3 }}>
+          <Alert severity="error" sx={{ mb: 3 }}>
+            <Typography variant="body1" fontWeight="600" gutterBottom>
+              WARNING: This action cannot be undone!
+            </Typography>
+            <Typography variant="body2">
+              This will permanently delete ALL salary records from the system. 
+              This action is irreversible and will affect all employees' salary data.
+            </Typography>
+          </Alert>
+          
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Are you absolutely sure you want to delete all salary records?
+          </Typography>
+          
+          <Typography variant="body2" color="text.secondary">
+            This will remove:
+          </Typography>
+          <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+            <li>All employee salary records</li>
+            <li>All payroll data</li>
+            <li>All financial calculations</li>
+            <li>All historical salary information</li>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, bgcolor: '#f5f5f5' }}>
+          <Button
+            variant="outlined"
+            onClick={() => setOpenDeleteAllDialog(false)}
+            sx={{ borderRadius: 2 }}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteAll}
+            startIcon={<DeleteIcon />}
+            sx={{ borderRadius: 2 }}
+            disabled={loading}
+          >
+            {loading ? 'Deleting...' : 'Delete All Records'}
           </Button>
         </DialogActions>
       </Dialog>
